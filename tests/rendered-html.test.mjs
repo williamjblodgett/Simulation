@@ -161,7 +161,7 @@ test("lays out deterministic, map-contained, mutually exclusive political territ
 });
 
 test("ships the civilization engine, persistent route, and Three.js world", async () => {
-  const [page, experience, archivePage, archive, historyPage, historyBook, styles, engine, scene, territoryLayout, route, hosting, packageJson] = await Promise.all([
+  const [page, experience, archivePage, archive, historyPage, historyBook, styles, engine, scene, territoryLayout, route, hosting, packageJson, resetMigration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/sovereignty-experience.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/archive/page.tsx", import.meta.url), "utf8"),
@@ -175,6 +175,7 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
     readFile(new URL("../app/api/world/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0001_reset_world_history.sql", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /SovereigntyExperience/);
@@ -216,6 +217,8 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
   assert.match(route, /view.*archive|archiveHighlights|ROW_NUMBER|json_each/i);
   assert.match(route, /view.*history|historyBook|historyIndex|HISTORY_BOOK_CHAPTER_DAYS\s*=\s*200/i);
   assert.match(route, /WORLD_SEED\s*=\s*"wildgrid-sovereignty-era-2"/i);
+  assert.match(resetMigration, /DELETE FROM `civilization_events` WHERE `world_id` = 'canonical'/i);
+  assert.match(resetMigration, /DELETE FROM `civilization_world` WHERE `id` = 'canonical'/i);
   assert.match(hosting, /"d1"\s*:\s*"DB"/i);
   assert.match(packageJson, /"three"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
