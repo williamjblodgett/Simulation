@@ -13,20 +13,30 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Wildgrid — Autonomous Survival Observatory",
+  metadataBase: new URL("https://wildgrid-ai-habitat.williamjblodgett.chatgpt.site"),
+  title: "Wildgrid: Sovereignty — Autonomous Civilization Observatory",
   description:
-    "Watch autonomous agents explore, gather, cooperate, and survive in a living 3D world.",
+    "Watch ten autonomous founders build camps, create lineages, advance technology, fracture, ally, and fight for power.",
   openGraph: {
-    title: "Wildgrid — Autonomous Survival Observatory",
+    title: "Wildgrid: Sovereignty — Autonomous Civilization Observatory",
     description:
-      "Watch autonomous agents explore, gather, cooperate, and survive in a living 3D world.",
+      "Watch ten autonomous founders build camps, create lineages, advance technology, fracture, ally, and fight for power.",
     type: "website",
+    images: [
+      {
+        url: "/wildgrid-sovereignty-og.png",
+        width: 1792,
+        height: 933,
+        alt: "Wildgrid Sovereignty frontier with ten autonomous camps competing across a living world",
+      },
+    ],
   },
   twitter: {
-    card: "summary",
-    title: "Wildgrid — Autonomous Survival Observatory",
+    card: "summary_large_image",
+    title: "Wildgrid: Sovereignty — Autonomous Civilization Observatory",
     description:
-      "Watch autonomous agents explore, gather, cooperate, and survive in a living 3D world.",
+      "Watch ten autonomous founders build camps, create lineages, advance technology, fracture, ally, and fight for power.",
+    images: ["/wildgrid-sovereignty-og.png"],
   },
 };
 

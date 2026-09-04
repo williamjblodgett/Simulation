@@ -13,31 +13,35 @@ async function render() {
   );
 }
 
-test("server-renders the Wildgrid experience", async () => {
+test("server-renders the Wildgrid Sovereignty experience", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Wildgrid — Autonomous Survival Observatory<\/title>/i);
-  assert.match(html, /Watch autonomous agents explore, gather, cooperate, and survive/i);
-  assert.match(html, /simulation-experience/i);
+  assert.match(html, /<title>Wildgrid: Sovereignty — Autonomous Civilization Observatory<\/title>/i);
+  assert.match(html, /Watch ten autonomous founders build camps, create lineages, advance technology, fracture, ally, and fight for power/i);
+  assert.match(html, /sovereignty-experience/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
-test("ships the simulation engine and Three.js scene without starter artifacts", async () => {
-  const [page, experience, engine, scene, packageJson] = await Promise.all([
+test("ships the civilization engine, persistent route, and Three.js world", async () => {
+  const [page, experience, engine, scene, route, hosting, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/simulation-experience.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/simulation/engine.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/simulation/scene.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/sovereignty-experience.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/simulation/civilization-engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/simulation/civilization-scene.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/world/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /SimulationExperience/);
-  assert.match(experience, /createWorldScene|simulateWorld|Switch|Agent roster/i);
-  assert.match(engine, /createWorld|simulateWorld|gather_food|rescue|regeneration/i);
-  assert.match(scene, /WebGLRenderer|OrbitControls|Raycaster/);
+  assert.match(page, /SovereigntyExperience/);
+  assert.match(experience, /createCivilizationScene|simulateCivilization|Sovereign roster|World chronicle/i);
+  assert.match(engine, /createCivilizationWorld|catchUpCivilization|breakaway|defection|tech_unlocked|reproduce/i);
+  assert.match(scene, /WebGLRenderer|OrbitControls|Raycaster|followCamp/);
+  assert.match(route, /catchUpCivilization|civilization_events|no-store/i);
+  assert.match(hosting, /"d1"\s*:\s*"DB"/i);
   assert.match(packageJson, /"three"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));

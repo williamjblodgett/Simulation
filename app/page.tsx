@@ -1,5 +1,5 @@
-import { SimulationExperience } from "./simulation-experience";
+import { SovereigntyExperience } from "./sovereignty-experience";
 
 export default function Home() {
-  return <SimulationExperience />;
+  return <SovereigntyExperience />;
 }
