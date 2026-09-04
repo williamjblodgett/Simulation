@@ -22,7 +22,12 @@ export const EXACT_CATCH_UP_LIMIT_SECONDS = MAX_CATCH_UP_STEPS * FIXED_STEP;
 const MAX_LONG_GAP_STEPS = 48;
 const MAX_MAJOR_EVENTS = 1_000;
 const MAX_BELIEF_SYSTEMS = 36;
+const MAX_AGENT_MEMORIES = 8;
+const MAX_DELIBERATION_ALTERNATIVES = 3;
 const STRATEGY_INTERVAL = 5;
+const NAMING_REVIEW_INTERVAL_DAYS = 6;
+const AGENT_RENAME_COOLDOWN_DAYS = 72;
+const CAMP_RENAME_COOLDOWN_DAYS = 84;
 const CAMP_STORAGE_LIMIT = 600;
 
 export type SeedInput = number | string;
@@ -95,6 +100,7 @@ export type AgentPlan =
   | "seize_leadership"
   | "found_camp"
   | "seek_home";
+export type AgentOutcome = "success" | "mixed" | "setback";
 export type DiplomaticStatus = "neutral" | "alliance" | "truce" | "war";
 export type EventTone = "neutral" | "positive" | "warning" | "critical";
 export type MajorEventType =
@@ -121,7 +127,9 @@ export type MajorEventType =
   | "belief_reformed"
   | "belief_rejected"
   | "belief_faded"
-  | "shrine_built";
+  | "shrine_built"
+  | "agent_renamed"
+  | "camp_renamed";
 export type AgentTargetKind = "resource" | "agent" | "camp" | "point";
 
 export interface Vec2 {
@@ -148,6 +156,98 @@ export interface AgentTarget {
   id: string;
   label: string;
   position: Vec2;
+}
+
+/** A learned estimate starts empty for every agent and changes only after outcomes. */
+export interface AgentPlanLearning {
+  attempts: number;
+  expectedValue: number;
+}
+
+export interface AgentDecisionAlternative {
+  plan: AgentPlan;
+  goal: string;
+  score: number;
+}
+
+/** UI-ready account of the choice an agent most recently made. */
+export interface AgentDeliberation {
+  formedDay: number;
+  chosenPlan: AgentPlan;
+  statement: string;
+  confidence: number;
+  alternatives: AgentDecisionAlternative[];
+}
+
+/** Bounded autobiographical evidence used by the local learning rule. */
+export interface AgentMemory {
+  id: string;
+  day: number;
+  plan: AgentPlan;
+  outcome: AgentOutcome;
+  score: number;
+  summary: string;
+}
+
+export interface AgentOutcomeSignals {
+  health: number;
+  nutrition: number;
+  hydration: number;
+  energy: number;
+  personalPower: number;
+  influence: number;
+  knowledge: number;
+  family: number;
+  campSecurity: number;
+  resources: number;
+}
+
+/** Persisted baseline for reflecting on a plan when the next choice is due. */
+export interface AgentDecisionSnapshot {
+  formedTime: number;
+  formedDay: number;
+  plan: AgentPlan;
+  signals: AgentOutcomeSignals;
+}
+
+export interface AgentInfluenceBreakdown {
+  agentId: string;
+  socialInfluence: number;
+  spiritualInfluence: number;
+  achievedInfluence: number;
+  personalPower: number;
+  knowledge: number;
+  directDescendants: number;
+}
+
+export interface AgentFamilyTreeOptions {
+  direction?: "ancestors" | "descendants" | "both";
+  maxDepth?: number;
+  maxNodes?: number;
+}
+
+export interface AgentFamilyTreeNode {
+  id: string;
+  name: string;
+  alive: boolean;
+  generation: number;
+  campId: string | null;
+  parentIds: string[];
+  childrenIds: string[];
+  achievedInfluence: number;
+}
+
+export interface AgentFamilyTreeEdge {
+  parentId: string;
+  childId: string;
+}
+
+export interface AgentFamilyTree {
+  rootId: string;
+  nodes: AgentFamilyTreeNode[];
+  edges: AgentFamilyTreeEdge[];
+  unresolvedIds: string[];
+  truncated: boolean;
 }
 
 export interface CivilizationAgent {
@@ -200,6 +300,11 @@ export interface CivilizationAgent {
   conviction: number;
   spiritualInfluence: number;
   lastBeliefChangeDay: number;
+  /** Identical empty priors at birth; entries appear only after lived outcomes. */
+  planLearning: Partial<Record<AgentPlan, AgentPlanLearning>>;
+  recentMemories: AgentMemory[];
+  deliberation: AgentDeliberation;
+  decisionSnapshot: AgentDecisionSnapshot | null;
 }
 
 export interface StructureLevels {
@@ -560,12 +665,88 @@ const BELIEF_NAME_NOUNS = [
   "Promise",
 ] as const;
 
+const AUTONOMOUS_GIVEN_NAMES = [
+  "Ari",
+  "Aven",
+  "Bren",
+  "Cira",
+  "Daro",
+  "Elen",
+  "Ilya",
+  "Kest",
+  "Lio",
+  "Mara",
+  "Neri",
+  "Orin",
+  "Rhea",
+  "Sela",
+  "Tarin",
+  "Veya",
+  "Yara",
+  "Zev",
+] as const;
+
+type NamingTheme =
+  | "founding"
+  | "leadership"
+  | "belief"
+  | "war"
+  | "knowledge"
+  | "building"
+  | "provision"
+  | "lineage"
+  | "renewal";
+
+const AGENT_BYNAMES: Readonly<Record<NamingTheme, readonly string[]>> = {
+  founding: ["Hearth", "Wayfinder", "Firststone", "Trail"],
+  leadership: ["Steward", "Banner", "Voice", "Council"],
+  belief: ["Lantern", "Vow", "Ember", "Witness"],
+  war: ["Shield", "Spear", "Victor", "Watch"],
+  knowledge: ["Quill", "Measure", "Sage", "Archive"],
+  building: ["Mason", "Forge", "Bridge", "Timber"],
+  provision: ["River", "Harvest", "Grove", "Well"],
+  lineage: ["Kindred", "Root", "Branch", "Keeper"],
+  renewal: ["Dawn", "Free", "Horizon", "Wanderer"],
+};
+
+const CAMP_NAME_PARTS: Readonly<Record<NamingTheme, readonly [readonly string[], readonly string[]]>> = {
+  founding: [["First", "New", "Free", "Outer"], ["Reach", "Haven", "March", "Territory"]],
+  leadership: [["Civic", "United", "Common", "Open"], ["Assembly", "Union", "Commonwealth", "Council Lands"]],
+  belief: [["Kindled", "Sacred", "Living", "Covenant"], ["Sanctuary", "Hearth", "Concordat", "Communion"]],
+  war: [["Iron", "Shielded", "Resolute", "Watchful"], ["Reach", "March", "Hold", "Dominion"]],
+  knowledge: [["Quill", "Learned", "Measured", "Beacon"], ["Enclave", "Republic", "Horizon", "Archive Lands"]],
+  building: [["Stone", "Forged", "Bridge", "Highwall"], ["Hold", "Territory", "Works", "Reach"]],
+  provision: [["Golden", "Harvest", "River", "Plentiful"], ["Fields", "Basin", "Commons", "Haven"]],
+  lineage: [["Rooted", "Kindred", "Ancestral", "Many"], ["Homeland", "Commons", "Realm", "Hearthlands"]],
+  renewal: [["Rising", "Restored", "Dawn", "Second"], ["Union", "Compact", "Realm", "Reach"]],
+};
+
 const RESOURCE_LABELS: Readonly<Record<ResourceKind, string>> = {
   food: "food grove",
   water: "water source",
   wood: "timber stand",
   ore: "ore deposit",
 };
+
+export const AGENT_PLANS: readonly AgentPlan[] = [
+  "survive",
+  "secure_food",
+  "secure_water",
+  "stockpile",
+  "fortify",
+  "advance_knowledge",
+  "grow_lineage",
+  "expand_influence",
+  "defend_home",
+  "weaken_rival",
+  "make_peace",
+  "change_allegiance",
+  "seize_leadership",
+  "found_camp",
+  "seek_home",
+] as const;
+
+const AGENT_PLAN_SET = new Set<AgentPlan>(AGENT_PLANS);
 
 interface RandomCursor {
   state: number;
@@ -608,6 +789,16 @@ function copyVec(position: Vec2): Vec2 {
 
 function copyInventory(inventory: Inventory): Inventory {
   return { ...inventory };
+}
+
+function emptyDeliberation(day = 1): AgentDeliberation {
+  return {
+    formedDay: day,
+    chosenPlan: "survive",
+    statement: "I have no prior outcomes yet; present conditions will guide my first plan.",
+    confidence: 0.5,
+    alternatives: [],
+  };
 }
 
 function totalInventory(inventory: Inventory): number {
@@ -804,6 +995,10 @@ function createFounder(index: number, position: Vec2): CivilizationAgent {
     conviction: 0,
     spiritualInfluence: 0,
     lastBeliefChangeDay: -100,
+    planLearning: {},
+    recentMemories: [],
+    deliberation: emptyDeliberation(1),
+    decisionSnapshot: null,
   };
 }
 
@@ -1046,6 +1241,25 @@ export function cloneCivilizationWorld(state: CivilizationWorldState): Civilizat
       ),
       target: agent.target
         ? { ...agent.target, position: copyVec(agent.target.position) }
+        : null,
+      planLearning: Object.fromEntries(
+        Object.entries(agent.planLearning ?? {}).map(([plan, learning]) => [
+          plan,
+          learning ? { ...learning } : learning,
+        ]),
+      ),
+      recentMemories: (agent.recentMemories ?? []).map((memory) => ({ ...memory })),
+      deliberation: agent.deliberation
+        ? {
+            ...agent.deliberation,
+            alternatives: (agent.deliberation.alternatives ?? []).map((alternative) => ({ ...alternative })),
+          }
+        : emptyDeliberation(state.day),
+      decisionSnapshot: agent.decisionSnapshot
+        ? {
+            ...agent.decisionSnapshot,
+            signals: { ...agent.decisionSnapshot.signals },
+          }
         : null,
     })),
     resources: state.resources.map((resource) => ({
@@ -1320,6 +1534,131 @@ function enemyCamps(world: CivilizationWorldState, camp: CivilizationCamp): Civi
   return world.camps.filter((candidate) => candidate.active && enemyIds.has(candidate.id));
 }
 
+function observeAgentOutcome(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+): AgentOutcomeSignals {
+  const camp = getActiveCamp(world, agent.campId);
+  const population = camp ? Math.max(1, camp.memberIds.length) : 1;
+  const perMemberStores = camp ? totalInventory(camp.storage) / population : 0;
+  const campSecurity = camp
+    ? clamp(
+        28 +
+          camp.cohesion * 26 +
+          camp.structures.walls * 4 +
+          camp.structures.council * 2 +
+          camp.militaryPower / population * 0.22 +
+          Math.min(12, perMemberStores * 0.18) -
+          camp.losses * 0.35,
+        0,
+        100,
+      )
+    : 0;
+  return {
+    health: round(agent.health, 3),
+    nutrition: round(agent.hunger, 3),
+    hydration: round(agent.hydration, 3),
+    energy: round(agent.energy, 3),
+    personalPower: round(agent.personalPower, 3),
+    influence: round(agent.influence + agent.spiritualInfluence, 3),
+    knowledge: round(agent.knowledge, 3),
+    family: agent.childrenIds.length,
+    campSecurity: round(campSecurity, 3),
+    resources: round(totalInventory(agent.inventory) + perMemberStores * 0.18, 3),
+  };
+}
+
+function outcomeDeltaScore(
+  before: AgentOutcomeSignals,
+  after: AgentOutcomeSignals,
+): number {
+  const score =
+    clamp((after.health - before.health) / 14, -1, 1) * 0.18 +
+    clamp((after.nutrition - before.nutrition) / 30, -1, 1) * 0.03 +
+    clamp((after.hydration - before.hydration) / 30, -1, 1) * 0.04 +
+    clamp((after.energy - before.energy) / 35, -1, 1) * 0.01 +
+    clamp((after.personalPower - before.personalPower) / 3, -1, 1) * 0.16 +
+    clamp((after.influence - before.influence) / 0.8, -1, 1) * 0.15 +
+    clamp((after.knowledge - before.knowledge) / 0.35, -1, 1) * 0.12 +
+    clamp(after.family - before.family, -1, 1) * 0.14 +
+    clamp((after.campSecurity - before.campSecurity) / 24, -1, 1) * 0.1 +
+    clamp((after.resources - before.resources) / 7, -1, 1) * 0.07;
+  return clamp(round(score, 4), -1, 1);
+}
+
+function outcomeSummary(
+  plan: AgentPlan,
+  outcome: AgentOutcome,
+  score: number,
+  before: AgentOutcomeSignals,
+  after: AgentOutcomeSignals,
+): string {
+  const changes: Array<{ magnitude: number; phrase: string }> = [
+    { magnitude: Math.abs(after.health - before.health) / 8, phrase: after.health >= before.health ? "protected my health" : "lost health" },
+    { magnitude: Math.abs(after.nutrition - before.nutrition) / 18, phrase: after.nutrition >= before.nutrition ? "restored nutrition" : "became hungrier" },
+    { magnitude: Math.abs(after.hydration - before.hydration) / 18, phrase: after.hydration >= before.hydration ? "restored hydration" : "became thirstier" },
+    { magnitude: Math.abs(after.energy - before.energy) / 20, phrase: after.energy >= before.energy ? "recovered energy" : "spent energy" },
+    { magnitude: Math.abs(after.personalPower - before.personalPower) / 2, phrase: after.personalPower >= before.personalPower ? "gained personal power" : "lost personal power" },
+    { magnitude: Math.abs(after.influence - before.influence) / 0.5, phrase: after.influence >= before.influence ? "expanded my influence" : "lost influence" },
+    { magnitude: Math.abs(after.knowledge - before.knowledge) / 0.2, phrase: after.knowledge >= before.knowledge ? "gained knowledge" : "made no knowledge gain" },
+    { magnitude: Math.abs(after.family - before.family), phrase: after.family > before.family ? "expanded my family" : "my family did not grow" },
+    { magnitude: Math.abs(after.campSecurity - before.campSecurity) / 15, phrase: after.campSecurity >= before.campSecurity ? "improved camp security" : "saw camp security weaken" },
+    { magnitude: Math.abs(after.resources - before.resources) / 4, phrase: after.resources >= before.resources ? "gained usable resources" : "spent or lost resources" },
+  ];
+  changes.sort((left, right) => right.magnitude - left.magnitude || left.phrase.localeCompare(right.phrase));
+  const planLabel = plan.replaceAll("_", " ");
+  if ((changes[0]?.magnitude ?? 0) < 0.035) {
+    return `I saw little measurable change from ${planLabel}; the result was ${outcome}.`;
+  }
+  return `I ${changes[0].phrase} while pursuing ${planLabel}; the result was ${outcome} (${score >= 0 ? "+" : ""}${round(score, 2)}).`;
+}
+
+/** Reflects without consuming randomness, preserving fixed-step replay. */
+function reflectOnPreviousPlan(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+): AgentMemory | null {
+  const snapshot = agent.decisionSnapshot;
+  if (!snapshot || world.time - snapshot.formedTime < EPSILON) return null;
+  const after = observeAgentOutcome(world, agent);
+  const score = outcomeDeltaScore(snapshot.signals, after);
+  const outcome: AgentOutcome = score > 0.035 ? "success" : score < -0.035 ? "setback" : "mixed";
+  const previous = agent.planLearning[snapshot.plan] ?? { attempts: 0, expectedValue: 0 };
+  const attempts = Math.min(1_000_000, previous.attempts + 1);
+  agent.planLearning[snapshot.plan] = {
+    attempts,
+    expectedValue: clamp(
+      round(previous.expectedValue + (score - previous.expectedValue) / attempts, 4),
+      -1,
+      1,
+    ),
+  };
+  const memory: AgentMemory = {
+    id: `${agent.id}-memory-${String(world.tick).padStart(9, "0")}`,
+    day: world.day,
+    plan: snapshot.plan,
+    outcome,
+    score,
+    summary: outcomeSummary(snapshot.plan, outcome, score, snapshot.signals, after),
+  };
+  agent.recentMemories.push(memory);
+  if (agent.recentMemories.length > MAX_AGENT_MEMORIES) {
+    agent.recentMemories.splice(0, agent.recentMemories.length - MAX_AGENT_MEMORIES);
+  }
+  return memory;
+}
+
+function learnedPlanBonus(agent: CivilizationAgent, plan: AgentPlan): number {
+  const learned = agent.planLearning[plan] ?? { attempts: 0, expectedValue: 0 };
+  const exploration = 2.4 / Math.sqrt(learned.attempts + 1);
+  // Survival may become more attractive after success, but negative outcomes
+  // can never suppress it. Immediate survival utilities remain hard constraints.
+  const expected = plan === "survive"
+    ? Math.max(0, learned.expectedValue)
+    : clamp(learned.expectedValue, -1, 1);
+  return expected * 4 + exploration;
+}
+
 /**
  * Every agent evaluates this same utility slate. Scores contain no personality,
  * role, faction archetype, or hidden ambition term: only current needs, achieved
@@ -1328,6 +1667,7 @@ function enemyCamps(world: CivilizationWorldState, camp: CivilizationCamp): Civi
  */
 function chooseAgentAction(world: CivilizationWorldState, agent: CivilizationAgent): void {
   if (!agent.alive) return;
+  reflectOnPreviousPlan(world, agent);
   const candidates: ActionCandidate[] = [];
   const camp = getActiveCamp(world, agent.campId);
   const atCamp = camp ? isNear(agent.position, camp.position, camp.radius) : false;
@@ -1343,7 +1683,7 @@ function chooseAgentAction(world: CivilizationWorldState, agent: CivilizationAge
     candidates.push({
       action,
       plan,
-      score: score + worldRandom(world) * 0.035,
+      score: score + learnedPlanBonus(agent, plan) + worldRandom(world) * 0.035,
       goal,
       rationale,
       target: actionTarget,
@@ -1545,6 +1885,24 @@ function chooseCandidate(
   candidates.sort((left, right) => right.score - left.score || left.action.localeCompare(right.action));
   const choice = candidates[0];
   if (!choice) return;
+  const alternatives: AgentDecisionAlternative[] = [];
+  const representedPlans = new Set<AgentPlan>([choice.plan]);
+  for (const candidate of candidates.slice(1)) {
+    if (representedPlans.has(candidate.plan)) continue;
+    representedPlans.add(candidate.plan);
+    alternatives.push({
+      plan: candidate.plan,
+      goal: candidate.goal,
+      score: round(candidate.score, 2),
+    });
+    if (alternatives.length >= MAX_DELIBERATION_ALTERNATIVES) break;
+  }
+  const runnerUpScore = candidates[1]?.score ?? choice.score - 18;
+  const confidence = clamp(0.5 + (choice.score - runnerUpScore) / 44, 0.36, 0.96);
+  const latestMemory = agent.recentMemories.at(-1);
+  const evidence = latestMemory
+    ? `${latestMemory.summary} `
+    : "I have no personal outcome to rely on yet. ";
   agent.action = choice.action;
   agent.currentPlan = choice.plan;
   agent.goal = choice.goal;
@@ -1552,6 +1910,19 @@ function chooseCandidate(
   agent.target = choice.target;
   agent.actionProgress = 0;
   agent.decisionTimer = 2.2 + worldRandom(world) * 2.8;
+  agent.deliberation = {
+    formedDay: world.day,
+    chosenPlan: choice.plan,
+    statement: `${evidence}I choose to ${choice.goal.charAt(0).toLowerCase()}${choice.goal.slice(1)} because ${choice.rationale.charAt(0).toLowerCase()}${choice.rationale.slice(1)}`.slice(0, 360),
+    confidence: round(confidence, 3),
+    alternatives,
+  };
+  agent.decisionSnapshot = {
+    formedTime: world.time,
+    formedDay: world.day,
+    plan: choice.plan,
+    signals: observeAgentOutcome(world, agent),
+  };
 }
 
 function bestResourceFor(
@@ -1904,6 +2275,61 @@ function canReproduce(
   return camp.storage.food >= 9 + population * 1.2 && camp.storage.water >= 9 + population * 1.2;
 }
 
+function ancestorIds(
+  byId: ReadonlyMap<string, CivilizationAgent>,
+  agent: CivilizationAgent,
+  maxDepth = 4,
+): Set<string> {
+  const ancestors = new Set<string>();
+  let frontier = [...agent.parentIds];
+  for (let depth = 0; depth < maxDepth && frontier.length > 0; depth += 1) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      if (ancestors.has(id)) continue;
+      ancestors.add(id);
+      const relative = byId.get(id);
+      if (relative) next.push(...relative.parentIds);
+    }
+    frontier = next;
+  }
+  return ancestors;
+}
+
+function areCloseKin(
+  byId: ReadonlyMap<string, CivilizationAgent>,
+  left: CivilizationAgent,
+  right: CivilizationAgent,
+): boolean {
+  if (left.id === right.id || left.parentIds.includes(right.id) || right.parentIds.includes(left.id)) return true;
+  if (left.childrenIds.includes(right.id) || right.childrenIds.includes(left.id)) return true;
+  const leftAncestors = ancestorIds(byId, left);
+  const rightAncestors = ancestorIds(byId, right);
+  return leftAncestors.has(right.id) || rightAncestors.has(left.id) ||
+    [...leftAncestors].some((id) => rightAncestors.has(id));
+}
+
+function chooseReproductionPartner(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+  camp: CivilizationCamp,
+): CivilizationAgent | null {
+  const byId = new Map(world.agents.map((candidate) => [candidate.id, candidate]));
+  return world.agents
+    .filter((candidate) => {
+      if (!candidate.alive || candidate.campId !== camp.id || areCloseKin(byId, agent, candidate)) return false;
+      if (candidate.age < 16 || world.day - candidate.lastReproductionDay < 3.1) return false;
+      if (candidate.health < 52 || candidate.hunger < 48 || candidate.hydration < 48) return false;
+      return true;
+    })
+    .sort((left, right) => {
+      const leftBond = agent.relationships[left.id];
+      const rightBond = agent.relationships[right.id];
+      const leftScore = (leftBond?.trust ?? 0.48) + (leftBond?.respect ?? 0.28) - (leftBond?.grievance ?? 0) + left.satisfaction * 0.16;
+      const rightScore = (rightBond?.trust ?? 0.48) + (rightBond?.respect ?? 0.28) - (rightBond?.grievance ?? 0) + right.satisfaction * 0.16;
+      return rightScore - leftScore || left.id.localeCompare(right.id);
+    })[0] ?? null;
+}
+
 function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgent, dt: number): void {
   const camp = getActiveCamp(world, agent.campId);
   if (!camp || !canReproduce(world, agent, camp)) {
@@ -1918,6 +2344,14 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
   const id = `agent-${String(ordinal).padStart(3, "0")}`;
   world.nextAgentId += 1;
   const angle = worldRandom(world) * TAU;
+  const coParent = chooseReproductionPartner(world, agent, camp);
+  const parents = coParent ? [agent, coParent] : [agent];
+  const childRelationships = Object.fromEntries(
+    parents.map((parent) => [
+      parent.id,
+      { trust: 0.82, respect: 0.58, grievance: 0, lastInteractionDay: world.day },
+    ]),
+  );
   const child: CivilizationAgent = {
     id,
     name: `Agent ${String(ordinal).padStart(2, "0")}`,
@@ -1931,8 +2365,8 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
     speed: 3,
     capacity: 12,
     age: 0,
-    generation: agent.generation + 1,
-    parentIds: [agent.id],
+    generation: Math.max(...parents.map((parent) => parent.generation)) + 1,
+    parentIds: parents.map((parent) => parent.id),
     childrenIds: [],
     bornAtDay: world.day,
     alive: true,
@@ -1954,9 +2388,7 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
     influence: 0,
     knowledge: 0,
     experience: 0,
-    relationships: {
-      [agent.id]: { trust: 0.82, respect: 0.58, grievance: 0, lastInteractionDay: world.day },
-    },
+    relationships: childRelationships,
     loyalty: 0.76,
     satisfaction: 0.76,
     lastReproductionDay: world.day,
@@ -1970,15 +2402,35 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
     conviction: agent.beliefId ? clamp(agent.conviction * 0.45, 0.08, 0.42) : 0,
     spiritualInfluence: 0,
     lastBeliefChangeDay: world.day,
+    planLearning: {},
+    recentMemories: [],
+    deliberation: emptyDeliberation(world.day),
+    decisionSnapshot: null,
   };
-  agent.childrenIds.push(child.id);
-  agent.lastReproductionDay = world.day;
-  agent.relationships[child.id] = {
-    trust: 0.84,
-    respect: 0.48,
-    grievance: 0,
-    lastInteractionDay: world.day,
-  };
+  for (const parent of parents) {
+    parent.childrenIds.push(child.id);
+    parent.lastReproductionDay = world.day;
+    parent.relationships[child.id] = {
+      trust: 0.84,
+      respect: 0.48,
+      grievance: 0,
+      lastInteractionDay: world.day,
+    };
+  }
+  if (coParent) {
+    const bond = agent.relationships[coParent.id] ?? {
+      trust: 0.5,
+      respect: 0.32,
+      grievance: 0,
+      lastInteractionDay: world.day,
+    };
+    agent.relationships[coParent.id] = {
+      ...bond,
+      trust: clamp(bond.trust + 0.05, 0, 1),
+      lastInteractionDay: world.day,
+    };
+    coParent.relationships[agent.id] = { ...agent.relationships[coParent.id] };
+  }
   camp.memberIds.push(child.id);
   world.agents.push(child);
   world.stats.births += 1;
@@ -1987,8 +2439,8 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
     "birth",
     "positive",
     `${child.name} is born at ${camp.name}`,
-    `${agent.name} creates a generation ${child.generation} descendant, extending the lineage and ${camp.name}'s future population.`,
-    [agent.id, child.id],
+    `${parents.map((parent) => parent.name).join(" and ")} ${parents.length === 1 ? "creates" : "create"} a generation ${child.generation} descendant, extending the lineage and ${camp.name}'s future population.`,
+    [...parents.map((parent) => parent.id), child.id],
     [camp.id],
   );
   chooseAgentAction(world, child);
@@ -2665,6 +3117,398 @@ function runBeliefDynamics(world: CivilizationWorldState, elapsedSeconds: number
   reconcileBeliefs(world);
 }
 
+interface NamingClaim {
+  theme: NamingTheme;
+  score: number;
+  reason: string;
+  beliefIds: string[];
+}
+
+const CAMP_NAMING_TRANSFORMATIONS = new Set<MajorEventType>([
+  "camp_captured",
+  "breakaway",
+  "coup",
+  "leadership_change",
+  "power_lead_change",
+  "alliance",
+  "war",
+  "peace",
+  "tech_unlocked",
+  "belief_founded",
+  "belief_conversion_wave",
+  "belief_schism",
+  "belief_reformed",
+  "shrine_built",
+]);
+
+function bestNamingClaim(claims: NamingClaim[]): NamingClaim | null {
+  return claims.sort((left, right) =>
+    right.score - left.score ||
+    left.theme.localeCompare(right.theme) ||
+    left.reason.localeCompare(right.reason)
+  )[0] ?? null;
+}
+
+/** Names follow achieved circumstances, never a preassigned personality. */
+function agentNamingClaim(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+): NamingClaim | null {
+  const claims: NamingClaim[] = [];
+  const camp = getActiveCamp(world, agent.campId);
+  const foundedCamp = world.camps.find((candidate) => candidate.founderAgentId === agent.id);
+  const foundedBelief = world.beliefs.find((belief) => belief.founderAgentId === agent.id);
+  if (foundedCamp) {
+    claims.push({
+      theme: "founding",
+      score: 14 + foundedCamp.power * 0.035 + (foundedCamp.active ? 2 : 0),
+      reason: `turning an independent claim into ${foundedCamp.name}`,
+      beliefIds: [],
+    });
+  }
+  if (camp?.leaderId === agent.id) {
+    claims.push({
+      theme: "leadership",
+      score: 15 + agent.influence * 0.28 + camp.cohesion * 4,
+      reason: `earning leadership of ${camp.name}`,
+      beliefIds: [],
+    });
+  } else if (camp && agent.influence >= 7) {
+    claims.push({
+      theme: "leadership",
+      score: 10 + agent.influence * 0.48 + agent.satisfaction * 2,
+      reason: `earning ${round(agent.influence)} influence among the people of ${camp.name}`,
+      beliefIds: [],
+    });
+  }
+  if (foundedBelief) {
+    claims.push({
+      theme: "belief",
+      score: 15 + agent.spiritualInfluence * 0.7 + foundedBelief.influence * 0.12,
+      reason: `founding ${foundedBelief.name} from lived experience`,
+      beliefIds: [foundedBelief.id],
+    });
+  } else if (agent.beliefId && agent.spiritualInfluence >= 2.4) {
+    const belief = getActiveBelief(world, agent.beliefId);
+    if (belief) {
+      claims.push({
+        theme: "belief",
+        score: 10 + agent.spiritualInfluence * 1.6 + agent.conviction * 4,
+        reason: `becoming an influential adherent of ${belief.name}`,
+        beliefIds: [belief.id],
+      });
+    }
+  }
+  if (agent.kills > 0) {
+    claims.push({
+      theme: "war",
+      score: 11 + agent.kills * 5 + agent.experience * 0.4,
+      reason: `surviving combat and winning ${agent.kills} decisive fight${agent.kills === 1 ? "" : "s"}`,
+      beliefIds: [],
+    });
+  }
+  if (agent.knowledge >= 2 || agent.researchContribution >= 16) {
+    claims.push({
+      theme: "knowledge",
+      score: 9 + agent.knowledge * 1.6 + agent.researchContribution * 0.22,
+      reason: `building ${round(agent.researchContribution)} measures of research and ${round(agent.knowledge)} knowledge`,
+      beliefIds: [],
+    });
+  }
+  if (agent.buildContribution >= 1.5) {
+    claims.push({
+      theme: "building",
+      score: 9 + agent.buildContribution * 3.2,
+      reason: `shaping ${round(agent.buildContribution)} structures through direct labor`,
+      beliefIds: [],
+    });
+  }
+  if (agent.harvested >= 14) {
+    claims.push({
+      theme: "provision",
+      score: 8 + Math.sqrt(agent.harvested) * 2.1,
+      reason: `gathering ${round(agent.harvested)} resources for survival`,
+      beliefIds: [],
+    });
+  }
+  if (agent.childrenIds.length >= 2) {
+    claims.push({
+      theme: "lineage",
+      score: 10 + agent.childrenIds.length * 3 + agent.influence * 0.18,
+      reason: `establishing a lineage of ${agent.childrenIds.length} descendants`,
+      beliefIds: [],
+    });
+  }
+  if (camp && agent.joinedCampDay > agent.bornAtDay + 0.5) {
+    claims.push({
+      theme: "renewal",
+      score: 10 + agent.influence * 0.24 + agent.satisfaction * 3,
+      reason: `choosing allegiance to ${camp.name} and establishing a new place within it`,
+      beliefIds: [],
+    });
+  }
+  if (!camp && agent.unaffiliatedSinceDay !== null && world.day - agent.unaffiliatedSinceDay >= 3) {
+    claims.push({
+      theme: "renewal",
+      score: 11 + agent.experience + agent.influence * 0.22,
+      reason: "surviving beyond any camp's protection",
+      beliefIds: [],
+    });
+  }
+  return bestNamingClaim(claims);
+}
+
+function campNamingClaim(
+  world: CivilizationWorldState,
+  camp: CivilizationCamp,
+): NamingClaim | null {
+  const claims: NamingClaim[] = [];
+  const members = livingCampMembers(world, camp);
+  const leader = camp.leaderId
+    ? world.agents.find((agent) => agent.id === camp.leaderId && agent.alive)
+    : null;
+  const belief = getActiveBelief(world, camp.dominantBeliefId);
+  const adherentShare = belief
+    ? members.filter((agent) => agent.beliefId === belief.id).length / Math.max(1, members.length)
+    : 0;
+  if (belief && adherentShare >= 0.55) {
+    claims.push({
+      theme: "belief",
+      score: 11 + adherentShare * 6 + camp.shrineLevel * 3 + belief.influence * 0.055,
+      reason: `the rise of ${belief.name} as the shared practice of ${Math.round(adherentShare * 100)}% of its people`,
+      beliefIds: [belief.id],
+    });
+  }
+  if (hasTechnology(camp, "governance") || camp.structures.council > 0) {
+    claims.push({
+      theme: "leadership",
+      score: 16 + camp.structures.council * 4 + camp.cohesion * 5 + (camp.leaderId !== camp.founderAgentId ? 2 : 0),
+      reason: "replacing a founder's claim with durable civic institutions",
+      beliefIds: [],
+    });
+  }
+  if (hasTechnology(camp, "writing") || camp.structures.archive > 0) {
+    claims.push({
+      theme: "knowledge",
+      score: 13 + camp.structures.archive * 4 + camp.technologies.length * 1.2 + camp.knowledgePower * 0.035,
+      reason: `turning ${camp.technologies.length} advances into a recorded body of knowledge`,
+      beliefIds: [],
+    });
+  }
+  if (camp.victories > 0 || camp.structures.walls >= 2) {
+    claims.push({
+      theme: "war",
+      score: 12 + camp.victories * 4 + camp.structures.walls * 2 + enemyCamps(world, camp).length * 2,
+      reason: `being remade by ${camp.victories} victor${camp.victories === 1 ? "y" : "ies"} and its fortified frontier`,
+      beliefIds: [],
+    });
+  }
+  if (camp.structures.farm + camp.structures.well >= 2 || camp.economicPower >= 55) {
+    claims.push({
+      theme: "provision",
+      score: 11 + (camp.structures.farm + camp.structures.well) * 2.2 + camp.economicPower * 0.045,
+      reason: "growing from a temporary camp into a sustained resource commons",
+      beliefIds: [],
+    });
+  }
+  if (hasTechnology(camp, "masonry") || camp.structures.workshop + camp.structures.roads >= 2) {
+    claims.push({
+      theme: "building",
+      score: 12 + camp.structures.workshop * 3 + camp.structures.roads * 2.5 + camp.structures.shelter,
+      reason: "reshaping its territory through permanent works",
+      beliefIds: [],
+    });
+  }
+  if (camp.parentCampId || (leader && leader.id !== camp.founderAgentId)) {
+    claims.push({
+      theme: "renewal",
+      score: 13 + (camp.parentCampId ? 3 : 0) + (leader && leader.id !== camp.founderAgentId ? 4 : 0) + camp.cohesion * 3,
+      reason: camp.parentCampId
+        ? "turning a breakaway or frontier claim into a distinct society"
+        : "passing authority beyond its founding leadership",
+      beliefIds: [],
+    });
+  }
+  return bestNamingClaim(claims);
+}
+
+function meaningfulNameToken(value: string): string | null {
+  const generic = new Set(["agent", "camp", "lands", "territory"]);
+  const tokens = value.match(/[A-Za-z][A-Za-z'-]{2,}/g) ?? [];
+  return [...tokens].reverse().find((token) => !generic.has(token.toLowerCase())) ?? null;
+}
+
+function uniqueAgentName(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+  claim: NamingClaim,
+): string {
+  const used = new Set(world.agents.map((candidate) => candidate.name.toLowerCase()));
+  const contextual = claim.beliefIds
+    .map((id) => meaningfulNameToken(world.beliefs.find((belief) => belief.id === id)?.name ?? ""))
+    .filter((token): token is string => Boolean(token));
+  const bynames = [...contextual, ...AGENT_BYNAMES[claim.theme]];
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const given = AUTONOMOUS_GIVEN_NAMES[Math.floor(worldRandom(world) * AUTONOMOUS_GIVEN_NAMES.length)];
+    const byname = bynames[Math.floor(worldRandom(world) * bynames.length)];
+    const candidate = `${given} ${byname}`;
+    if (candidate !== agent.name && !used.has(candidate.toLowerCase())) return candidate;
+  }
+  const ordinal = Number.parseInt(agent.id.replace(/\D/g, ""), 10) || world.nextAgentId;
+  return `${AUTONOMOUS_GIVEN_NAMES[ordinal % AUTONOMOUS_GIVEN_NAMES.length]} ${AGENT_BYNAMES[claim.theme][ordinal % AGENT_BYNAMES[claim.theme].length]} ${ordinal}`;
+}
+
+function uniqueCampName(
+  world: CivilizationWorldState,
+  camp: CivilizationCamp,
+  claim: NamingClaim,
+): string {
+  const used = new Set(world.camps.map((candidate) => candidate.name.toLowerCase()));
+  const [defaultPrefixes, suffixes] = CAMP_NAME_PARTS[claim.theme];
+  const beliefTokens = claim.beliefIds
+    .map((id) => meaningfulNameToken(world.beliefs.find((belief) => belief.id === id)?.name ?? ""))
+    .filter((token): token is string => Boolean(token));
+  const leaderToken = claim.theme === "leadership" || claim.theme === "renewal"
+    ? meaningfulNameToken(world.agents.find((agent) => agent.id === camp.leaderId)?.name ?? "")
+    : null;
+  const prefixes = [...beliefTokens, ...(leaderToken ? [leaderToken] : []), ...defaultPrefixes];
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const prefix = prefixes[Math.floor(worldRandom(world) * prefixes.length)];
+    const suffix = suffixes[Math.floor(worldRandom(world) * suffixes.length)];
+    const candidate = `${prefix} ${suffix}`;
+    if (candidate !== camp.name && !used.has(candidate.toLowerCase())) return candidate;
+  }
+  const ordinal = Number.parseInt(camp.id.replace(/\D/g, ""), 10) || world.nextCampId;
+  return `${defaultPrefixes[ordinal % defaultPrefixes.length]} ${suffixes[ordinal % suffixes.length]} ${ordinal}`;
+}
+
+function applyAgentRename(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+  claim: NamingClaim,
+): void {
+  const oldName = agent.name;
+  const newName = uniqueAgentName(world, agent, claim);
+  if (newName === oldName) return;
+  agent.name = newName;
+  for (const observer of world.agents) {
+    if (observer.target?.kind === "agent" && observer.target.id === agent.id) {
+      observer.target.label = newName;
+    }
+  }
+  pushMajorEvent(
+    world,
+    "agent_renamed",
+    "positive",
+    `${oldName} takes the name ${newName}`,
+    `After ${claim.reason}, ${oldName} autonomously chooses the name ${newName} to mark what has been achieved.`,
+    [agent.id],
+    [agent.campId].filter((id): id is string => Boolean(id)),
+    claim.beliefIds,
+  );
+}
+
+function applyCampRename(
+  world: CivilizationWorldState,
+  camp: CivilizationCamp,
+  claim: NamingClaim,
+): void {
+  const oldName = camp.name;
+  const newName = uniqueCampName(world, camp, claim);
+  if (newName === oldName) return;
+  camp.name = newName;
+  for (const agent of world.agents) {
+    if (agent.target?.kind === "camp" && agent.target.id === camp.id) {
+      agent.target.label = newName;
+    }
+    if (agent.alive && agent.campId === camp.id) agent.decisionTimer = 0;
+  }
+  const beliefFounderIds = claim.beliefIds
+    .map((id) => world.beliefs.find((belief) => belief.id === id)?.founderAgentId)
+    .filter((id): id is string => Boolean(id));
+  pushMajorEvent(
+    world,
+    "camp_renamed",
+    "positive",
+    `${oldName} becomes ${newName}`,
+    `After ${claim.reason}, the people of ${oldName} adopt ${newName} as the name of their territory.`,
+    [camp.leaderId, ...beliefFounderIds].filter((id): id is string => Boolean(id)),
+    [camp.id],
+    claim.beliefIds,
+  );
+}
+
+function runAutonomousNaming(world: CivilizationWorldState, elapsedSeconds: number): void {
+  const reviewSeconds = NAMING_REVIEW_INTERVAL_DAYS * DAY_LENGTH;
+  const previousTime = Math.max(0, world.time - Math.max(0, elapsedSeconds));
+  if (Math.floor((world.time + EPSILON) / reviewSeconds) <= Math.floor((previousTime + EPSILON) / reviewSeconds)) return;
+
+  const lastAgentRename = new Map<string, number>();
+  const lastCampRename = new Map<string, number>();
+  const latestCampTransformation = new Map<string, number>();
+  for (const event of world.majorEvents) {
+    if (event.type === "agent_renamed") {
+      for (const id of event.agentIds) lastAgentRename.set(id, Math.max(lastAgentRename.get(id) ?? 0, event.day));
+    }
+    if (event.type === "camp_renamed") {
+      for (const id of event.campIds) lastCampRename.set(id, Math.max(lastCampRename.get(id) ?? 0, event.day));
+    } else if (CAMP_NAMING_TRANSFORMATIONS.has(event.type)) {
+      for (const id of event.campIds) latestCampTransformation.set(id, Math.max(latestCampTransformation.get(id) ?? 0, event.day));
+    }
+  }
+
+  const agentCandidates = world.agents
+    .filter((agent) => agent.alive && agent.age >= 16 && world.day - agent.bornAtDay >= 6)
+    .map((agent) => {
+      const claim = agentNamingClaim(world, agent);
+      const lastRename = lastAgentRename.get(agent.id);
+      const genericName = /^Agent \d+$/.test(agent.name);
+      const campTransformation = agent.campId ? latestCampTransformation.get(agent.campId) ?? 0 : 0;
+      const transformedSinceRename = lastRename !== undefined && (
+        agent.joinedCampDay > lastRename ||
+        agent.lastBeliefChangeDay > lastRename ||
+        campTransformation > lastRename
+      );
+      const eligible = claim && (
+        (genericName && claim.score >= 13) ||
+        (!genericName && lastRename !== undefined && world.day - lastRename >= AGENT_RENAME_COOLDOWN_DAYS && transformedSinceRename && claim.score >= 26)
+      );
+      return eligible && claim ? { agent, claim, genericName } : null;
+    })
+    .filter((candidate): candidate is { agent: CivilizationAgent; claim: NamingClaim; genericName: boolean } => Boolean(candidate))
+    .sort((left, right) => right.claim.score - left.claim.score || left.agent.id.localeCompare(right.agent.id));
+  const agentCandidate = agentCandidates[0];
+  if (agentCandidate) {
+    const chance = agentCandidate.genericName
+      ? clamp(0.34 + (agentCandidate.claim.score - 13) * 0.018, 0.34, 0.7)
+      : clamp(0.12 + (agentCandidate.claim.score - 26) * 0.01, 0.12, 0.34);
+    if (worldRandom(world) < chance) applyAgentRename(world, agentCandidate.agent, agentCandidate.claim);
+  }
+
+  const campCandidates = world.camps
+    .filter((camp) => camp.active && world.day - camp.foundedDay >= 8)
+    .map((camp) => {
+      const claim = campNamingClaim(world, camp);
+      const lastRename = lastCampRename.get(camp.id);
+      const genericName = /^Camp \d+$/.test(camp.name);
+      const transformationDay = latestCampTransformation.get(camp.id) ?? 0;
+      const eligible = claim && (
+        (genericName && claim.score >= 16) ||
+        (!genericName && lastRename !== undefined && world.day - lastRename >= CAMP_RENAME_COOLDOWN_DAYS && transformationDay > lastRename && claim.score >= 25)
+      );
+      return eligible && claim ? { camp, claim, genericName } : null;
+    })
+    .filter((candidate): candidate is { camp: CivilizationCamp; claim: NamingClaim; genericName: boolean } => Boolean(candidate))
+    .sort((left, right) => right.claim.score - left.claim.score || left.camp.id.localeCompare(right.camp.id));
+  const campCandidate = campCandidates[0];
+  if (campCandidate) {
+    const chance = campCandidate.genericName
+      ? clamp(0.42 + (campCandidate.claim.score - 16) * 0.02, 0.42, 0.72)
+      : clamp(0.1 + (campCandidate.claim.score - 25) * 0.01, 0.1, 0.3);
+    if (worldRandom(world) < chance) applyCampRename(world, campCandidate.camp, campCandidate.claim);
+  }
+}
+
 function runWorldStrategy(world: CivilizationWorldState, elapsedSeconds: number): void {
   reconcileCamps(world);
   recomputePower(world);
@@ -2682,6 +3526,7 @@ function runWorldStrategy(world: CivilizationWorldState, elapsedSeconds: number)
   reconcileCamps(world);
   recomputePower(world);
   updatePowerLead(world);
+  runAutonomousNaming(world, elapsedSeconds);
   if (world.agents.length > 260 || world.camps.length > 50) pruneHistoricalEntities(world);
 }
 
@@ -3762,6 +4607,67 @@ function uniqueStringIds(items: unknown[]): boolean {
   return ids.every((id): id is string => id !== null) && new Set(ids).size === ids.length;
 }
 
+function isAgentPlan(value: unknown): value is AgentPlan {
+  return typeof value === "string" && AGENT_PLAN_SET.has(value as AgentPlan);
+}
+
+function validOutcomeSignals(value: unknown): value is AgentOutcomeSignals {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const signals = value as Record<string, unknown>;
+  return ["health", "nutrition", "hydration", "energy", "personalPower", "influence", "knowledge", "family", "campSecurity", "resources"].every(
+    (key) => typeof signals[key] === "number" && Number.isFinite(signals[key]),
+  );
+}
+
+function validAgentCognition(agent: Record<string, unknown>): boolean {
+  // Old schema-v2 rows predate cognition. Missing fields are accepted here so
+  // parseWorld can pass them to normalizeCivilizationWorld for deterministic
+  // hydration. Any cognition that is present must already be structurally safe.
+  if (agent.planLearning !== undefined) {
+    if (!agent.planLearning || typeof agent.planLearning !== "object" || Array.isArray(agent.planLearning)) return false;
+    for (const [plan, learningValue] of Object.entries(agent.planLearning as Record<string, unknown>)) {
+      if (!isAgentPlan(plan) || !learningValue || typeof learningValue !== "object" || Array.isArray(learningValue)) return false;
+      const learning = learningValue as Record<string, unknown>;
+      if (typeof learning.attempts !== "number" || !Number.isSafeInteger(learning.attempts) || learning.attempts < 0) return false;
+      if (typeof learning.expectedValue !== "number" || !Number.isFinite(learning.expectedValue) || learning.expectedValue < -1 || learning.expectedValue > 1) return false;
+    }
+  }
+  if (agent.recentMemories !== undefined) {
+    if (!Array.isArray(agent.recentMemories) || agent.recentMemories.length > MAX_AGENT_MEMORIES) return false;
+    for (const memoryValue of agent.recentMemories) {
+      if (!memoryValue || typeof memoryValue !== "object" || Array.isArray(memoryValue)) return false;
+      const memory = memoryValue as Record<string, unknown>;
+      if (typeof memory.id !== "string" || memory.id.length === 0 || !isAgentPlan(memory.plan)) return false;
+      if (!(["success", "mixed", "setback"] as const).includes(memory.outcome as AgentOutcome)) return false;
+      if (typeof memory.day !== "number" || !Number.isFinite(memory.day)) return false;
+      if (typeof memory.score !== "number" || !Number.isFinite(memory.score) || memory.score < -1 || memory.score > 1) return false;
+      if (typeof memory.summary !== "string" || memory.summary.length > 500) return false;
+    }
+  }
+  if (agent.deliberation !== undefined) {
+    if (!agent.deliberation || typeof agent.deliberation !== "object" || Array.isArray(agent.deliberation)) return false;
+    const deliberation = agent.deliberation as Record<string, unknown>;
+    if (typeof deliberation.formedDay !== "number" || !Number.isFinite(deliberation.formedDay) || !isAgentPlan(deliberation.chosenPlan)) return false;
+    if (typeof deliberation.statement !== "string" || deliberation.statement.length > 500) return false;
+    if (typeof deliberation.confidence !== "number" || !Number.isFinite(deliberation.confidence) || deliberation.confidence < 0 || deliberation.confidence > 1) return false;
+    if (!Array.isArray(deliberation.alternatives) || deliberation.alternatives.length > MAX_DELIBERATION_ALTERNATIVES) return false;
+    for (const alternativeValue of deliberation.alternatives) {
+      if (!alternativeValue || typeof alternativeValue !== "object" || Array.isArray(alternativeValue)) return false;
+      const alternative = alternativeValue as Record<string, unknown>;
+      if (!isAgentPlan(alternative.plan) || typeof alternative.goal !== "string" || alternative.goal.length > 300) return false;
+      if (typeof alternative.score !== "number" || !Number.isFinite(alternative.score)) return false;
+    }
+  }
+  if (agent.decisionSnapshot !== undefined && agent.decisionSnapshot !== null) {
+    if (!agent.decisionSnapshot || typeof agent.decisionSnapshot !== "object" || Array.isArray(agent.decisionSnapshot)) return false;
+    const snapshot = agent.decisionSnapshot as Record<string, unknown>;
+    if (typeof snapshot.formedTime !== "number" || !Number.isFinite(snapshot.formedTime)) return false;
+    if (typeof snapshot.formedDay !== "number" || !Number.isFinite(snapshot.formedDay) || !isAgentPlan(snapshot.plan)) return false;
+    if (!validOutcomeSignals(snapshot.signals)) return false;
+  }
+  return true;
+}
+
 /** A non-throwing structural and finite-number validation for persisted JSON. */
 export function validateCivilizationWorld(input: unknown): input is CivilizationWorldState {
   try {
@@ -3784,8 +4690,9 @@ export function validateCivilizationWorld(input: unknown): input is Civilization
       const agent = item as Record<string, unknown>;
       if (typeof agent.id !== "string" || typeof agent.name !== "string" || typeof agent.color !== "string") return false;
       if (!validPosition(agent.position) || !validPosition(agent.velocity) || !validInventory(agent.inventory)) return false;
-      if (typeof agent.alive !== "boolean" || typeof agent.action !== "string" || typeof agent.currentPlan !== "string") return false;
+      if (typeof agent.alive !== "boolean" || typeof agent.action !== "string" || !isAgentPlan(agent.currentPlan)) return false;
       if (!(agent.action in ACTION_LABELS)) return false;
+      if (!validAgentCognition(agent)) return false;
       if (!Array.isArray(agent.parentIds) || !agent.parentIds.every((id) => typeof id === "string")) return false;
       if (!Array.isArray(agent.childrenIds) || !agent.childrenIds.every((id) => typeof id === "string")) return false;
       if (!agent.relationships || typeof agent.relationships !== "object" || Array.isArray(agent.relationships)) return false;
@@ -3923,6 +4830,12 @@ function upgradeSchemaOneWorld(input: unknown): CivilizationWorldState | null {
       agent.conviction = 0;
       agent.spiritualInfluence = 0;
       agent.lastBeliefChangeDay = -100;
+      agent.planLearning = {};
+      agent.recentMemories = [];
+      agent.deliberation = emptyDeliberation(
+        typeof migrated.day === "number" && Number.isFinite(migrated.day) ? migrated.day : 1,
+      );
+      agent.decisionSnapshot = null;
     }
     for (const camp of camps) {
       camp.dominantBeliefId = null;
@@ -3993,6 +4906,32 @@ function upgradeSchemaOneWorld(input: unknown): CivilizationWorldState | null {
 }
 
 /**
+ * Adds cognition defaults to pre-cognition schema-v2 JSON without advancing the
+ * simulation or PRNG. This is a field hydration, not a schema/timeline reset.
+ */
+function hydrateSchemaTwoCognition(input: unknown): unknown {
+  try {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+    const source = input as Record<string, unknown>;
+    if (source.version !== CIVILIZATION_SCHEMA_VERSION || !Array.isArray(source.agents)) return input;
+    const hydrated = JSON.parse(JSON.stringify(source)) as Record<string, unknown>;
+    const agents = hydrated.agents as Array<Record<string, unknown>>;
+    const day = typeof hydrated.day === "number" && Number.isFinite(hydrated.day)
+      ? hydrated.day
+      : 1;
+    for (const agent of agents) {
+      if (agent.planLearning === undefined) agent.planLearning = {};
+      if (agent.recentMemories === undefined) agent.recentMemories = [];
+      if (agent.deliberation === undefined) agent.deliberation = emptyDeliberation(day);
+      if (agent.decisionSnapshot === undefined) agent.decisionSnapshot = null;
+    }
+    return hydrated;
+  } catch {
+    return input;
+  }
+}
+
+/**
  * Normalization never throws. Schema-1 snapshots are upgraded in place and
  * schema-2 states are cloned, bounded, and de-duplicated. Corrupt or unknown versions restart from a deterministic
  * fallback seed rather than allowing damaged state into the live simulation.
@@ -4011,6 +4950,9 @@ export function normalizeCivilizationWorld(
   }
   if (candidate && typeof candidate === "object" && !Array.isArray(candidate) && (candidate as { version?: unknown }).version === 1) {
     candidate = upgradeSchemaOneWorld(candidate);
+  }
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate) && (candidate as { version?: unknown }).version === CIVILIZATION_SCHEMA_VERSION) {
+    candidate = hydrateSchemaTwoCognition(candidate);
   }
   if (!validateCivilizationWorld(candidate)) {
     const seed = candidate && typeof candidate === "object" && !Array.isArray(candidate)
@@ -4070,6 +5012,56 @@ function stabilizeWorld(world: CivilizationWorldState): void {
     agent.conviction = clamp(finite(agent.conviction, 0), 0, 1);
     agent.spiritualInfluence = Math.max(0, finite(agent.spiritualInfluence, 0));
     agent.lastBeliefChangeDay = finite(agent.lastBeliefChangeDay, -100);
+    const normalizedLearning: Partial<Record<AgentPlan, AgentPlanLearning>> = {};
+    for (const plan of AGENT_PLANS) {
+      const learning = agent.planLearning?.[plan];
+      if (!learning) continue;
+      normalizedLearning[plan] = {
+        attempts: clamp(Math.floor(finite(learning.attempts, 0)), 0, 1_000_000),
+        expectedValue: clamp(finite(learning.expectedValue, 0), -1, 1),
+      };
+    }
+    agent.planLearning = normalizedLearning;
+    agent.recentMemories = (agent.recentMemories ?? []).slice(-MAX_AGENT_MEMORIES).map((memory) => ({
+      ...memory,
+      day: Math.max(0, finite(memory.day, world.day)),
+      score: clamp(finite(memory.score, 0), -1, 1),
+      summary: String(memory.summary ?? "").slice(0, 500),
+    }));
+    const deliberation = agent.deliberation ?? emptyDeliberation(world.day);
+    agent.deliberation = {
+      formedDay: Math.max(0, finite(deliberation.formedDay, world.day)),
+      chosenPlan: AGENT_PLAN_SET.has(deliberation.chosenPlan) ? deliberation.chosenPlan : "survive",
+      statement: String(deliberation.statement ?? "").slice(0, 500),
+      confidence: clamp(finite(deliberation.confidence, 0.5), 0, 1),
+      alternatives: (deliberation.alternatives ?? []).slice(0, MAX_DELIBERATION_ALTERNATIVES).map((alternative) => ({
+        plan: AGENT_PLAN_SET.has(alternative.plan) ? alternative.plan : "survive",
+        goal: String(alternative.goal ?? "Reassess current conditions").slice(0, 300),
+        score: finite(alternative.score, 0),
+      })),
+    };
+    if (agent.decisionSnapshot) {
+      const signals = agent.decisionSnapshot.signals;
+      agent.decisionSnapshot = {
+        formedTime: Math.max(0, finite(agent.decisionSnapshot.formedTime, world.time)),
+        formedDay: Math.max(0, finite(agent.decisionSnapshot.formedDay, world.day)),
+        plan: AGENT_PLAN_SET.has(agent.decisionSnapshot.plan) ? agent.decisionSnapshot.plan : "survive",
+        signals: {
+          health: finite(signals.health, agent.health),
+          nutrition: finite(signals.nutrition, agent.hunger),
+          hydration: finite(signals.hydration, agent.hydration),
+          energy: finite(signals.energy, agent.energy),
+          personalPower: finite(signals.personalPower, agent.personalPower),
+          influence: finite(signals.influence, agent.influence + agent.spiritualInfluence),
+          knowledge: finite(signals.knowledge, agent.knowledge),
+          family: Math.max(0, finite(signals.family, agent.childrenIds.length)),
+          campSecurity: clamp(finite(signals.campSecurity, 0), 0, 100),
+          resources: Math.max(0, finite(signals.resources, totalInventory(agent.inventory))),
+        },
+      };
+    } else {
+      agent.decisionSnapshot = null;
+    }
     for (const kind of ["food", "water", "wood", "ore"] as const) {
       agent.inventory[kind] = clamp(finite(agent.inventory[kind], 0), 0, Math.max(0, agent.capacity));
     }
@@ -4172,9 +5164,37 @@ function stabilizeWorld(world: CivilizationWorldState): void {
 function pruneHistoricalEntities(world: CivilizationWorldState): void {
   if (world.agents.length > 240) {
     const living = world.agents.filter((agent) => agent.alive);
+    const beliefFounderIds = new Set(world.beliefs.map((belief) => belief.founderAgentId));
+    const byId = new Map(world.agents.map((agent) => [agent.id, agent]));
+    const genealogyDistance = new Map<string, number>();
+    const queue: Array<{ id: string; distance: number }> = living.map((agent) => ({
+      id: agent.id,
+      distance: 0,
+    }));
+    for (let index = 0; index < queue.length; index += 1) {
+      const current = queue[index];
+      if (!current || genealogyDistance.has(current.id)) continue;
+      genealogyDistance.set(current.id, current.distance);
+      const relative = byId.get(current.id);
+      if (!relative) continue;
+      for (const id of [...relative.parentIds, ...relative.childrenIds]) {
+        if (!genealogyDistance.has(id) && byId.has(id)) {
+          queue.push({ id, distance: current.distance + 1 });
+        }
+      }
+    }
     const dead = world.agents
       .filter((agent) => !agent.alive)
-      .sort((left, right) => (right.deathDay ?? 0) - (left.deathDay ?? 0));
+      .sort((left, right) => {
+        const leftFoundedBelief = beliefFounderIds.has(left.id) ? 0 : 1;
+        const rightFoundedBelief = beliefFounderIds.has(right.id) ? 0 : 1;
+        const leftDistance = genealogyDistance.get(left.id) ?? Number.POSITIVE_INFINITY;
+        const rightDistance = genealogyDistance.get(right.id) ?? Number.POSITIVE_INFINITY;
+        return leftFoundedBelief - rightFoundedBelief ||
+          leftDistance - rightDistance ||
+          (right.deathDay ?? 0) - (left.deathDay ?? 0) ||
+          left.id.localeCompare(right.id);
+      });
     world.agents = [...living, ...dead.slice(0, Math.max(0, 240 - living.length))];
     const retained = new Set(world.agents.map((agent) => agent.id));
     for (const agent of world.agents) {
@@ -4184,10 +5204,21 @@ function pruneHistoricalEntities(world: CivilizationWorldState): void {
     }
   }
   const inactive = world.camps.filter((camp) => !camp.active);
-  if (inactive.length > 24) {
+  if (inactive.length > 48) {
+    const beliefOriginCampIds = new Set(
+      world.beliefs
+        .map((belief) => belief.originCampId)
+        .filter((id): id is string => id !== null),
+    );
     const keptInactive = inactive
-      .sort((left, right) => (right.destroyedDay ?? 0) - (left.destroyedDay ?? 0))
-      .slice(0, 24);
+      .sort((left, right) => {
+        const leftOrigin = beliefOriginCampIds.has(left.id) ? 0 : 1;
+        const rightOrigin = beliefOriginCampIds.has(right.id) ? 0 : 1;
+        return leftOrigin - rightOrigin ||
+          (right.destroyedDay ?? 0) - (left.destroyedDay ?? 0) ||
+          left.id.localeCompare(right.id);
+      })
+      .slice(0, 48);
     const keptIds = new Set([
       ...world.camps.filter((camp) => camp.active).map((camp) => camp.id),
       ...keptInactive.map((camp) => camp.id),
@@ -4211,6 +5242,129 @@ export function getRankedAgents(world: CivilizationWorldState): CivilizationAgen
     if (left.alive !== right.alive) return left.alive ? -1 : 1;
     return right.personalPower - left.personalPower || right.influence - left.influence || left.id.localeCompare(right.id);
   });
+}
+
+export function getAgentInfluenceBreakdown(
+  world: CivilizationWorldState,
+  agentOrId: CivilizationAgent | string,
+): AgentInfluenceBreakdown | null {
+  const agent = typeof agentOrId === "string"
+    ? world.agents.find((candidate) => candidate.id === agentOrId)
+    : agentOrId;
+  if (!agent) return null;
+  const socialInfluence = Math.max(0, finite(agent.influence, 0));
+  const spiritualInfluence = Math.max(0, finite(agent.spiritualInfluence, 0));
+  return {
+    agentId: agent.id,
+    socialInfluence,
+    spiritualInfluence,
+    achievedInfluence: socialInfluence + spiritualInfluence,
+    personalPower: Math.max(0, finite(agent.personalPower, 0)),
+    knowledge: Math.max(0, finite(agent.knowledge, 0)),
+    directDescendants: agent.childrenIds.length,
+  };
+}
+
+/** Ranks attained influence, without any hidden or assigned prestige trait. */
+export function getRankedInfluentialAgents(world: CivilizationWorldState): CivilizationAgent[] {
+  return [...world.agents].sort((left, right) => {
+    const leftInfluence = left.influence + left.spiritualInfluence;
+    const rightInfluence = right.influence + right.spiritualInfluence;
+    return rightInfluence - leftInfluence ||
+      right.personalPower - left.personalPower ||
+      right.knowledge - left.knowledge ||
+      right.childrenIds.length - left.childrenIds.length ||
+      Number(right.alive) - Number(left.alive) ||
+      left.id.localeCompare(right.id);
+  });
+}
+
+/** Cycle-safe bounded genealogy projection suitable for a compact UI panel. */
+export function getAgentFamilyTree(
+  world: CivilizationWorldState,
+  rootId: string,
+  options: AgentFamilyTreeOptions = {},
+): AgentFamilyTree {
+  const direction = options.direction ?? "both";
+  const maxDepth = clamp(Math.floor(finite(options.maxDepth, 4)), 0, 12);
+  const maxNodes = clamp(Math.floor(finite(options.maxNodes, 60)), 1, 160);
+  const byId = new Map(world.agents.map((agent) => [agent.id, agent]));
+  const root = byId.get(rootId);
+  if (!root) {
+    return { rootId, nodes: [], edges: [], unresolvedIds: [rootId], truncated: false };
+  }
+
+  const visited = new Set<string>();
+  const unresolved = new Set<string>();
+  const edgeKeys = new Set<string>();
+  const edges: AgentFamilyTreeEdge[] = [];
+  const nodes: AgentFamilyTreeNode[] = [];
+  const queue: Array<{ id: string; depth: number }> = [{ id: root.id, depth: 0 }];
+  let truncated = false;
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    if (!current || visited.has(current.id)) continue;
+    const agent = byId.get(current.id);
+    if (!agent) {
+      unresolved.add(current.id);
+      continue;
+    }
+    if (nodes.length >= maxNodes) {
+      truncated = true;
+      break;
+    }
+    visited.add(agent.id);
+    nodes.push({
+      id: agent.id,
+      name: agent.name,
+      alive: agent.alive,
+      generation: agent.generation,
+      campId: agent.campId,
+      parentIds: [...agent.parentIds],
+      childrenIds: [...agent.childrenIds],
+      achievedInfluence: agent.influence + agent.spiritualInfluence,
+    });
+    if (current.depth >= maxDepth) {
+      if ((direction !== "descendants" && agent.parentIds.length > 0) ||
+          (direction !== "ancestors" && agent.childrenIds.length > 0)) {
+        truncated = true;
+      }
+      continue;
+    }
+
+    if (direction !== "descendants") {
+      for (const parentId of agent.parentIds) {
+        const key = `${parentId}>${agent.id}`;
+        if (!edgeKeys.has(key)) {
+          edgeKeys.add(key);
+          edges.push({ parentId, childId: agent.id });
+        }
+        if (byId.has(parentId)) queue.push({ id: parentId, depth: current.depth + 1 });
+        else unresolved.add(parentId);
+      }
+    }
+    if (direction !== "ancestors") {
+      for (const childId of agent.childrenIds) {
+        const key = `${agent.id}>${childId}`;
+        if (!edgeKeys.has(key)) {
+          edgeKeys.add(key);
+          edges.push({ parentId: agent.id, childId });
+        }
+        if (byId.has(childId)) queue.push({ id: childId, depth: current.depth + 1 });
+        else unresolved.add(childId);
+      }
+    }
+  }
+
+  const retainedIds = new Set(nodes.map((node) => node.id));
+  return {
+    rootId,
+    nodes,
+    edges: edges.filter((edge) => retainedIds.has(edge.parentId) && retainedIds.has(edge.childId)),
+    unresolvedIds: [...unresolved].sort(),
+    truncated,
+  };
 }
 
 export function getRankedBeliefs(world: CivilizationWorldState): CivilizationBeliefSystem[] {

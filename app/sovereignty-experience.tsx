@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -13,6 +14,8 @@ import {
   Activity,
   Baby,
   BookOpen,
+  Brain,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDot,
@@ -21,6 +24,7 @@ import {
   Droplets,
   Eye,
   Focus,
+  GitBranch,
   Heart,
   Leaf,
   Map as MapIcon,
@@ -32,8 +36,10 @@ import {
   Sparkles,
   Swords,
   Tent,
+  Trophy,
   Users,
   Wheat,
+  X,
   Zap,
 } from "lucide-react";
 import {
@@ -47,6 +53,7 @@ import {
   getRankedAgents,
   getRankedBeliefs,
   getRankedCamps,
+  getRankedInfluentialAgents,
   getTechnologyLabel,
   getWorldTimeLabel,
   normalizeCivilizationWorld,
@@ -62,17 +69,43 @@ import {
   createCivilizationScene,
   type CameraMode,
   type DiplomaticRelation as VisualDiplomaticRelation,
+  type MapOverlayMode,
   type VisualWorld,
 } from "./simulation/civilization-scene";
 
 const INITIAL_SEED = 2_846_731;
 const POLL_INTERVAL = 4_000;
-const ROSTER_MODES = ["powers", "agents", "beliefs"] as const;
+const ROSTER_MODES = ["powers", "agents", "influence", "beliefs"] as const;
+const MAP_OVERLAY_OPTIONS: ReadonlyArray<{
+  mode: MapOverlayMode;
+  label: string;
+  shortcut: string;
+  description: string;
+}> = [
+  { mode: "world", label: "World", shortcut: "1", description: "Show the complete living world" },
+  { mode: "alliances", label: "Alliances", shortcut: "2", description: "Trace alliances, trade routes, and truces" },
+  { mode: "wars", label: "Wars", shortcut: "3", description: "Isolate active wars and belligerent camps" },
+  { mode: "beliefs", label: "Beliefs", shortcut: "4", description: "Map religions, belief systems, and secular populations" },
+  { mode: "territories", label: "Territories", shortcut: "5", description: "Compare every active camp's territorial reach" },
+  { mode: "resources", label: "Resources", shortcut: "6", description: "Reveal food, water, wood, and ore deposits" },
+];
 
-type RosterMode = "powers" | "agents" | "beliefs";
+type RosterMode = "powers" | "agents" | "influence" | "beliefs";
 type EventFilter = "all" | "power" | "war" | "lineage" | "technology" | "belief";
 type SyncState = "connecting" | "persistent" | "catching_up" | "reconnecting";
 type Selection = { kind: "agent" | "camp" | "belief"; id: string };
+type OverlayLegendKind = "dot" | "line" | "area";
+
+interface OverlayLegendItem {
+  label: string;
+  color: string;
+  kind?: OverlayLegendKind;
+}
+
+interface OverlayPresentation {
+  summary: string;
+  legend: OverlayLegendItem[];
+}
 
 interface WorldResponse {
   world: unknown;
@@ -208,6 +241,7 @@ function eventColor(type: string, tone: string) {
   if (/belief|faith|shrine|schism|reform|conversion/.test(type)) return "#cf9df2";
   if (/birth|offspring|lineage|join|allegiance|alliance|peace/.test(type)) return "#c7f36a";
   if (/tech|research|discover|build/.test(type)) return "#66d7d1";
+  if (/rename|identity|self.naming/.test(type)) return "#e7b95e";
   if (/break|defect|found|leader|power/.test(type)) return "#e7b95e";
   return "#8c9a91";
 }
@@ -215,10 +249,10 @@ function eventColor(type: string, tone: string) {
 function eventMatches(type: string, filter: EventFilter) {
   if (filter === "all") return true;
   if (filter === "war") return /war|raid|battle|death|destroy|capture|truce|peace/.test(type);
-  if (filter === "lineage") return /birth|offspring|lineage|join|allegiance|defect|break|found|coup/.test(type);
+  if (filter === "lineage") return /birth|offspring|lineage|join|allegiance|defect|break|found|coup|rename|identity/.test(type);
   if (filter === "technology") return /tech|research|discover|build|advance/.test(type);
   if (filter === "belief") return /belief|faith|shrine|schism|reform|conversion/.test(type);
-  return /power|leader|camp|capture|coup|victory|found/.test(type);
+  return /power|leader|camp|capture|coup|victory|found|rename|identity/.test(type);
 }
 
 function relationLabel(status: string) {
@@ -246,7 +280,110 @@ function worldEra(world: CivilizationWorldState) {
   return "Founding age";
 }
 
-function toVisualWorld(world: CivilizationWorldState, selectedBeliefId: string | null = null): VisualWorld {
+function overlayIcon(mode: MapOverlayMode) {
+  if (mode === "alliances") return <Users size={12} />;
+  if (mode === "wars") return <Swords size={12} />;
+  if (mode === "beliefs") return <Sparkles size={12} />;
+  if (mode === "territories") return <Tent size={12} />;
+  if (mode === "resources") return <Package size={12} />;
+  return <MapIcon size={12} />;
+}
+
+function getOverlayPresentation(
+  mode: MapOverlayMode,
+  world: CivilizationWorldState,
+  camps: CivilizationCamp[],
+  beliefs: CivilizationBeliefSystem[],
+  relations: ReturnType<typeof relationView>[],
+): OverlayPresentation {
+  const activeCampIds = new Set(camps.map((camp) => camp.id));
+  const visibleRelations = relations.filter((relation) => activeCampIds.has(relation.fromCampId) && activeCampIds.has(relation.toCampId));
+  const alliances = visibleRelations.filter((relation) => relation.status === "alliance" || relation.status === "allied");
+  const tradeRoutes = visibleRelations.filter((relation) => relation.status === "trade" || relation.status === "truce");
+  const wars = visibleRelations.filter((relation) => relation.status === "war");
+  const belligerentCampIds = new Set(wars.flatMap((war) => [war.fromCampId, war.toCampId]));
+  const livingAgents = world.agents.filter((agent) => agent.alive);
+
+  if (mode === "alliances") {
+    return {
+      summary: `${alliances.length} alliance ${alliances.length === 1 ? "link" : "links"} · ${tradeRoutes.length} trade or truce ${tradeRoutes.length === 1 ? "route" : "routes"}`,
+      legend: [
+        { label: `Alliances · ${alliances.length}`, color: "#69d8bd", kind: "line" },
+        { label: `Trade / truce · ${tradeRoutes.length}`, color: "#f1c66d", kind: "line" },
+      ],
+    };
+  }
+
+  if (mode === "wars") {
+    return {
+      summary: `${wars.length} active ${wars.length === 1 ? "front" : "fronts"} · ${belligerentCampIds.size} camps committed to war`,
+      legend: [
+        { label: `War fronts · ${wars.length}`, color: "#f05b54", kind: "line" },
+        { label: `Belligerent camps · ${belligerentCampIds.size}`, color: "#ffb06b", kind: "area" },
+        { label: `Outside active wars · ${Math.max(0, camps.length - belligerentCampIds.size)}`, color: "#718078", kind: "dot" },
+      ],
+    };
+  }
+
+  if (mode === "beliefs") {
+    const topBeliefs = beliefs.slice(0, 5);
+    const secularAgents = livingAgents.filter((agent) => !agent.beliefId).length;
+    return {
+      summary: `${beliefs.length} living belief ${beliefs.length === 1 ? "system" : "systems"} · ${secularAgents} secular or unaffiliated agents`,
+      legend: [
+        ...topBeliefs.map((belief) => ({
+          label: `${belief.name} · ${belief.adherentIds.filter((id) => livingAgents.some((agent) => agent.id === id)).length}`,
+          color: belief.color,
+          kind: "area" as const,
+        })),
+        { label: `Secular / unaffiliated · ${secularAgents}`, color: "#8a938d", kind: "dot" },
+      ],
+    };
+  }
+
+  if (mode === "territories") {
+    return {
+      summary: `${camps.length} active camp ${camps.length === 1 ? "territory" : "territories"} · larger fields mark broader control`,
+      legend: [
+        ...camps.slice(0, 5).map((camp) => ({
+          label: `${camp.name} · ${Math.round(camp.territoryRadius)} radius`,
+          color: camp.color,
+          kind: "area" as const,
+        })),
+        ...(camps.length > 5 ? [{ label: `${camps.length - 5} more camps`, color: "#718078", kind: "area" as const }] : []),
+      ],
+    };
+  }
+
+  if (mode === "resources") {
+    const count = (kind: ResourceKind) => world.resources.filter((resource) => resource.kind === kind).length;
+    return {
+      summary: `${world.resources.length} renewable resource sites · brighter rings hold more stock`,
+      legend: [
+        { label: `Food · ${count("food")}`, color: "#f17778" },
+        { label: `Water · ${count("water")}`, color: "#64e2f0" },
+        { label: `Wood · ${count("wood")}`, color: "#8dd277" },
+        { label: `Ore · ${count("ore")}`, color: "#d1dbe4" },
+      ],
+    };
+  }
+
+  return {
+    summary: `${camps.length} camps · ${livingAgents.length} autonomous agents · ${world.resources.length} resource sites`,
+    legend: [
+      { label: `Camps · ${camps.length}`, color: "#c7f36a", kind: "area" },
+      { label: `Agents · ${livingAgents.length}`, color: "#f0f3ec" },
+      { label: `Beliefs · ${beliefs.length}`, color: "#cf9df2", kind: "area" },
+      { label: `Resources · ${world.resources.length}`, color: "#e7b95e" },
+    ],
+  };
+}
+
+function toVisualWorld(
+  world: CivilizationWorldState,
+  selectedBeliefId: string | null = null,
+  overlayMode: MapOverlayMode = "world",
+): VisualWorld {
   const activeCampIds = new Set(world.camps.filter((camp) => camp.active).map((camp) => camp.id));
   const relations = world.relations.map(relationView);
   const beliefById = new Map(world.beliefs.map((belief) => [belief.id, belief]));
@@ -254,6 +391,7 @@ function toVisualWorld(world: CivilizationWorldState, selectedBeliefId: string |
     seed: world.seed,
     elapsed: world.time,
     halfSize: world.map.halfSize || WORLD_HALF_SIZE,
+    overlayMode,
     agents: world.agents.filter((agent) => agent.alive || (agent.deathDay !== null && world.day - agent.deathDay < 1.5)).map((agent) => ({
       id: agent.id,
       name: agent.name,
@@ -343,10 +481,157 @@ function DataCell({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="sov-data-cell"><span>{label}</span><b>{value}</b></div>;
 }
 
+function getFamilyMembers(world: CivilizationWorldState, ids: string[]) {
+  const seen = new Set<string>();
+  return ids.flatMap((id) => {
+    if (seen.has(id)) return [];
+    seen.add(id);
+    const agent = world.agents.find((candidate) => candidate.id === id);
+    return agent ? [agent] : [];
+  });
+}
+
+function FamilyTreeNode({
+  agent,
+  relationship,
+  selected,
+  world,
+  onSelect,
+}: {
+  agent: CivilizationAgent;
+  relationship: string;
+  selected?: boolean;
+  world: CivilizationWorldState;
+  onSelect(id: string): void;
+}) {
+  return (
+    <button
+      className={`sov-family-node ${selected ? "selected" : ""} ${agent.alive ? "" : "fallen"}`}
+      style={{ "--family-color": agent.color } as CSSProperties}
+      onClick={() => onSelect(agent.id)}
+      aria-label={`${relationship}: ${agent.name}, generation ${agent.generation}, ${agent.alive ? "living. Select and follow this agent" : "fallen. Select to inspect this record"}.`}
+      aria-current={selected ? "true" : undefined}
+    >
+      <span className="sov-family-avatar">{initials(agent.name)}</span>
+      <span><b>{agent.name}</b><small>{relationship} · GEN {agent.generation}</small><em>{agent.alive ? getCampName(world, agent.campId) : "Fallen"}</em></span>
+    </button>
+  );
+}
+
+function FamilyTreeArchivedNode({ relationship, id }: { relationship: string; id: string }) {
+  return (
+    <div className="sov-family-node archived" aria-label={`${relationship}: archived lineage record`}>
+      <span className="sov-family-avatar">?</span>
+      <span><b>Archived record</b><small>{relationship}</small><em title={id}>Identity no longer active</em></span>
+    </div>
+  );
+}
+
+function FamilyTree({
+  world,
+  agent,
+  onClose,
+  onSelect,
+}: {
+  world: CivilizationWorldState;
+  agent: CivilizationAgent;
+  onClose(): void;
+  onSelect(id: string): void;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const parentIds = [...new Set(agent.parentIds)].filter((id) => id !== agent.id);
+  const parents = getFamilyMembers(world, parentIds);
+  const archivedParentIds = parentIds.filter((id) => !parents.some((parent) => parent.id === id));
+  const grandparentIds = [...new Set(parents.flatMap((parent) => parent.parentIds))]
+    .filter((id) => id !== agent.id && !parentIds.includes(id));
+  const grandparents = getFamilyMembers(world, grandparentIds);
+  const archivedGrandparentIds = grandparentIds.filter((id) => !grandparents.some((grandparent) => grandparent.id === id));
+  const childIds = [...new Set([
+    ...agent.childrenIds,
+    ...world.agents.filter((candidate) => candidate.parentIds.includes(agent.id)).map((candidate) => candidate.id),
+  ])].filter((id) => id !== agent.id);
+  const children = getFamilyMembers(world, [
+    ...childIds,
+  ]);
+  const archivedChildIds = childIds.filter((id) => !children.some((child) => child.id === id));
+  const grandchildIds = [...new Set(children.flatMap((child) => [
+    ...child.childrenIds,
+    ...world.agents.filter((candidate) => candidate.parentIds.includes(child.id)).map((candidate) => candidate.id),
+  ]))].filter((id) => id !== agent.id && !childIds.includes(id));
+  const grandchildren = getFamilyMembers(world, grandchildIds);
+  const archivedGrandchildIds = grandchildIds.filter((id) => !grandchildren.some((grandchild) => grandchild.id === id));
+  const siblings = agent.parentIds.length > 0
+    ? world.agents.filter((candidate) => candidate.id !== agent.id && candidate.parentIds.some((id) => agent.parentIds.includes(id)))
+    : [];
+  const partnerIds = children.flatMap((child) => child.parentIds.filter((id) => id !== agent.id));
+  const partners = getFamilyMembers(world, partnerIds);
+  const peers = getFamilyMembers(world, [...siblings.map((member) => member.id), ...partners.map((member) => member.id)]);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const keepFocusInside = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("keydown", keepFocusInside);
+    return () => dialog.removeEventListener("keydown", keepFocusInside);
+  }, [agent.id]);
+
+  const lane = (label: string, members: CivilizationAgent[], relationship: string, archivedIds: string[] = []) => (
+    <section className="sov-family-lane" aria-label={label}>
+      <h3>{label}</h3>
+      <div className="sov-family-nodes">
+        {members.length > 0 || archivedIds.length > 0
+          ? <>{members.map((member) => <FamilyTreeNode key={member.id} agent={member} relationship={relationship} world={world} onSelect={onSelect} />)}{archivedIds.map((id) => <FamilyTreeArchivedNode key={id} id={id} relationship={relationship} />)}</>
+          : <span className="sov-family-empty">No known {label.toLowerCase()}</span>}
+      </div>
+    </section>
+  );
+
+  return (
+    <div className="sov-family-backdrop">
+      <div ref={dialogRef} className="sov-family-dialog sov-panel" role="dialog" aria-modal="true" aria-labelledby="sov-family-title" aria-describedby="sov-family-description">
+        <header className="sov-family-head">
+          <div><span className="sov-kicker">Living lineage explorer</span><h2 id="sov-family-title">{agent.name}&apos;s family tree</h2><p id="sov-family-description">Select any person to inspect and follow them. Dashed connectors indicate generational descent.</p></div>
+          <button ref={closeRef} onClick={onClose} aria-label="Close family tree and return to the agent inspector"><X size={18} /><span>Back</span></button>
+        </header>
+        <div className="sov-family-scroll">
+          {lane("Grandparents", grandparents, "Grandparent", archivedGrandparentIds)}
+          {lane("Parents", parents, "Parent", archivedParentIds)}
+          <section className="sov-family-lane focus" aria-label="Selected agent, siblings, and partners">
+            <h3>Selected generation</h3>
+            <div className="sov-family-nodes">
+              <FamilyTreeNode agent={agent} relationship="Selected agent" selected world={world} onSelect={onSelect} />
+              {peers.map((member) => <FamilyTreeNode key={member.id} agent={member} relationship={partners.some((partner) => partner.id === member.id) ? "Partner" : "Sibling"} world={world} onSelect={onSelect} />)}
+            </div>
+          </section>
+          {lane("Children", children, "Child", archivedChildIds)}
+          {lane("Grandchildren", grandchildren, "Grandchild", archivedGrandchildIds)}
+        </div>
+        <footer className="sov-family-key"><span><i /> Living</span><span><i className="fallen" /> Fallen (name retained)</span><span><b /> Descent connector</span></footer>
+      </div>
+    </div>
+  );
+}
+
 function CivilizationCanvas({
   worldRef,
   selection,
   cameraMode,
+  overlayMode,
   onSnapshot,
   onAgentSelect,
   onCampSelect,
@@ -356,6 +641,7 @@ function CivilizationCanvas({
   worldRef: MutableRefObject<CivilizationWorldState>;
   selection: Selection;
   cameraMode: CameraMode;
+  overlayMode: MapOverlayMode;
   onSnapshot(world: CivilizationWorldState): void;
   onAgentSelect(id: string): void;
   onCampSelect(id: string): void;
@@ -365,16 +651,18 @@ function CivilizationCanvas({
   const mountRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef(selection);
   const cameraRef = useRef(cameraMode);
+  const overlayRef = useRef(overlayMode);
 
   useEffect(() => { selectionRef.current = selection; }, [selection]);
   useEffect(() => { cameraRef.current = cameraMode; }, [cameraMode]);
+  useEffect(() => { overlayRef.current = overlayMode; }, [overlayMode]);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
     let controller: ReturnType<typeof createCivilizationScene>;
     try {
-      controller = createCivilizationScene(mount, toVisualWorld(worldRef.current), {
+      controller = createCivilizationScene(mount, toVisualWorld(worldRef.current, null, overlayRef.current), {
         onAgentSelect,
         onCampSelect,
         onBeliefSelect,
@@ -391,7 +679,7 @@ function CivilizationCanvas({
     let publishClock = 0;
     let simulationClock = 0;
     let sourceWorld = worldRef.current;
-    let visualWorld = toVisualWorld(sourceWorld);
+    let visualWorld = toVisualWorld(sourceWorld, null, overlayRef.current);
     const frame = (now: number) => {
       const delta = Math.min(0.1, Math.max(0, (now - previous) / 1_000));
       previous = now;
@@ -402,10 +690,11 @@ function CivilizationCanvas({
       }
       if (sourceWorld !== worldRef.current) {
         sourceWorld = worldRef.current;
-        visualWorld = toVisualWorld(sourceWorld);
+        visualWorld = toVisualWorld(sourceWorld, null, overlayRef.current);
       }
       const active = selectionRef.current;
       visualWorld.selectedBeliefId = active.kind === "belief" ? active.id : null;
+      visualWorld.overlayMode = overlayRef.current;
       controller.update(
         visualWorld,
         active.kind === "agent" ? active.id : null,
@@ -434,10 +723,23 @@ function CivilizationCanvas({
   );
 }
 
-function AgentInspector({ world, agent }: { world: CivilizationWorldState; agent: CivilizationAgent }) {
+function AgentInspector({
+  world,
+  agent,
+  onOpenFamily,
+  familyTreeTriggerRef,
+}: {
+  world: CivilizationWorldState;
+  agent: CivilizationAgent;
+  onOpenFamily(): void;
+  familyTreeTriggerRef: MutableRefObject<HTMLButtonElement | null>;
+}) {
   const camp = world.camps.find((candidate) => candidate.id === agent.campId);
   const belief = world.beliefs.find((candidate) => candidate.id === agent.beliefId);
   const parents = agent.parentIds.map((id) => world.agents.find((candidate) => candidate.id === id)?.name).filter(Boolean).join(" + ");
+  const deliberation = agent.deliberation;
+  const chosenLearning = agent.planLearning[deliberation.chosenPlan];
+  const recentMemories = agent.recentMemories.slice(-3).reverse();
   const relationshipEntries = Object.entries(agent.relationships)
     .sort(([, left], [, right]) => (right.trust + right.respect - right.grievance) - (left.trust + left.respect - left.grievance))
     .slice(0, 3);
@@ -449,11 +751,16 @@ function AgentInspector({ world, agent }: { world: CivilizationWorldState; agent
           <div><h1>{agent.name}</h1><p>Generation {agent.generation} · {getCampName(world, agent.campId)}</p></div>
           <span className="sov-status-chip"><CircleDot size={9} />{agent.alive ? getActionLabel(agent.action) : "Fallen"}</span>
         </div>
-        <div className="sov-decision">
-          <div className="sov-decision-label"><Activity size={12} /> AUTONOMOUS PLAN</div>
-          <p>{agent.rationale}</p>
-          <div className="sov-detail-line"><span>GOAL</span><b>{agent.goal}</b></div>
-          <div className="sov-detail-line"><span>FATE</span><b>{agent.currentPlan ? humanize(String(agent.currentPlan)) : "Reassessing the world"}</b></div>
+        <div className="sov-decision sov-thinking">
+          <div className="sov-decision-label"><Brain size={12} /> CURRENT THINKING <span className="sov-confidence">{Math.round(percent(deliberation.confidence))}% confidence</span></div>
+          <p>{deliberation.statement}</p>
+          <div className="sov-detail-line"><span>CHOSEN</span><b>{humanize(deliberation.chosenPlan)} · {agent.goal}</b></div>
+          <div className="sov-detail-line"><span>LEARNING</span><b>{chosenLearning ? `${chosenLearning.attempts} prior attempts · ${chosenLearning.expectedValue.toFixed(2)} learned value` : "Testing this plan for the first time"}</b></div>
+          {deliberation.alternatives.length > 0 && <div className="sov-alternatives" aria-label="Plans considered but not chosen">
+            <span>TOP ALTERNATIVES</span>
+            {deliberation.alternatives.slice(0, 2).map((alternative) => <div key={`${alternative.plan}-${alternative.goal}`}><b>{humanize(alternative.plan)}</b><small>{alternative.goal}</small><em>{alternative.score.toFixed(2)}</em></div>)}
+          </div>}
+          <p className="sov-learning-note">Strategy is learned from outcomes and present conditions—not a preset personality.</p>
         </div>
         <div className="sov-metrics">
           <Meter label="Health" value={agent.health} color={agent.health < 35 ? "#ff8066" : agent.color} icon={<Heart size={10} />} />
@@ -461,6 +768,7 @@ function AgentInspector({ world, agent }: { world: CivilizationWorldState; agent
           <Meter label="Hydration" value={agent.hydration} color="#66d7d1" icon={<Droplets size={10} />} />
           <Meter label="Energy" value={agent.energy} color="#b99cff" icon={<Zap size={10} />} />
         </div>
+        <button ref={familyTreeTriggerRef} className="sov-family-open sov-family-open-primary" onClick={onOpenFamily}><GitBranch size={14} /><span>Explore family tree</span><small>Ancestors → grandchildren</small></button>
       </div>
       <div>
         <section className="sov-section sov-belief-section" style={{ "--belief-color": belief?.color ?? "#718078" } as CSSProperties}>
@@ -490,6 +798,14 @@ function AgentInspector({ world, agent }: { world: CivilizationWorldState; agent
             <DataCell label="Camp tenure" value={`${Math.max(0, world.day - agent.joinedCampDay).toFixed(1)} days`} />
             <DataCell label="Victories" value={agent.kills} />
             <DataCell label="Harvested" value={compactNumber(agent.harvested)} />
+          </div>
+        </section>
+        <section className="sov-section sov-memory-section">
+          <div className="sov-section-head"><span className="sov-kicker">Recent outcome memory</span><Brain size={13} /></div>
+          <div className="sov-memory-list">
+            {recentMemories.length > 0 ? recentMemories.map((memory) => <article key={memory.id} data-outcome={memory.outcome}>
+              <span>{memory.outcome}</span><p><b>{humanize(memory.plan)}</b>{memory.summary}</p><time>DAY {Math.max(1, Math.floor(memory.day))} · {memory.score >= 0 ? "+" : ""}{memory.score.toFixed(2)}</time>
+            </article>) : <p className="sov-section-note">No completed plan outcomes yet. Experience will accumulate as this agent acts.</p>}
           </div>
         </section>
         <section className="sov-section">
@@ -660,15 +976,21 @@ export function SovereigntyExperience() {
   const [selection, setSelection] = useState<Selection>({ kind: "agent", id: initialWorld.agents[0]?.id ?? "" });
   const [rosterMode, setRosterMode] = useState<RosterMode>("powers");
   const [cameraMode, setCameraMode] = useState<CameraMode>("overview");
+  const [mapOverlayMode, setMapOverlayMode] = useState<MapOverlayMode>("world");
+  const [mapFocus, setMapFocus] = useState(false);
+  const [mapLayersExpanded, setMapLayersExpanded] = useState(false);
+  const [familyTreeAgentId, setFamilyTreeAgentId] = useState<string | null>(null);
   const [eventFilter, setEventFilter] = useState<EventFilter>("all");
   const [chronicleExpanded, setChronicleExpanded] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>("connecting");
   const [history, setHistory] = useState<MajorEvent[]>(initialWorld.majorEvents);
   const [revision, setRevision] = useState(0);
   const [catchUpPendingSeconds, setCatchUpPendingSeconds] = useState(0);
+  const familyTreeTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const rankedCamps = useMemo(() => getRankedCamps(hud).filter((camp) => camp.active), [hud]);
   const rankedAgents = useMemo(() => getRankedAgents(hud), [hud]);
+  const influentialAgents = useMemo(() => getRankedInfluentialAgents(hud).filter((agent) => agent.alive).slice(0, 10), [hud]);
   const beliefRanking = useMemo(() => getRankedBeliefs(hud).filter((belief) => belief.active), [hud]);
   const aliveAgents = rankedAgents.filter((agent) => agent.alive);
   const activeCamps = rankedCamps.length;
@@ -679,7 +1001,13 @@ export function SovereigntyExperience() {
   const selectedAgent = selection.kind === "agent" ? hud.agents.find((agent) => agent.id === selection.id) : undefined;
   const selectedCamp = selection.kind === "camp" ? hud.camps.find((camp) => camp.id === selection.id) : undefined;
   const selectedBelief = selection.kind === "belief" ? hud.beliefs.find((belief) => belief.id === selection.id) : undefined;
+  const familyTreeAgent = familyTreeAgentId ? hud.agents.find((agent) => agent.id === familyTreeAgentId) : undefined;
   const accent = selectedAgent?.color ?? selectedCamp?.color ?? selectedBelief?.color ?? topCamp?.color ?? "#c7f36a";
+  const overlayOption = MAP_OVERLAY_OPTIONS.find((option) => option.mode === mapOverlayMode) ?? MAP_OVERLAY_OPTIONS[0];
+  const overlayPresentation = useMemo(
+    () => getOverlayPresentation(mapOverlayMode, hud, rankedCamps, beliefRanking, relationViews),
+    [beliefRanking, hud, mapOverlayMode, rankedCamps, relationViews],
+  );
 
   const publishSnapshot = useCallback((world: CivilizationWorldState) => setHud(world), []);
   const selectAgent = useCallback((id: string) => {
@@ -693,7 +1021,27 @@ export function SovereigntyExperience() {
   const selectBelief = useCallback((id: string) => {
     setSelection({ kind: "belief", id });
     setRosterMode("beliefs");
+    setMapOverlayMode("beliefs");
     setCameraMode("overview");
+  }, []);
+  const openFamilyTree = useCallback(() => {
+    if (selection.kind === "agent") setFamilyTreeAgentId(selection.id);
+  }, [selection]);
+  const closeFamilyTree = useCallback(() => {
+    setFamilyTreeAgentId(null);
+    window.requestAnimationFrame(() => familyTreeTriggerRef.current?.focus());
+  }, []);
+  const selectFamilyAgent = useCallback((id: string) => {
+    setFamilyTreeAgentId(id);
+    setSelection({ kind: "agent", id });
+    const relative = worldRef.current.agents.find((agent) => agent.id === id);
+    setCameraMode(relative?.alive ? "followAgent" : "overview");
+  }, []);
+  const toggleMapFocus = useCallback(() => {
+    setMapFocus((focused) => {
+      if (!focused) setCameraMode("free");
+      return !focused;
+    });
   }, []);
 
   const moveRosterFocus = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -766,17 +1114,35 @@ export function SovereigntyExperience() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
+      if (target?.isContentEditable || target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (familyTreeAgentId) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeFamilyTree();
+        }
+        return;
+      }
+      if (!event.altKey && !event.ctrlKey && !event.metaKey) {
+        const overlay = MAP_OVERLAY_OPTIONS.find((option) => option.shortcut === event.key);
+        if (overlay) {
+          event.preventDefault();
+          setMapOverlayMode(overlay.mode);
+          return;
+        }
+      }
       if (event.key === "[") cycleSelection(-1, true);
       else if (event.key === "]") cycleSelection(1, true);
       else if (event.key.toLowerCase() === "f" && selection.kind === "agent") setCameraMode("followAgent");
       else if (event.key.toLowerCase() === "c" && selection.kind === "camp") setCameraMode("followCamp");
       else if (event.key.toLowerCase() === "b" && selection.kind === "belief") setCameraMode("overview");
-      else if (event.key === "Escape") setCameraMode("overview");
+      else if (event.key === "Escape" && mapFocus) {
+        event.preventDefault();
+        setMapFocus(false);
+      } else if (event.key === "Escape") setCameraMode("overview");
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [cycleSelection, selection.kind]);
+  }, [closeFamilyTree, cycleSelection, familyTreeAgentId, mapFocus, selection.kind]);
 
   const mergedEvents = useMemo(() => {
     const byId = new Map<string, MajorEvent>();
@@ -803,8 +1169,8 @@ export function SovereigntyExperience() {
         : "LOCAL · RECONNECTING";
 
   return (
-    <main className="sov-shell" style={style}>
-      <CivilizationCanvas worldRef={worldRef} selection={selection} cameraMode={cameraMode} onSnapshot={publishSnapshot} onAgentSelect={selectAgent} onCampSelect={selectCamp} onBeliefSelect={selectBelief} onCameraModeChange={setCameraMode} />
+    <main className={`sov-shell ${mapFocus ? "sov-map-focus" : ""}`} style={style}>
+      <CivilizationCanvas worldRef={worldRef} selection={selection} cameraMode={cameraMode} overlayMode={mapOverlayMode} onSnapshot={publishSnapshot} onAgentSelect={selectAgent} onCampSelect={selectCamp} onBeliefSelect={selectBelief} onCameraModeChange={setCameraMode} />
       <div className="sov-atmosphere" aria-hidden="true" />
 
       <header className="sov-topbar">
@@ -819,8 +1185,11 @@ export function SovereigntyExperience() {
           <div className="sov-stat"><span>Living beliefs</span><b><Sparkles size={11} />{activeBeliefs}</b></div>
           <div className="sov-stat"><span>Open wars</span><b><Swords size={11} />{wars.length}</b></div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="sov-top-actions">
           <span className={`sov-live ${syncState === "persistent" ? "" : "reconnecting"}`} title={syncState === "catching_up" ? "The durable world is checkpointing an offline interval; each refresh continues from the last completed checkpoint." : "The shared world reconciles elapsed time on the server and resumes from durable state"}><span className="sov-live-dot" />{syncLabel}</span>
+          <Link className="sov-archive-link" href="/archive" aria-label="Open the map-free civilization and belief archive"><BookOpen size={14} /><span>World archive</span></Link>
+          <Link className="sov-archive-link sov-history-link" href="/history" aria-label="Read the world history in 200-day chapters"><ScrollText size={14} /><span>History book</span></Link>
+          <button className="sov-map-focus-toggle" onClick={toggleMapFocus} aria-controls="sov-map-exploration" aria-pressed={mapFocus}><span>{mapFocus ? "Exit map" : "Explore map"}</span>{mapFocus ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           <div className="sov-camera" aria-label="Camera mode">
             <button className={cameraMode === "overview" ? "active" : ""} onClick={() => setCameraMode("overview")} aria-label="Overview camera" aria-pressed={cameraMode === "overview"} title="World overview (Esc)"><MapIcon size={14} /></button>
             <button className={cameraMode === "followAgent" ? "active" : ""} onClick={() => selectedAgent && setCameraMode("followAgent")} aria-label="Follow selected agent" aria-pressed={cameraMode === "followAgent"} title="Follow selected AI (F)"><Focus size={14} /></button>
@@ -832,7 +1201,45 @@ export function SovereigntyExperience() {
 
       {topCamp && <div className="sov-leader-ribbon"><Crown size={11} /> #1 {topCamp.name.toUpperCase()} <span>{Math.round(topCamp.power)} power · {topCamp.memberIds.length} citizens · {worldEra(hud)}</span></div>}
 
-      <aside className="sov-left sov-panel" aria-label="Civilization roster">
+      <section id="sov-map-exploration" className={`sov-map-overlays ${mapLayersExpanded ? "expanded" : "collapsed"}`} aria-labelledby="sov-map-layers-title">
+        <div className="sov-map-overlay-head">
+          <span id="sov-map-layers-title"><MapIcon size={11} /> Map layers</span>
+          <div><strong>{overlayOption.label} active</strong><button className="sov-layer-toggle" onClick={() => setMapLayersExpanded((expanded) => !expanded)} aria-controls="sov-map-layer-controls" aria-expanded={mapLayersExpanded}><span>{mapLayersExpanded ? "Hide" : "Choose"}</span><ChevronDown size={15} /></button></div>
+        </div>
+        <div className="sov-map-overlay-content" id="sov-map-layer-controls">
+          <div className="sov-map-overlay-buttons" role="toolbar" aria-label="Choose a map overlay">
+            {MAP_OVERLAY_OPTIONS.map((option) => {
+              const active = mapOverlayMode === option.mode;
+              return <button
+                key={option.mode}
+                className={active ? "active" : ""}
+                onClick={() => setMapOverlayMode(option.mode)}
+                aria-controls="sov-map-layer-detail"
+                aria-label={`${option.label} map layer. ${option.description}. Keyboard shortcut ${option.shortcut}.`}
+                aria-keyshortcuts={option.shortcut}
+                aria-pressed={active}
+                title={`${option.description} (${option.shortcut})`}
+              >
+                {overlayIcon(option.mode)}
+                <span>{option.label}</span>
+                <kbd aria-hidden="true">{option.shortcut}</kbd>
+              </button>;
+            })}
+          </div>
+          <div className="sov-map-overlay-detail" id="sov-map-layer-detail">
+            <p><strong>{overlayOption.label} layer</strong><span>{overlayPresentation.summary}</span></p>
+            <div className="sov-map-overlay-legend" aria-label={`${overlayOption.label} map legend`}>
+              {overlayPresentation.legend.map((item, index) => <span key={`${item.label}-${index}`}>
+                <i className={item.kind ?? "dot"} style={{ "--layer-color": item.color } as CSSProperties} aria-hidden="true" />
+                {item.label}
+              </span>)}
+            </div>
+          </div>
+        </div>
+      </section>
+      <div className="sov-map-gesture-hint" aria-hidden="true"><span>Drag to orbit</span><span>Pinch to zoom</span><span>Tap an agent or camp</span></div>
+
+      <aside className="sov-left sov-panel" aria-label="Civilization roster" aria-hidden={mapFocus || undefined}>
         <div className="sov-panel-head"><div><span className="sov-kicker">Power, people & meaning</span><h2>World roster</h2></div><span className="sov-count-chip">{activeCamps}/{MAX_ACTIVE_CAMPS} CAMPS</span></div>
         <div className="sov-tabs" role="tablist" aria-label="Roster view">
           {ROSTER_MODES.map((mode) => <button id={`sov-tab-${mode}`} key={mode} className={rosterMode === mode ? "active" : ""} onClick={() => setRosterMode(mode)} onKeyDown={moveRosterFocus} aria-controls="sov-roster-panel" aria-selected={rosterMode === mode} role="tab" tabIndex={rosterMode === mode ? 0 : -1}>{humanize(mode)}</button>)}
@@ -856,6 +1263,15 @@ export function SovereigntyExperience() {
               <span className="sov-card-copy"><span className="sov-card-title">{agent.name}</span><span className="sov-card-meta">#{index + 1} · {getCampName(hud, agent.campId)} · {agent.alive ? getActionLabel(agent.action) : "fallen"}</span></span>
               <span className="sov-card-value">{compactNumber(agent.personalPower)}<small>POWER</small></span>
             </button>;
+          }) : rosterMode === "influence" ? influentialAgents.map((agent, index) => {
+            const active = selection.kind === "agent" && selection.id === agent.id;
+            const influenceScore = agent.influence + agent.spiritualInfluence;
+            const topInfluence = Math.max(1, (influentialAgents[0]?.influence ?? 0) + (influentialAgents[0]?.spiritualInfluence ?? 0));
+            return <button key={agent.id} className={`sov-agent-card sov-influence-card ${active ? "active" : ""}`} style={{ "--card-color": agent.color, "--power-width": `${clamp((influenceScore / topInfluence) * 100)}%` } as CSSProperties} onClick={() => selectAgent(agent.id)} aria-pressed={active} aria-label={`Rank ${index + 1}: ${agent.name}, achieved influence ${Math.round(influenceScore)}, generation ${agent.generation}, ${getCampName(hud, agent.campId)}. Current aim: ${agent.goal || getActionLabel(agent.action)}. Select and follow.`}>
+              <span className="sov-power-rank"><Trophy size={11} />{String(index + 1).padStart(2, "0")}</span>
+              <span className="sov-card-copy"><span className="sov-card-title">{agent.name}</span><span className="sov-card-meta">{getCampName(hud, agent.campId)} · GEN {agent.generation} · {agent.goal || getActionLabel(agent.action)}</span></span>
+              <span className="sov-card-value" title={`${Math.round(agent.influence)} social + ${Math.round(agent.spiritualInfluence)} belief influence`}>{compactNumber(influenceScore)}<small>ACHIEVED</small></span>
+            </button>;
           }) : beliefRanking.length > 0 ? beliefRanking.map((belief, index) => {
             const active = selection.kind === "belief" && selection.id === belief.id;
             const strongestBelief = Math.max(1, beliefRanking[0]?.influence ?? 1);
@@ -870,12 +1286,12 @@ export function SovereigntyExperience() {
         <div className="sov-principle"><div><Shield size={12} /> ONE DIRECTIVE</div><p>Become the strongest power. Religions, civic traditions, or secular worldviews can emerge from incentives—none are assigned alongside personality scripts or fixed destinies.</p></div>
       </aside>
 
-      <aside className="sov-inspector sov-panel" aria-label={selectedAgent ? `Observed AI: ${selectedAgent.name}` : selectedCamp ? `Observed power: ${selectedCamp.name}` : selectedBelief ? `Observed belief: ${selectedBelief.name}` : "World observer"}>
+      <aside className="sov-inspector sov-panel" aria-hidden={mapFocus || undefined} aria-label={selectedAgent ? `Observed AI: ${selectedAgent.name}` : selectedCamp ? `Observed power: ${selectedCamp.name}` : selectedBelief ? `Observed belief: ${selectedBelief.name}` : "World observer"}>
         <div className="sov-inspector-nav"><button onClick={() => cycleSelection(-1)} aria-label="Previous selection" title="Previous selection ([)"><ChevronLeft size={16} /></button><span>{selection.kind === "agent" ? "OBSERVING AUTONOMOUS AI" : selection.kind === "camp" ? "OBSERVING SOVEREIGN POWER" : "OBSERVING EMERGENT BELIEF"}</span><button onClick={() => cycleSelection(1)} aria-label="Next selection" title="Next selection (])"><ChevronRight size={16} /></button></div>
-        {selectedAgent ? <AgentInspector world={hud} agent={selectedAgent} /> : selectedCamp ? <CampInspector world={hud} camp={selectedCamp} /> : selectedBelief ? <BeliefInspector world={hud} belief={selectedBelief} /> : <div className="sov-empty">Select an agent, camp, or belief to inspect its evolving strategy.</div>}
+        {selectedAgent ? <AgentInspector world={hud} agent={selectedAgent} onOpenFamily={openFamilyTree} familyTreeTriggerRef={familyTreeTriggerRef} /> : selectedCamp ? <CampInspector world={hud} camp={selectedCamp} /> : selectedBelief ? <BeliefInspector world={hud} belief={selectedBelief} /> : <div className="sov-empty">Select an agent, camp, or belief to inspect its evolving strategy.</div>}
       </aside>
 
-      <section className={`sov-chronicle sov-panel ${chronicleExpanded ? "expanded" : ""}`} aria-label="Persistent world chronicle">
+      <section className={`sov-chronicle sov-panel ${chronicleExpanded ? "expanded" : ""}`} aria-hidden={mapFocus || undefined} aria-label="Persistent world chronicle">
         <div className="sov-chronicle-head">
           <div className="sov-chronicle-title"><ScrollText size={13} /> World chronicle</div>
           <div className="sov-event-filters">{(["all", "power", "war", "lineage", "technology", "belief"] as EventFilter[]).map((filter) => <button key={filter} className={eventFilter === filter ? "active" : ""} onClick={() => setEventFilter(filter)} aria-pressed={eventFilter === filter}>{filter}</button>)}</div>
@@ -889,7 +1305,8 @@ export function SovereigntyExperience() {
         </div>
       </section>
 
-      <div className="sov-map-key" aria-hidden="true"><span><i style={{ "--key-color": "#e7b95e" } as CSSProperties} />Food</span><span><i style={{ "--key-color": "#66d7d1" } as CSSProperties} />Water</span><span><i style={{ "--key-color": "#94be75" } as CSSProperties} />Wood</span><span><i style={{ "--key-color": "#b9a8c8" } as CSSProperties} />Ore</span><span><i className="belief" style={{ "--key-color": "#cf9df2" } as CSSProperties} />Sacred site</span></div>
+      {familyTreeAgent && <FamilyTree world={hud} agent={familyTreeAgent} onClose={closeFamilyTree} onSelect={selectFamilyAgent} />}
+
       <div className="sov-screen-reader-status" aria-live="polite">{latestMajor ? `${latestMajor.title}: ${latestMajor.message}` : "Ten founders are establishing independent camps."}</div>
     </main>
   );
