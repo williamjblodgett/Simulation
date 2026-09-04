@@ -92,6 +92,17 @@ export interface VisualWar {
   intensity: number;
 }
 
+export interface MapRelationSelection {
+  id: VisualId;
+  kind: DiplomaticRelation | "war";
+  fromCampId: VisualId;
+  toCampId: VisualId;
+  strength?: number;
+  intensity?: number;
+  clientX: number;
+  clientY: number;
+}
+
 export interface VisualWorld {
   seed: number;
   elapsed: number;
@@ -110,6 +121,7 @@ export interface CivilizationSceneOptions {
   onAgentSelect(id: VisualId): void;
   onCampSelect(id: VisualId): void;
   onBeliefSelect?(id: VisualId): void;
+  onRelationSelect?(selection: MapRelationSelection): void;
   onCameraModeChange?(mode: CameraMode): void;
   reducedMotion?: boolean;
 }
@@ -238,7 +250,10 @@ interface BeliefVisual {
 }
 
 interface LinkVisual {
+  id: VisualId;
+  root: THREE.Group;
   line: THREE.Line<THREE.BufferGeometry, THREE.LineDashedMaterial>;
+  hitTarget: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>;
   fromCampId: VisualId;
   toCampId: VisualId;
   relation: DiplomaticRelation;
@@ -246,8 +261,10 @@ interface LinkVisual {
 }
 
 interface WarVisual {
+  id: VisualId;
   root: THREE.Group;
   line: THREE.Line<THREE.BufferGeometry, THREE.LineDashedMaterial>;
+  hitTarget: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>;
   projectile: THREE.Mesh<THREE.OctahedronGeometry, THREE.MeshBasicMaterial>;
   clash: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   attackerCampId: VisualId;
@@ -1970,6 +1987,8 @@ function diplomacyColor(relation: DiplomaticRelation) {
 }
 
 function makeDiplomaticLink(link: VisualDiplomaticLink): LinkVisual {
+  const root = new THREE.Group();
+  root.name = `diplomacy:${link.id}`;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(27 * 3), 3));
   const material = new THREE.LineDashedMaterial({
@@ -1981,11 +2000,29 @@ function makeDiplomaticLink(link: VisualDiplomaticLink): LinkVisual {
     gapSize: link.relation === "hostile" ? 0.46 : 0.72,
   });
   const line = new THREE.Line(geometry, material);
-  line.name = `diplomacy:${link.id}`;
+  line.name = `diplomacy-line:${link.id}`;
   line.frustumCulled = false;
   line.renderOrder = 6;
+  const hitTarget = new THREE.Line(
+    geometry,
+    new THREE.LineBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthTest: false,
+      depthWrite: false,
+      colorWrite: false,
+    }),
+  );
+  hitTarget.name = `diplomacy-hit:${link.id}`;
+  hitTarget.frustumCulled = false;
+  hitTarget.userData.mapRelationId = link.id;
+  hitTarget.userData.mapRelationKind = link.relation;
+  root.add(line, hitTarget);
   return {
+    id: link.id,
+    root,
     line,
+    hitTarget,
     fromCampId: link.fromCampId,
     toCampId: link.toCampId,
     relation: link.relation,
@@ -2007,9 +2044,25 @@ function makeWar(war: VisualWar): WarVisual {
     gapSize: 0.58,
   });
   const line = new THREE.Line(geometry, material);
+  line.name = `war-line:${war.id}`;
   line.frustumCulled = false;
   line.renderOrder = 11;
   root.add(line);
+  const hitTarget = new THREE.Line(
+    geometry,
+    new THREE.LineBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthTest: false,
+      depthWrite: false,
+      colorWrite: false,
+    }),
+  );
+  hitTarget.name = `war-hit:${war.id}`;
+  hitTarget.frustumCulled = false;
+  hitTarget.userData.mapRelationId = war.id;
+  hitTarget.userData.mapRelationKind = "war";
+  root.add(hitTarget);
   const projectile = new THREE.Mesh(
     new THREE.OctahedronGeometry(0.32, 0),
     new THREE.MeshBasicMaterial({ color: 0xffb15c, transparent: true, opacity: 0.96, depthWrite: false }),
@@ -2024,8 +2077,10 @@ function makeWar(war: VisualWar): WarVisual {
   clash.renderOrder = 12;
   root.add(clash);
   return {
+    id: war.id,
     root,
     line,
+    hitTarget,
     projectile,
     clash,
     attackerCampId: war.attackerCampId,
@@ -2328,8 +2383,8 @@ export function createCivilizationScene(
     const incoming = new Set(links.map((link) => link.id));
     linkVisuals.forEach((visual, id) => {
       if (incoming.has(id)) return;
-      scene.remove(visual.line);
-      disposeObject(visual.line);
+      scene.remove(visual.root);
+      disposeObject(visual.root);
       linkVisuals.delete(id);
     });
     links.forEach((link) => {
@@ -2337,12 +2392,13 @@ export function createCivilizationScene(
       if (!visual) {
         visual = makeDiplomaticLink(link);
         linkVisuals.set(link.id, visual);
-        scene.add(visual.line);
+        scene.add(visual.root);
       }
       visual.fromCampId = link.fromCampId;
       visual.toCampId = link.toCampId;
       visual.relation = link.relation;
       visual.strength = clamp(finite(link.strength, 1), 0, 1);
+      visual.hitTarget.userData.mapRelationKind = link.relation;
       visual.line.material.color.setHex(diplomacyColor(link.relation));
       visual.line.material.dashSize = link.relation === "trade" ? 1.2 : 0.72;
       visual.line.material.gapSize = link.relation === "hostile" ? 0.46 : 0.72;
@@ -2631,7 +2687,6 @@ export function createCivilizationScene(
         visual.territoryFill.material.opacity = isSelected ? 0.075 : 0.038;
       }
 
-      visual.label.visible = activeOverlayMode !== "resources" || isSelected;
       const labelEmphasis = isTerritoryOverlay && !isSelected ? 1.06 : 1;
       visual.label.scale.set(
         (isSelected ? 8 : 7.3) * labelEmphasis,
@@ -2683,6 +2738,123 @@ export function createCivilizationScene(
     });
   };
 
+  const labelWorldPosition = new THREE.Vector3();
+  const labelProjectedPosition = new THREE.Vector3();
+  const updateCampLabels = () => {
+    if (campVisuals.size === 0) return;
+    if (activeOverlayMode === "resources") {
+      campVisuals.forEach((visual, id) => {
+        visual.label.visible = id === selectedCampId;
+      });
+      return;
+    }
+
+    const warParticipants = new Set<VisualId>();
+    warVisuals.forEach((war) => {
+      warParticipants.add(war.attackerCampId);
+      warParticipants.add(war.defenderCampId);
+    });
+    const powerRanking = Array.from(campVisuals.entries()).sort((left, right) => (
+      right[1].power - left[1].power ||
+      right[1].population - left[1].population ||
+      left[0].localeCompare(right[0])
+    ));
+    const topPowerCount = Math.min(6, Math.max(3, Math.ceil(Math.sqrt(powerRanking.length))));
+    const topPowerRank = new Map(
+      powerRanking.slice(0, topPowerCount).map(([id], index) => [id, index] as const),
+    );
+
+    const diplomacyParticipants = new Set<VisualId>();
+    if (activeOverlayMode === "alliances") {
+      linkVisuals.forEach((link) => {
+        if (link.relation !== "hostile") {
+          diplomacyParticipants.add(link.fromCampId);
+          diplomacyParticipants.add(link.toCampId);
+        }
+      });
+    }
+
+    const candidates = Array.from(campVisuals.entries()).map(([id, visual]) => {
+      const isSelected = id === selectedCampId;
+      const isWarParticipant = visual.underAttack || warParticipants.has(id);
+      const powerRank = topPowerRank.get(id);
+      const isDiplomacyParticipant = diplomacyParticipants.has(id);
+      const priority =
+        (isSelected ? 1_000_000_000 : 0) +
+        (isWarParticipant ? 100_000_000 : 0) +
+        (powerRank !== undefined ? 10_000_000 - powerRank * 10_000 : 0) +
+        (isDiplomacyParticipant ? 1_000_000 : 0) +
+        visual.power * 100 + visual.population * 4 + visual.techLevel * 200;
+      return { id, visual, isSelected, priority };
+    }).sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id));
+
+    const focus = activeCameraMode === "free" ? controls.target : cameraTarget;
+    const distanceFromFocus = camera.position.distanceTo(focus);
+    const nearDistance = activeProfile.halfSize * 0.18;
+    const farDistance = activeProfile.halfSize * 1.5;
+    const zoomProgress = 1 - clamp(
+      (distanceFromFocus - nearDistance) / Math.max(1, farDistance - nearDistance),
+      0,
+      1,
+    );
+    const importantCount = candidates.reduce((count, candidate) => (
+      count + (candidate.isSelected || warParticipants.has(candidate.id) || topPowerRank.has(candidate.id) ? 1 : 0)
+    ), 0);
+    const minimumBudget = Math.min(candidates.length, Math.max(6, importantCount));
+    const overlayAllowance = activeOverlayMode === "territories" ? 2 : 0;
+    const labelBudget = Math.min(
+      candidates.length,
+      Math.round(
+        minimumBudget + overlayAllowance +
+        (candidates.length - minimumBudget) * Math.pow(zoomProgress, 1.35),
+      ),
+    );
+
+    const width = Math.max(1, renderer.domElement.clientWidth || mount.clientWidth);
+    const height = Math.max(1, renderer.domElement.clientHeight || mount.clientHeight);
+    const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+    const occupied: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+    let visibleCount = 0;
+    camera.updateMatrixWorld();
+
+    candidates.forEach(({ visual, isSelected }) => {
+      visual.label.getWorldPosition(labelWorldPosition);
+      labelProjectedPosition.copy(labelWorldPosition).project(camera);
+      const withinView = labelProjectedPosition.z >= -1 && labelProjectedPosition.z <= 1 &&
+        labelProjectedPosition.x >= -1.08 && labelProjectedPosition.x <= 1.08 &&
+        labelProjectedPosition.y >= -1.08 && labelProjectedPosition.y <= 1.08;
+      if (!withinView || (!isSelected && visibleCount >= labelBudget)) {
+        visual.label.visible = false;
+        return;
+      }
+
+      const screenX = (labelProjectedPosition.x * 0.5 + 0.5) * width;
+      const screenY = (-labelProjectedPosition.y * 0.5 + 0.5) * height;
+      const cameraDistance = Math.max(1, camera.position.distanceTo(labelWorldPosition));
+      const pixelsPerWorldUnit = height / (2 * Math.tan(verticalFov / 2) * cameraDistance);
+      const labelWidth = clamp(visual.label.scale.x * pixelsPerWorldUnit, 88, 260);
+      const labelHeight = clamp(visual.label.scale.y * pixelsPerWorldUnit, 22, 68);
+      const padding = isSelected ? 2 : 7;
+      const bounds = {
+        left: screenX - labelWidth / 2 - padding,
+        right: screenX + labelWidth / 2 + padding,
+        top: screenY - labelHeight / 2 - padding,
+        bottom: screenY + labelHeight / 2 + padding,
+      };
+      const collides = occupied.some((placed) => !(
+        bounds.right < placed.left ||
+        bounds.left > placed.right ||
+        bounds.bottom < placed.top ||
+        bounds.top > placed.bottom
+      ));
+      visual.label.visible = isSelected || !collides;
+      if (visual.label.visible) {
+        occupied.push(bounds);
+        visibleCount += 1;
+      }
+    });
+  };
+
   const updateBeliefs = (delta: number) => {
     beliefVisuals.forEach((visual, id) => {
       visual.root.position.x = damp(visual.root.position.x, visual.target.x, 7, delta);
@@ -2728,7 +2900,8 @@ export function createCivilizationScene(
           ? visual.relation === "alliance" || visual.relation === "trade"
           : activeOverlayMode === "wars" && visual.relation === "hostile"
       );
-      visual.line.visible = Boolean(fromCamp && toCamp && relationMatchesOverlay);
+      visual.root.visible = Boolean(fromCamp && toCamp && relationMatchesOverlay);
+      visual.hitTarget.visible = visual.root.visible;
       if (!fromCamp || !toCamp) return;
       connectionFrom.copy(campConnectionPoint(fromCamp));
       connectionTo.copy(campConnectionPoint(toCamp));
@@ -2761,6 +2934,7 @@ export function createCivilizationScene(
       const defender = campVisuals.get(visual.defenderCampId);
       const showWars = activeOverlayMode === "world" || activeOverlayMode === "wars";
       visual.root.visible = Boolean(attacker && defender && showWars);
+      visual.hitTarget.visible = visual.root.visible;
       if (!attacker || !defender) return;
       connectionFrom.copy(campConnectionPoint(attacker));
       connectionTo.copy(campConnectionPoint(defender));
@@ -2894,24 +3068,70 @@ export function createCivilizationScene(
   };
 
   const objectAtPointer = (event: PointerEvent) => {
-    if (!setRayFromPointer(event)) return { agentId: null, campId: null, beliefId: null };
+    if (!setRayFromPointer(event)) return { agentId: null, campId: null, beliefId: null, relation: null };
     const agentTargets = Array.from(agentVisuals.values()).flatMap((visual) => [visual.body, visual.head]);
     const agentHit = raycaster.intersectObjects(agentTargets, false)[0];
     if (agentHit) {
-      return { agentId: agentHit.object.userData.agentId as VisualId, campId: null, beliefId: null };
+      return { agentId: agentHit.object.userData.agentId as VisualId, campId: null, beliefId: null, relation: null };
     }
     const beliefTargets = Array.from(beliefVisuals.values()).map((visual) => visual.hitTarget);
     const beliefHit = raycaster.intersectObjects(beliefTargets, false)[0];
     if (beliefHit) {
-      return { agentId: null, campId: null, beliefId: beliefHit.object.userData.beliefId as VisualId };
+      return { agentId: null, campId: null, beliefId: beliefHit.object.userData.beliefId as VisualId, relation: null };
     }
     const campTargets = Array.from(campVisuals.values()).map((visual) => visual.hitTarget);
     const campHit = raycaster.intersectObjects(campTargets, false)[0];
-    return {
-      agentId: null,
-      campId: campHit ? campHit.object.userData.campId as VisualId : null,
-      beliefId: null,
-    };
+    if (campHit) {
+      return {
+        agentId: null,
+        campId: campHit.object.userData.campId as VisualId,
+        beliefId: null,
+        relation: null,
+      };
+    }
+
+    if (options.onRelationSelect) {
+      const distanceFromFocus = camera.position.distanceTo(activeCameraMode === "free" ? controls.target : cameraTarget);
+      raycaster.params.Line.threshold = clamp(distanceFromFocus * 0.012, 0.7, 3.2);
+      const relationTargets = [
+        ...Array.from(warVisuals.values())
+          .filter((visual) => visual.root.visible && visual.hitTarget.visible)
+          .map((visual) => visual.hitTarget),
+        ...Array.from(linkVisuals.values())
+          .filter((visual) => visual.root.visible && visual.hitTarget.visible)
+          .map((visual) => visual.hitTarget),
+      ];
+      const relationHit = raycaster.intersectObjects(relationTargets, false)[0];
+      if (relationHit) {
+        const relationId = relationHit.object.userData.mapRelationId as VisualId;
+        const relationKind = relationHit.object.userData.mapRelationKind as DiplomaticRelation | "war";
+        const war = relationKind === "war" ? warVisuals.get(relationId) : undefined;
+        const link = relationKind !== "war" ? linkVisuals.get(relationId) : undefined;
+        const relation: MapRelationSelection | null = war
+          ? {
+              id: war.id,
+              kind: "war",
+              fromCampId: war.attackerCampId,
+              toCampId: war.defenderCampId,
+              intensity: war.intensity,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            }
+          : link
+            ? {
+                id: link.id,
+                kind: link.relation,
+                fromCampId: link.fromCampId,
+                toCampId: link.toCampId,
+                strength: link.strength,
+                clientX: event.clientX,
+                clientY: event.clientY,
+              }
+            : null;
+        if (relation) return { agentId: null, campId: null, beliefId: null, relation };
+      }
+    }
+    return { agentId: null, campId: null, beliefId: null, relation: null };
   };
 
   const activateFreeCamera = () => {
@@ -2973,7 +3193,7 @@ export function createCivilizationScene(
     }
     if (event.pointerType === "mouse") {
       const hit = objectAtPointer(event);
-      renderer.domElement.style.cursor = hit.agentId || hit.campId || hit.beliefId
+      renderer.domElement.style.cursor = hit.agentId || hit.campId || hit.beliefId || hit.relation
         ? "pointer"
         : activeCameraMode === "free"
           ? activePointers.size > 0 ? "grabbing" : "grab"
@@ -2999,6 +3219,7 @@ export function createCivilizationScene(
       if (hit.agentId) options.onAgentSelect(hit.agentId);
       else if (hit.campId) options.onCampSelect(hit.campId);
       else if (hit.beliefId) options.onBeliefSelect?.(hit.beliefId);
+      else if (hit.relation) options.onRelationSelect?.(hit.relation);
     }
     if (activePointers.size === 0) {
       controlsPrimedForPointer = false;
@@ -3049,6 +3270,7 @@ export function createCivilizationScene(
     updateBeliefs(safeDelta);
     updateDiplomacy();
     updateCamera(safeDelta);
+    updateCampLabels();
     renderer.render(scene, camera);
   };
 

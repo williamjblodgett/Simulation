@@ -26,6 +26,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -48,7 +49,24 @@ import {
 } from "./simulation/civilization-engine";
 
 type CampFilter = "all" | "active" | "historical";
+type EntityFilter = "all" | "civilizations" | "agents" | "beliefs" | "events";
+type ArchiveSort = "relevance" | "power" | "recent";
 type SyncState = "loading" | "current" | "refreshing" | "offline";
+
+interface ArchiveSearchResult {
+  id: string;
+  kind: Exclude<EntityFilter, "all">;
+  title: string;
+  subtitle: string;
+  searchable: string;
+  active: boolean | null;
+  campId?: string;
+  beliefId?: string;
+  agentId?: string;
+  day?: number;
+  power: number;
+  relevance: number;
+}
 
 interface WorldResponse {
   world?: unknown;
@@ -136,6 +154,32 @@ function titleCase(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function readSearchParam(name: string, fallback = "") {
+  if (typeof window === "undefined") return fallback;
+  return new URLSearchParams(window.location.search).get(name) ?? fallback;
+}
+
+function chapterForDay(day: number) {
+  return Math.max(1, Math.floor((Math.max(1, day) - 1) / 200) + 1);
+}
+
+function archiveHref(parameters: Record<string, string | number | null | undefined>) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(parameters)) {
+    if (value !== null && value !== undefined && value !== "") search.set(key, String(value));
+  }
+  const query = search.toString();
+  return `/archive${query ? `?${query}` : ""}`;
+}
+
+function mapOverlayForEvent(event?: MajorEvent) {
+  if (!event) return "world";
+  if (/war|peace|truce|alliance/.test(event.type)) return event.type === "war" ? "wars" : "alliances";
+  if (/belief|shrine/.test(event.type)) return "beliefs";
+  if (/camp|breakaway|capture|destroy|rename/.test(event.type)) return "territories";
+  return "world";
+}
+
 function sumResources(camp: CivilizationCamp) {
   return camp.storage.food + camp.storage.water + camp.storage.wood + camp.storage.ore;
 }
@@ -156,16 +200,20 @@ function EventList({ events, empty }: { events: MajorEvent[]; empty: string }) {
   return <ol className="archive-moment-list">
     {events.map((event, index) => <li key={event.id} className={`tone-${event.tone}`}>
       <span className="archive-moment-rank">{String(index + 1).padStart(2, "0")}</span>
-      <span className="archive-moment-copy"><small>Day {Math.max(1, Math.floor(event.day))} · {eventKind(event.type)}</small><b>{event.title}</b><p>{event.message}</p></span>
+      <span className="archive-moment-copy"><small>Day {Math.max(1, Math.floor(event.day))} · {eventKind(event.type)}</small><b>{event.title}</b><p>{event.message}</p><span className="archive-entity-actions">
+        <Link href={`/history?chapter=${chapterForDay(event.day)}&day=${Math.max(1, Math.floor(event.day))}&q=${encodeURIComponent(event.title)}`}>Read in chapter</Link>
+        {event.campIds[0] && <Link href={`/?camp=${encodeURIComponent(event.campIds[0])}&overlay=${mapOverlayForEvent(event)}`}>Show on map</Link>}
+      </span></span>
     </li>)}
   </ol>;
 }
 
-function CampArchive({ world, camp, events, onOpenBelief }: {
+function CampArchive({ world, camp, events, onOpenBelief, onOpenCamp }: {
   world: CivilizationWorldState;
   camp: CivilizationCamp;
   events: MajorEvent[];
   onOpenBelief: (id: string) => void;
+  onOpenCamp: (id: string) => void;
 }) {
   const agentsById = useMemo(() => new Map(world.agents.map((agent) => [agent.id, agent])), [world.agents]);
   const founder = agentsById.get(camp.founderAgentId);
@@ -179,6 +227,8 @@ function CampArchive({ world, camp, events, onOpenBelief }: {
   const relations = world.relations.filter((relation) => relation.campAId === camp.id || relation.campBId === camp.id);
   const wars = relations.filter((relation) => relation.status === "war");
   const allies = relations.filter((relation) => relation.status === "alliance");
+  const consequentialRelations = relations.filter((relation) => relation.status !== "neutral");
+  const neutralRelations = relations.filter((relation) => relation.status === "neutral");
   const moments = rankedMoments(events, (event) => event.campIds.includes(camp.id), 8);
   const powerRank = getRankedCamps(world).filter((candidate) => candidate.active).findIndex((candidate) => candidate.id === camp.id) + 1;
   const structures = Object.entries(camp.structures).filter(([, level]) => level > 0);
@@ -188,6 +238,10 @@ function CampArchive({ world, camp, events, onOpenBelief }: {
       <span className="archive-camp-emblem" aria-hidden="true"><Tent size={22} /></span>
       <div><span className="archive-kicker">Civilization record</span><h2>{camp.name}</h2><p>Founded on day {Math.max(1, Math.floor(camp.foundedDay))}{camp.parentCampId ? parent ? ` as a breakaway from ${parent.name}` : " as a breakaway from an archived power" : " as an independent founding camp"}.</p></div>
       <StatusPill active={camp.active}>{camp.active ? `Active${powerRank > 0 ? ` · Rank ${powerRank}` : ""}` : "Historical"}</StatusPill>
+      <span className="archive-entity-actions archive-dossier-actions">
+        <Link href={`/?camp=${encodeURIComponent(camp.id)}&overlay=territories`}>Show on map</Link>
+        <Link href={`/history?chapter=${chapterForDay(camp.foundedDay)}&day=${Math.max(1, Math.floor(camp.foundedDay))}`}>Read its first chapter</Link>
+      </span>
     </header>
 
     <div className="archive-vitals">
@@ -201,9 +255,9 @@ function CampArchive({ world, camp, events, onOpenBelief }: {
       <section className="archive-card archive-identity-card">
         <div className="archive-section-title"><Landmark size={14} /><span>People & leadership</span></div>
         <dl className="archive-facts">
-          <div><dt>Founder</dt><dd>{founder?.name ?? "Archived founder"}<small>{founder ? (founder.alive ? "Living" : `Fallen${founder.deathDay ? ` · day ${Math.floor(founder.deathDay)}` : ""}`) : "Record no longer in the active roster"}</small></dd></div>
-          <div><dt>Current leader</dt><dd>{leader?.name ?? (camp.active ? "Council vacancy" : "No active leader")}<small>{leader ? `Generation ${leader.generation} · ${compact(leader.influence + leader.spiritualInfluence)} influence` : ""}</small></dd></div>
-          <div><dt>Origin</dt><dd>{camp.parentCampId ? parent ? `Breakaway from ${parent.name}` : "Breakaway from an archived power" : "Original power"}<small>{captor ? `Later captured by ${captor.name}` : camp.destroyedDay ? `Ended on day ${Math.floor(camp.destroyedDay)}` : "Self-governing"}</small></dd></div>
+          <div><dt>Founder</dt><dd>{founder ? <Link className="archive-linked-chip" href={`/?agent=${encodeURIComponent(founder.id)}&camp=${encodeURIComponent(camp.id)}&overlay=territories`}>{founder.name}</Link> : "Archived founder"}<small>{founder ? (founder.alive ? "Living" : `Fallen${founder.deathDay ? ` · day ${Math.floor(founder.deathDay)}` : ""}`) : "Record no longer in the active roster"}</small></dd></div>
+          <div><dt>Current leader</dt><dd>{leader ? <Link className="archive-linked-chip" href={`/?agent=${encodeURIComponent(leader.id)}&camp=${encodeURIComponent(camp.id)}&overlay=territories`}>{leader.name}</Link> : camp.active ? "Council vacancy" : "No active leader"}<small>{leader ? `Generation ${leader.generation} · ${compact(leader.influence + leader.spiritualInfluence)} influence` : ""}</small></dd></div>
+          <div><dt>Origin</dt><dd>{camp.parentCampId ? parent ? <Link className="archive-linked-chip" href={archiveHref({ camp: parent.id })} onClick={() => onOpenCamp(parent.id)}>Breakaway from {parent.name}</Link> : "Breakaway from an archived power" : "Original power"}<small>{captor ? <Link className="archive-linked-chip" href={archiveHref({ camp: captor.id })} onClick={() => onOpenCamp(captor.id)}>Later captured by {captor.name}</Link> : camp.destroyedDay ? `Ended on day ${Math.floor(camp.destroyedDay)}` : "Self-governing"}</small></dd></div>
           <div><dt>Cohesion</dt><dd>{percent(camp.cohesion)}<small>{percent(camp.beliefDiversity)} belief diversity</small></dd></div>
         </dl>
       </section>
@@ -239,11 +293,19 @@ function CampArchive({ world, camp, events, onOpenBelief }: {
           <span><b>{allies.length}</b> alliances</span><span className={wars.length ? "danger" : ""}><b>{wars.length}</b> active wars</span><span><b>{relations.filter((relation) => relation.status === "truce").length}</b> truces</span>
         </div>
         <div className="archive-relation-list">
-          {relations.length > 0 ? relations.slice().sort((left, right) => left.status.localeCompare(right.status)).map((relation) => {
+          {consequentialRelations.length > 0 ? consequentialRelations.slice().sort((left, right) => left.status.localeCompare(right.status)).map((relation) => {
             const otherId = relation.campAId === camp.id ? relation.campBId : relation.campAId;
             const other = world.camps.find((candidate) => candidate.id === otherId);
-            return <span key={relation.id} className={`relation-${relation.status}`}><i />{other?.name ?? "Archived power"}<b>{relation.status}</b></span>;
-          }) : <p>No surviving diplomatic records for this civilization.</p>}
+            return <span key={relation.id} className={`relation-${relation.status}`}><i /><Link href={other ? archiveHref({ camp: other.id }) : "#civilizations"} onClick={() => other && onOpenCamp(other.id)}>{other?.name ?? "Archived power"}</Link><b>{relation.status}</b></span>;
+          }) : <p>No active alliances, wars, or truces for this civilization.</p>}
+          {neutralRelations.length > 0 && <details className="archive-diplomacy-toggle">
+            <summary>Show {neutralRelations.length} neutral {neutralRelations.length === 1 ? "contact" : "contacts"}</summary>
+            <div>{neutralRelations.map((relation) => {
+              const otherId = relation.campAId === camp.id ? relation.campBId : relation.campAId;
+              const other = world.camps.find((candidate) => candidate.id === otherId);
+              return <span key={relation.id} className="relation-neutral"><i /><Link href={other ? archiveHref({ camp: other.id }) : "#civilizations"} onClick={() => other && onOpenCamp(other.id)}>{other?.name ?? "Archived power"}</Link><b>neutral</b></span>;
+            })}</div>
+          </details>}
         </div>
       </section>
     </div>
@@ -255,7 +317,7 @@ function CampArchive({ world, camp, events, onOpenBelief }: {
   </article>;
 }
 
-function BeliefArchive({ world, belief, events }: { world: CivilizationWorldState; belief: CivilizationBeliefSystem; events: MajorEvent[] }) {
+function BeliefArchive({ world, belief, events, onOpenBelief, onOpenCamp }: { world: CivilizationWorldState; belief: CivilizationBeliefSystem; events: MajorEvent[]; onOpenBelief: (id: string) => void; onOpenCamp: (id: string) => void }) {
   const founder = world.agents.find((agent) => agent.id === belief.founderAgentId);
   const origin = belief.originCampId ? world.camps.find((camp) => camp.id === belief.originCampId) : undefined;
   const livingIds = new Set(world.agents.filter((agent) => agent.alive).map((agent) => agent.id));
@@ -279,11 +341,16 @@ function BeliefArchive({ world, belief, events }: { world: CivilizationWorldStat
   return <article className="archive-belief-dossier" style={{ "--belief-accent": belief.color } as CSSProperties}>
     <header>
       <span className="archive-belief-sigil" aria-hidden="true"><i /></span>
-      <div><span className="archive-kicker">{belief.active ? "Living tradition" : "Historical belief"}</span><h3>{belief.name}</h3><p>Founded day {Math.max(1, Math.floor(belief.foundedDay))} by {founder?.name ?? "an archived founder"} {originPhrase}.</p></div>
+      <div><span className="archive-kicker">{belief.active ? "Living tradition" : "Historical belief"}</span><h3>{belief.name}</h3><p>Founded day {Math.max(1, Math.floor(belief.foundedDay))} by {founder ? <Link className="archive-linked-chip" href={`/?agent=${encodeURIComponent(founder.id)}&overlay=beliefs`}>{founder.name}</Link> : "an archived founder"} {origin ? <>at <Link className="archive-linked-chip" href={archiveHref({ camp: origin.id })} onClick={() => onOpenCamp(origin.id)}>{origin.name}</Link></> : originPhrase}.</p></div>
       <StatusPill active={belief.active}>{belief.active ? "Active" : "Faded"}</StatusPill>
+      <span className="archive-entity-actions archive-dossier-actions">
+        <Link href={`/?belief=${encodeURIComponent(belief.id)}&overlay=beliefs`}>Show on map</Link>
+        <Link href={`/history?chapter=${chapterForDay(belief.foundedDay)}&day=${Math.max(1, Math.floor(belief.foundedDay))}`}>Read its founding</Link>
+        {founder && <Link href={`/?agent=${encodeURIComponent(founder.id)}&overlay=beliefs`}>Follow {founder.name}</Link>}
+      </span>
     </header>
 
-    <div className="archive-lineage" aria-label="Belief lineage"><span>Lineage</span>{lineage.map((ancestor) => <span key={ancestor.id}><i style={{ backgroundColor: ancestor.color }} />{ancestor.name}<ChevronRight /></span>)}{unresolvedParent && <span>Archived parent movement<ChevronRight /></span>}{!belief.parentBeliefId && <span>Original movement<ChevronRight /></span>}<b>{belief.name}</b></div>
+    <div className="archive-lineage" aria-label="Belief lineage"><span>Lineage</span>{lineage.map((ancestor) => <Link className="archive-linked-chip" href={`${archiveHref({ belief: ancestor.id })}#beliefs`} key={ancestor.id} onClick={() => onOpenBelief(ancestor.id)}><i style={{ backgroundColor: ancestor.color }} />{ancestor.name}<ChevronRight /></Link>)}{unresolvedParent && <span>Archived parent movement<ChevronRight /></span>}{!belief.parentBeliefId && <span>Original movement<ChevronRight /></span>}<b>{belief.name}</b></div>
 
     <div className="archive-belief-stats">
       <span><small>Living adherents</small><b>{livingAdherents}</b><em>{belief.adherentIds.length} in current record</em></span>
@@ -320,10 +387,22 @@ export function CivilizationArchive() {
   const [revision, setRevision] = useState(0);
   const [syncState, setSyncState] = useState<SyncState>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [selectedCampId, setSelectedCampId] = useState<string | null>(null);
-  const [selectedBeliefId, setSelectedBeliefId] = useState<string | null>(null);
-  const [campFilter, setCampFilter] = useState<CampFilter>("all");
-  const [query, setQuery] = useState("");
+  const [selectedCampId, setSelectedCampId] = useState<string | null>(() => readSearchParam("camp") || null);
+  const [selectedBeliefId, setSelectedBeliefId] = useState<string | null>(() => readSearchParam("belief") || null);
+  const [campFilter, setCampFilter] = useState<CampFilter>(() => {
+    const value = readSearchParam("status");
+    return value === "active" || value === "historical" ? value : "all";
+  });
+  const [entityFilter, setEntityFilter] = useState<EntityFilter>(() => {
+    const value = readSearchParam("type");
+    return value === "civilizations" || value === "agents" || value === "beliefs" || value === "events" ? value : "all";
+  });
+  const [sortMode, setSortMode] = useState<ArchiveSort>(() => {
+    const value = readSearchParam("sort");
+    return value === "power" || value === "recent" ? value : "relevance";
+  });
+  const [query, setQuery] = useState(() => readSearchParam("q"));
+  const initialDeepLinkHandled = useRef(false);
 
   const loadWorld = useCallback(async (silent = false) => {
     try {
@@ -360,28 +439,120 @@ export function CivilizationArchive() {
     };
   }, [loadWorld]);
 
+  useEffect(() => {
+    if (!world) return;
+    const url = new URL(window.location.href);
+    const values: Record<string, string | null> = {
+      camp: selectedCampId,
+      belief: selectedBeliefId,
+      q: query.trim() || null,
+      status: campFilter === "all" ? null : campFilter,
+      type: entityFilter === "all" ? null : entityFilter,
+      sort: sortMode === "relevance" ? null : sortMode,
+    };
+    for (const [key, value] of Object.entries(values)) {
+      if (value) url.searchParams.set(key, value);
+      else url.searchParams.delete(key);
+    }
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [campFilter, entityFilter, query, selectedBeliefId, selectedCampId, sortMode, world]);
+
+  useEffect(() => {
+    if (!world || initialDeepLinkHandled.current) return;
+    initialDeepLinkHandled.current = true;
+    const target = window.location.hash === "#beliefs" || readSearchParam("belief") ? "beliefs" : readSearchParam("camp") ? "civilizations" : null;
+    if (!target) return;
+    window.requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ block: "start" }));
+  }, [world]);
+
   const rankedCamps = useMemo(() => world ? getRankedCamps(world) : [], [world]);
   const rankedBeliefs = useMemo(() => world ? getRankedBeliefs(world) : [], [world]);
   const selectedBelief = world?.beliefs.find((belief) => belief.id === selectedBeliefId) ?? rankedBeliefs[0];
   const summary = world ? getCivilizationSummary(world) : null;
-  const filteredCamps = useMemo(() => {
-    if (!world) return [];
+  const searchResults = useMemo(() => {
+    if (!world) return { visible: [] as ArchiveSearchResult[], total: 0, campIds: new Set<string>() };
     const normalized = query.trim().toLocaleLowerCase();
-    return rankedCamps.filter((camp) => {
-      if (campFilter === "active" && !camp.active) return false;
-      if (campFilter === "historical" && camp.active) return false;
-      if (!normalized) return true;
-      const founder = world.agents.find((agent) => agent.id === camp.founderAgentId)?.name ?? "";
-      const belief = world.beliefs.find((candidate) => candidate.id === camp.dominantBeliefId)?.name ?? "";
-      return `${camp.name} ${founder} ${belief}`.toLocaleLowerCase().includes(normalized);
+    const agentsById = new Map(world.agents.map((agent) => [agent.id, agent]));
+    const campsById = new Map(world.camps.map((camp) => [camp.id, camp]));
+    const beliefsById = new Map(world.beliefs.map((belief) => [belief.id, belief]));
+    const founderIds = new Set(world.camps.map((camp) => camp.founderAgentId));
+    const results: ArchiveSearchResult[] = [];
+    const include = (kind: ArchiveSearchResult["kind"], active: boolean | null, searchable: string) => {
+      if (entityFilter !== "all" && entityFilter !== kind) return false;
+      if (campFilter !== "all" && active !== (campFilter === "active")) return false;
+      return !normalized || searchable.toLocaleLowerCase().includes(normalized);
+    };
+    const relevance = (title: string, searchable: string) => {
+      if (!normalized) return 0;
+      const lowerTitle = title.toLocaleLowerCase();
+      if (lowerTitle === normalized) return 100;
+      if (lowerTitle.startsWith(normalized)) return 70;
+      if (lowerTitle.includes(normalized)) return 45;
+      return searchable.toLocaleLowerCase().includes(normalized) ? 20 : 0;
+    };
+
+    for (const camp of rankedCamps) {
+      const founder = agentsById.get(camp.founderAgentId);
+      const belief = camp.dominantBeliefId ? beliefsById.get(camp.dominantBeliefId) : undefined;
+      const searchable = `${camp.name} ${founder?.name ?? ""} ${belief?.name ?? ""} ${camp.technologies.map(getTechnologyLabel).join(" ")}`;
+      if (!include("civilizations", camp.active, searchable)) continue;
+      results.push({ id: `camp:${camp.id}`, kind: "civilizations", title: camp.name, subtitle: `${camp.active ? "Active civilization" : "Historical civilization"} · founded by ${founder?.name ?? "an archived founder"}`, searchable, active: camp.active, campId: camp.id, day: camp.foundedDay, power: camp.power, relevance: relevance(camp.name, searchable) });
+    }
+    for (const agent of world.agents) {
+      const camp = agent.campId ? campsById.get(agent.campId) : undefined;
+      const founderLabel = founderIds.has(agent.id) ? "founder" : "agent";
+      const searchable = `${agent.name} ${founderLabel} ${camp?.name ?? "unaffiliated"}`;
+      if (!include("agents", agent.alive, searchable)) continue;
+      results.push({ id: `agent:${agent.id}`, kind: "agents", title: agent.name, subtitle: `${agent.alive ? "Living" : "Historical"} ${founderLabel} · ${camp?.name ?? "Unaffiliated"} · generation ${agent.generation}`, searchable, active: agent.alive, campId: camp?.id, agentId: agent.id, day: agent.bornAtDay, power: agent.personalPower + agent.influence + agent.spiritualInfluence, relevance: relevance(agent.name, searchable) + (founderIds.has(agent.id) ? 4 : 0) });
+    }
+    for (const belief of rankedBeliefs) {
+      const founder = agentsById.get(belief.founderAgentId);
+      const searchable = `${belief.name} ${founder?.name ?? ""} ${belief.tenets.map(getBeliefTenetLabel).join(" ")}`;
+      if (!include("beliefs", belief.active, searchable)) continue;
+      results.push({ id: `belief:${belief.id}`, kind: "beliefs", title: belief.name, subtitle: `${belief.active ? "Living belief" : "Faded belief"} · founded by ${founder?.name ?? "an archived founder"}`, searchable, active: belief.active, beliefId: belief.id, campId: belief.originCampId ?? undefined, day: belief.foundedDay, power: belief.influence, relevance: relevance(belief.name, searchable) });
+    }
+    for (const event of events) {
+      const linkedNames = [
+        ...event.agentIds.map((id) => agentsById.get(id)?.name ?? ""),
+        ...event.campIds.map((id) => campsById.get(id)?.name ?? ""),
+        ...event.beliefIds.map((id) => beliefsById.get(id)?.name ?? ""),
+      ].join(" ");
+      const searchable = `${event.title} ${event.message} ${eventKind(event.type)} ${linkedNames}`;
+      if (!include("events", null, searchable)) continue;
+      results.push({ id: `event:${event.id}`, kind: "events", title: event.title, subtitle: `Day ${Math.max(1, Math.floor(event.day))} · ${eventKind(event.type)}`, searchable, active: null, campId: event.campIds[0], beliefId: event.beliefIds[0], agentId: event.agentIds[0], day: event.day, power: eventImpact(event), relevance: relevance(event.title, searchable) });
+    }
+
+    results.sort((left, right) => {
+      if (sortMode === "recent") return (right.day ?? 0) - (left.day ?? 0) || right.power - left.power || left.id.localeCompare(right.id);
+      if (sortMode === "power") return right.power - left.power || (right.day ?? 0) - (left.day ?? 0) || left.id.localeCompare(right.id);
+      return right.relevance - left.relevance || right.power - left.power || left.id.localeCompare(right.id);
     });
-  }, [campFilter, query, rankedCamps, world]);
-  const selectedCamp = filteredCamps.find((camp) => camp.id === selectedCampId) ?? filteredCamps[0];
+    const visible = results.slice(0, 80);
+    const pinnedIds = [`camp:${selectedCampId ?? ""}`, `belief:${selectedBeliefId ?? ""}`];
+    for (const pinnedId of pinnedIds.reverse()) {
+      const pinned = results.find((result) => result.id === pinnedId);
+      if (pinned && !visible.some((result) => result.id === pinnedId)) visible.unshift(pinned);
+    }
+    if (visible.length > 82) visible.length = 82;
+    return { visible, total: results.length, campIds: new Set(results.flatMap((result) => result.kind === "civilizations" && result.campId ? [result.campId] : [])) };
+  }, [campFilter, entityFilter, events, query, rankedBeliefs, rankedCamps, selectedBeliefId, selectedCampId, sortMode, world]);
+  const selectedCampCandidate = world?.camps.find((camp) => camp.id === selectedCampId) ?? rankedCamps[0];
+  const firstMatchingCamp = rankedCamps.find((camp) => searchResults.campIds.has(camp.id));
+  const constrainDossierToResults = entityFilter === "civilizations" || (entityFilter === "all" && campFilter !== "all");
+  const selectedCamp = constrainDossierToResults
+    ? selectedCampCandidate && searchResults.campIds.has(selectedCampCandidate.id) ? selectedCampCandidate : firstMatchingCamp
+    : selectedCampCandidate;
 
   const openBelief = useCallback((id: string) => {
     setSelectedBeliefId(id);
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     window.requestAnimationFrame(() => document.getElementById("beliefs")?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" }));
+  }, []);
+
+  const openCamp = useCallback((id: string) => {
+    setSelectedCampId(id);
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.requestAnimationFrame(() => document.getElementById("civilizations")?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" }));
   }, []);
 
   if (!world && syncState === "loading") return <ArchiveLoading />;
@@ -405,13 +576,15 @@ export function CivilizationArchive() {
       <Link href="/" className="archive-brand" aria-label="Wildgrid Sovereignty live map">
         <span><Leaf size={16} /></span><div><b>WILDGRID <em>SOVEREIGNTY</em></b><small>World archive</small></div>
       </Link>
-      <nav aria-label="Archive sections">
-        <a href="#overview">Overview</a><a href="#civilizations">Civilizations</a><a href="#beliefs">Beliefs</a>
+      <nav className="site-section-nav" aria-label="Site pages">
+        <Link href="/"><Activity /><span>Map</span></Link>
+        <span className="site-section-link" aria-current="page"><Landmark /><span>Civilizations</span></span>
+        <Link href="/history"><BookOpen /><span>History</span></Link>
       </nav>
       <div className="archive-live" title={`Persistent world revision ${revision}`}><i className={syncState === "offline" ? "offline" : ""} /><span>{syncState === "refreshing" ? "UPDATING" : syncState === "offline" ? "LAST KNOWN" : `LIVE · R${revision}`}</span></div>
       <div className="archive-route-links">
-        <Link href="/history" className="archive-history-link" aria-label="Read the world history in 200-day chapters"><ScrollText /><span>History book</span></Link>
-        <Link href="/" className="archive-map-link" aria-label="Return to the live world map"><ArrowLeft /><span>Live map</span></Link>
+        <a href="#civilizations" className="archive-history-link"><Search /><span>Search records</span></a>
+        <a href="#beliefs" className="archive-map-link"><Sparkles /><span>Beliefs</span></a>
       </div>
     </header>
 
@@ -440,23 +613,46 @@ export function CivilizationArchive() {
         <span>{world.camps.length} records · {events.length} chronicle entries</span>
       </div>
       <div className="archive-civ-layout">
-        <aside className="archive-index" aria-label="Civilization index">
-          <label className="archive-search"><Search /><span className="sr-only">Search civilizations</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search camp, founder, belief…" /></label>
-          <div className="archive-filters" aria-label="Filter civilizations">
-            {(["all", "active", "historical"] as CampFilter[]).map((filter) => <button key={filter} onClick={() => setCampFilter(filter)} aria-pressed={campFilter === filter}>{filter}</button>)}
+        <aside className="archive-index" aria-label="Search the complete archive">
+          <div className="archive-discovery-toolbar">
+            <label className="archive-search"><Search /><span className="sr-only">Search civilizations, agents, beliefs, founders, and major events</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search people, powers, beliefs, events…" /></label>
+            <div className="archive-filter-selects">
+              <label><span>Record type</span><select aria-label="Record type" value={entityFilter} onChange={(event) => setEntityFilter(event.target.value as EntityFilter)}>
+                <option value="all">All records</option><option value="civilizations">Civilizations</option><option value="agents">Agents & founders</option><option value="beliefs">Beliefs</option><option value="events">Major events</option>
+              </select></label>
+              <label><span>Sort</span><select aria-label="Sort archive results" value={sortMode} onChange={(event) => setSortMode(event.target.value as ArchiveSort)}>
+                <option value="relevance">Relevance</option><option value="power">Influence / power</option><option value="recent">Most recent</option>
+              </select></label>
+            </div>
           </div>
-          <div className="archive-index-list">
-            {filteredCamps.map((camp) => {
-              const belief = world.beliefs.find((candidate) => candidate.id === camp.dominantBeliefId);
-              const selected = selectedCamp?.id === camp.id;
-              return <button key={camp.id} className={selected ? "selected" : ""} style={{ "--camp-color": camp.color } as CSSProperties} onClick={() => setSelectedCampId(camp.id)} aria-pressed={selected}>
-                <i /><span><b>{camp.name}</b><small>{camp.active ? `${camp.memberIds.filter((id) => world.agents.some((agent) => agent.id === id && agent.alive)).length} living` : camp.destroyedDay ? `Ended day ${Math.floor(camp.destroyedDay)}` : "Historical record"} · {belief?.name ?? "No dominant belief"}</small></span><strong>{compact(camp.power)}<small>POWER</small></strong>
-              </button>;
+          <div className="archive-filters" role="group" aria-label="Filter by current status">
+            {(["all", "active", "historical"] as CampFilter[]).map((filter) => <button key={filter} type="button" onClick={() => setCampFilter(filter)} aria-pressed={campFilter === filter}>{filter}</button>)}
+          </div>
+          <div className="archive-search-count" aria-live="polite">{searchResults.total} matching {searchResults.total === 1 ? "record" : "records"}{searchResults.total > searchResults.visible.length ? ` · showing first ${searchResults.visible.length}` : ""}</div>
+          <div className="archive-entity-results" role="list" aria-label="Archive search results">
+            {searchResults.visible.map((result) => {
+              const selected = result.kind === "civilizations" && selectedCamp?.id === result.campId || result.kind === "beliefs" && selectedBelief?.id === result.beliefId;
+              const mapParameters = new URLSearchParams();
+              if (result.campId) mapParameters.set("camp", result.campId);
+              if (result.agentId) mapParameters.set("agent", result.agentId);
+              if (result.beliefId) mapParameters.set("belief", result.beliefId);
+              mapParameters.set("overlay", result.kind === "beliefs" ? "beliefs" : result.kind === "events" && result.day ? mapOverlayForEvent(events.find((event) => `event:${event.id}` === result.id) ?? events[0]) : "territories");
+              const openResult = () => {
+                if (result.campId) openCamp(result.campId);
+                if (result.beliefId && (result.kind === "beliefs" || !result.campId)) openBelief(result.beliefId);
+              };
+              return <article key={result.id} role="listitem" className={`archive-result-row ${selected ? "selected" : ""}`} data-kind={result.kind}>
+                <button type="button" onClick={openResult} disabled={result.kind === "events" && !result.campId && !result.beliefId}><span><small>{result.kind === "agents" && result.subtitle.includes("founder") ? "founder" : result.kind.slice(0, -1)}</small><b>{result.title}</b><em>{result.subtitle}</em></span><ChevronRight /></button>
+                <span className="archive-entity-actions">
+                  {mapParameters.has("camp") || mapParameters.has("agent") || mapParameters.has("belief") ? <Link href={`/?${mapParameters.toString()}`}>Map</Link> : null}
+                  {result.day ? <Link href={`/history?chapter=${chapterForDay(result.day)}&day=${Math.max(1, Math.floor(result.day))}${result.kind === "events" ? `&q=${encodeURIComponent(result.title)}` : ""}`}>History</Link> : null}
+                </span>
+              </article>;
             })}
-            {filteredCamps.length === 0 && <p className="archive-empty">No civilization matches this view.</p>}
+            {searchResults.visible.length === 0 && <p className="archive-empty">No archive record matches these filters.</p>}
           </div>
         </aside>
-        {selectedCamp ? <CampArchive world={world} camp={selectedCamp} events={Object.hasOwn(archiveHighlights.camps, selectedCamp.id) ? archiveHighlights.camps[selectedCamp.id] ?? [] : events} onOpenBelief={openBelief} /> : <div className="archive-dossier archive-empty">No civilization record is available yet.</div>}
+        {selectedCamp ? <CampArchive world={world} camp={selectedCamp} events={Object.hasOwn(archiveHighlights.camps, selectedCamp.id) ? archiveHighlights.camps[selectedCamp.id] ?? [] : events} onOpenBelief={openBelief} onOpenCamp={openCamp} /> : <div className="archive-dossier archive-empty">No civilization record is available yet.</div>}
       </div>
     </section>
 
@@ -466,10 +662,8 @@ export function CivilizationArchive() {
         <span>{rankedBeliefs.filter((belief) => belief.active).length} active · {rankedBeliefs.filter((belief) => !belief.active).length} faded</span>
       </div>
       {rankedBeliefs.length > 0 ? <div className="archive-belief-layout">
-        <div className="archive-belief-tabs" aria-label="Select a belief system">
-          {rankedBeliefs.map((belief) => <button key={belief.id} aria-pressed={selectedBelief?.id === belief.id} aria-controls="archive-belief-detail" onClick={() => setSelectedBeliefId(belief.id)} style={{ "--belief-color": belief.color } as CSSProperties}><i /><span><b>{belief.name}</b><small>{belief.active ? "Living" : "Faded"} · {belief.adherentIds.filter((id) => world.agents.some((agent) => agent.id === id && agent.alive)).length} adherents</small></span><strong>{compact(belief.influence)}</strong></button>)}
-        </div>
-        <div id="archive-belief-detail">{selectedBelief && <BeliefArchive world={world} belief={selectedBelief} events={Object.hasOwn(archiveHighlights.beliefs, selectedBelief.id) ? archiveHighlights.beliefs[selectedBelief.id] ?? [] : events} />}</div>
+        <label className="archive-belief-select"><span>Select a belief record</span><select value={selectedBelief?.id ?? ""} onChange={(event) => setSelectedBeliefId(event.target.value)} aria-controls="archive-belief-detail">{rankedBeliefs.map((belief) => <option key={belief.id} value={belief.id}>{belief.name} · {belief.active ? "Living" : "Faded"} · {belief.adherentIds.filter((id) => world.agents.some((agent) => agent.id === id && agent.alive)).length} adherents</option>)}</select><small>Use the archive search above to find a belief by founder, value, or event.</small></label>
+        <div id="archive-belief-detail">{selectedBelief && <BeliefArchive world={world} belief={selectedBelief} events={Object.hasOwn(archiveHighlights.beliefs, selectedBelief.id) ? archiveHighlights.beliefs[selectedBelief.id] ?? [] : events} onOpenBelief={openBelief} onOpenCamp={openCamp} />}</div>
       </div> : <div className="archive-no-beliefs"><Sparkles /><h3>No shared belief has formed yet.</h3><p>The founders are free to remain secular. This archive will document any movement they choose to create.</p></div>}
     </section>
 

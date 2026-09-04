@@ -215,6 +215,7 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
   assert.match(route, /catchUpCivilization|civilization_events|no-store|migrat/i);
   assert.match(route, /view.*archive|archiveHighlights|ROW_NUMBER|json_each/i);
   assert.match(route, /view.*history|historyBook|historyIndex|HISTORY_BOOK_CHAPTER_DAYS\s*=\s*200/i);
+  assert.match(route, /WORLD_SEED\s*=\s*"wildgrid-sovereignty-era-2"/i);
   assert.match(hosting, /"d1"\s*:\s*"DB"/i);
   assert.match(packageJson, /"three"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

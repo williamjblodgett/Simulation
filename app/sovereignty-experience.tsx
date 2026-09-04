@@ -70,6 +70,7 @@ import {
   type CameraMode,
   type DiplomaticRelation as VisualDiplomaticRelation,
   type MapOverlayMode,
+  type MapRelationSelection,
   type VisualWorld,
 } from "./simulation/civilization-scene";
 
@@ -94,7 +95,11 @@ type RosterMode = "powers" | "agents" | "influence" | "beliefs";
 type EventFilter = "all" | "power" | "war" | "lineage" | "technology" | "belief";
 type SyncState = "connecting" | "persistent" | "catching_up" | "reconnecting";
 type Selection = { kind: "agent" | "camp" | "belief"; id: string };
+type MobileSheetTab = "roster" | "inspector" | "chronicle";
+type MobileSheetLevel = "collapsed" | "peek" | "open";
 type OverlayLegendKind = "dot" | "line" | "area";
+
+const MOBILE_SHEET_TABS: MobileSheetTab[] = ["roster", "inspector", "chronicle"];
 
 interface OverlayLegendItem {
   label: string;
@@ -207,14 +212,20 @@ function relationView(relation: unknown, index: number) {
   const status = String(raw.status ?? raw.relation ?? "neutral").toLowerCase();
   const rawStrength = raw.strength ?? (status === "war" ? raw.tension : raw.trust) ?? 0.5;
   const strength = clamp(rawStrength > 1 ? rawStrength / 100 : rawStrength, 0, 1);
+  const rawTrust = raw.trust ?? (status === "alliance" || status === "trade" ? rawStrength : 0);
+  const rawTension = raw.tension ?? (status === "war" || status === "hostile" ? rawStrength : 0);
   return {
     id: raw.id ?? `relation-${index}`,
     fromCampId,
     toCampId,
     status,
     strength,
+    trust: clamp(rawTrust > 1 ? rawTrust / 100 : rawTrust, 0, 1),
+    tension: clamp(rawTension > 1 ? rawTension / 100 : rawTension, 0, 1),
     startedDay: raw.sinceDay ?? raw.startedDay ?? 0,
-    warScore: raw.warScore ?? Math.max(Math.abs(raw.warScoreA ?? 0), Math.abs(raw.warScoreB ?? 0)),
+    warScore: raw.warScore ?? (raw.warScoreA ?? 0) - (raw.warScoreB ?? 0),
+    warScoreA: raw.warScoreA ?? 0,
+    warScoreB: raw.warScoreB ?? 0,
   };
 }
 
@@ -636,6 +647,7 @@ function CivilizationCanvas({
   onAgentSelect,
   onCampSelect,
   onBeliefSelect,
+  onRelationSelect,
   onCameraModeChange,
 }: {
   worldRef: MutableRefObject<CivilizationWorldState>;
@@ -646,6 +658,7 @@ function CivilizationCanvas({
   onAgentSelect(id: string): void;
   onCampSelect(id: string): void;
   onBeliefSelect(id: string): void;
+  onRelationSelect(selection: MapRelationSelection): void;
   onCameraModeChange(mode: CameraMode): void;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -666,6 +679,7 @@ function CivilizationCanvas({
         onAgentSelect,
         onCampSelect,
         onBeliefSelect,
+        onRelationSelect,
         onCameraModeChange,
         reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       });
@@ -714,7 +728,7 @@ function CivilizationCanvas({
       cancelAnimationFrame(frameId);
       controller.dispose();
     };
-  }, [onAgentSelect, onBeliefSelect, onCampSelect, onCameraModeChange, onSnapshot, worldRef]);
+  }, [onAgentSelect, onBeliefSelect, onCampSelect, onCameraModeChange, onRelationSelect, onSnapshot, worldRef]);
 
   return (
     <div ref={mountRef} className="sov-world" aria-label="Live three-dimensional autonomous civilization map">
@@ -836,6 +850,8 @@ function CampInspector({ world, camp }: { world: CivilizationWorldState; camp: C
   const dominantBelief = world.beliefs.find((belief) => belief.id === camp.dominantBeliefId);
   const structures = Object.entries(camp.structures as unknown as LooseStructures).filter(([, level]) => (level ?? 0) > 0);
   const relations = world.relations.map(relationView).filter((relation) => relation.fromCampId === camp.id || relation.toCampId === camp.id);
+  const bindingRelations = relations.filter((relation) => relation.status !== "neutral");
+  const neutralRelations = relations.filter((relation) => relation.status === "neutral");
   const stock = camp.storage.food + camp.storage.water + camp.storage.wood + camp.storage.ore;
   const researchCost = camp.researchTarget ? TECHNOLOGY_TREE[camp.researchTarget].cost : 1;
   return (
@@ -898,12 +914,20 @@ function CampInspector({ world, camp }: { world: CivilizationWorldState; camp: C
         <section className="sov-section">
           <div className="sov-section-head"><span className="sov-kicker">Diplomacy</span><Shield size={13} /></div>
           <div className="sov-relations">
-            {relations.length > 0 ? relations.map((relation) => {
+            {bindingRelations.length > 0 ? bindingRelations.map((relation) => {
               const otherId = relation.fromCampId === camp.id ? relation.toCampId : relation.fromCampId;
               const other = world.camps.find((candidate) => candidate.id === otherId);
               const color = relationColor(relation.status);
               return <div className="sov-relation" key={relation.id} style={{ "--relation-color": color } as CSSProperties}><i /><span>{other?.name ?? "Unknown power"}</span><em>{relationLabel(relation.status)}</em></div>;
             }) : <div className="sov-relation"><i /><span>No binding pacts</span><em>Independent</em></div>}
+            {neutralRelations.length > 0 && <details className="sov-neutral-relations">
+              <summary>Show {neutralRelations.length} neutral {neutralRelations.length === 1 ? "power" : "powers"}</summary>
+              <div>{neutralRelations.map((relation) => {
+                const otherId = relation.fromCampId === camp.id ? relation.toCampId : relation.fromCampId;
+                const other = world.camps.find((candidate) => candidate.id === otherId);
+                return <div className="sov-relation" key={relation.id} style={{ "--relation-color": relationColor(relation.status) } as CSSProperties}><i /><span>{other?.name ?? "Unknown power"}</span><em>Neutral</em></div>;
+              })}</div>
+            </details>}
           </div>
         </section>
       </div>
@@ -978,15 +1002,24 @@ export function SovereigntyExperience() {
   const [cameraMode, setCameraMode] = useState<CameraMode>("overview");
   const [mapOverlayMode, setMapOverlayMode] = useState<MapOverlayMode>("world");
   const [mapFocus, setMapFocus] = useState(false);
-  const [mapLayersExpanded, setMapLayersExpanded] = useState(false);
+  const [mapLayersExpanded, setMapLayersExpanded] = useState(true);
+  const [mobileSheetTab, setMobileSheetTab] = useState<MobileSheetTab>("inspector");
+  const [mobileSheetLevel, setMobileSheetLevel] = useState<MobileSheetLevel>("collapsed");
+  const [selectedMapRelation, setSelectedMapRelation] = useState<MapRelationSelection | null>(null);
   const [familyTreeAgentId, setFamilyTreeAgentId] = useState<string | null>(null);
   const [eventFilter, setEventFilter] = useState<EventFilter>("all");
   const [chronicleExpanded, setChronicleExpanded] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>("connecting");
+  const [authoritativeReady, setAuthoritativeReady] = useState(false);
   const [history, setHistory] = useState<MajorEvent[]>(initialWorld.majorEvents);
   const [revision, setRevision] = useState(0);
   const [catchUpPendingSeconds, setCatchUpPendingSeconds] = useState(0);
   const familyTreeTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const relationCardRef = useRef<HTMLElement | null>(null);
+  const relationReturnFocusRef = useRef<HTMLElement | null>(null);
+  const queryStateHydratedRef = useRef(false);
+  const mobileSheetGestureRef = useRef<{ pointerId: number; startY: number; level: MobileSheetLevel } | null>(null);
+  const ignoreNextSheetClickRef = useRef(false);
 
   const rankedCamps = useMemo(() => getRankedCamps(hud).filter((camp) => camp.active), [hud]);
   const rankedAgents = useMemo(() => getRankedAgents(hud), [hud]);
@@ -996,33 +1029,87 @@ export function SovereigntyExperience() {
   const activeCamps = rankedCamps.length;
   const activeBeliefs = beliefRanking.length;
   const relationViews = useMemo(() => hud.relations.map(relationView), [hud.relations]);
+  const selectedRelationRecord = selectedMapRelation
+    ? relationViews.find((relation) => (
+      (relation.fromCampId === selectedMapRelation.fromCampId && relation.toCampId === selectedMapRelation.toCampId)
+      || (relation.fromCampId === selectedMapRelation.toCampId && relation.toCampId === selectedMapRelation.fromCampId)
+    ))
+    : undefined;
+  const selectedRelationFromCamp = selectedMapRelation ? hud.camps.find((camp) => camp.id === selectedMapRelation.fromCampId) : undefined;
+  const selectedRelationToCamp = selectedMapRelation ? hud.camps.find((camp) => camp.id === selectedMapRelation.toCampId) : undefined;
+  const selectedRelationStartedDay = Math.max(1, Math.floor(selectedRelationRecord?.startedDay ?? hud.day));
+  const selectedRelationDuration = Math.max(0, Math.floor(hud.day) - selectedRelationStartedDay);
+  const selectedWarScore = selectedRelationRecord?.warScore ?? 0;
+  const selectedWarLead = Math.abs(selectedWarScore) < 0.5
+    ? "Even"
+    : `${selectedWarScore > 0 ? selectedRelationFromCamp?.name ?? "First power" : selectedRelationToCamp?.name ?? "Second power"} +${Math.round(Math.abs(selectedWarScore))}`;
   const wars = relationViews.filter((relation) => relation.status === "war");
   const topCamp = rankedCamps[0];
   const selectedAgent = selection.kind === "agent" ? hud.agents.find((agent) => agent.id === selection.id) : undefined;
   const selectedCamp = selection.kind === "camp" ? hud.camps.find((camp) => camp.id === selection.id) : undefined;
   const selectedBelief = selection.kind === "belief" ? hud.beliefs.find((belief) => belief.id === selection.id) : undefined;
   const familyTreeAgent = familyTreeAgentId ? hud.agents.find((agent) => agent.id === familyTreeAgentId) : undefined;
+  const selectedName = selectedAgent?.name ?? selectedCamp?.name ?? selectedBelief?.name ?? "World observer";
+  const selectedContext = selectedAgent
+    ? `${getActionLabel(selectedAgent.action)} · ${getCampName(hud, selectedAgent.campId)}`
+    : selectedCamp
+      ? `${compactNumber(selectedCamp.power)} power · ${selectedCamp.memberIds.length} citizens`
+      : selectedBelief
+        ? `${selectedBelief.adherentIds.length} adherents · ${selectedBelief.tenets.map((tenet) => BELIEF_TENET_LABELS[tenet]).join(" / ")}`
+        : "Tap an agent, camp, or belief to observe it";
   const accent = selectedAgent?.color ?? selectedCamp?.color ?? selectedBelief?.color ?? topCamp?.color ?? "#c7f36a";
   const overlayOption = MAP_OVERLAY_OPTIONS.find((option) => option.mode === mapOverlayMode) ?? MAP_OVERLAY_OPTIONS[0];
   const overlayPresentation = useMemo(
     () => getOverlayPresentation(mapOverlayMode, hud, rankedCamps, beliefRanking, relationViews),
     [beliefRanking, hud, mapOverlayMode, rankedCamps, relationViews],
   );
+  const accessibleMapRelations = useMemo(() => relationViews
+    .filter((relation) => mapOverlayMode === "alliances"
+      ? relation.status === "alliance" || relation.status === "trade" || relation.status === "truce"
+      : mapOverlayMode === "wars"
+        ? relation.status === "war" || relation.status === "hostile"
+        : false)
+    .sort((left, right) => right.strength - left.strength || left.id.localeCompare(right.id))
+    .slice(0, 8), [mapOverlayMode, relationViews]);
 
+  const prepareMobileSheet = useCallback(() => {
+    if (window.matchMedia("(max-width: 860px)").matches) setMapLayersExpanded(false);
+  }, []);
   const publishSnapshot = useCallback((world: CivilizationWorldState) => setHud(world), []);
   const selectAgent = useCallback((id: string) => {
+    prepareMobileSheet();
+    setSelectedMapRelation(null);
     setSelection({ kind: "agent", id });
     setCameraMode("followAgent");
-  }, []);
+    setMobileSheetTab("inspector");
+    setMobileSheetLevel((level) => level === "collapsed" ? "peek" : level);
+  }, [prepareMobileSheet]);
   const selectCamp = useCallback((id: string) => {
+    prepareMobileSheet();
+    setSelectedMapRelation(null);
     setSelection({ kind: "camp", id });
     setCameraMode("followCamp");
-  }, []);
+    setMobileSheetTab("inspector");
+    setMobileSheetLevel((level) => level === "collapsed" ? "peek" : level);
+  }, [prepareMobileSheet]);
   const selectBelief = useCallback((id: string) => {
+    prepareMobileSheet();
+    setSelectedMapRelation(null);
     setSelection({ kind: "belief", id });
     setRosterMode("beliefs");
     setMapOverlayMode("beliefs");
     setCameraMode("overview");
+    setMobileSheetTab("inspector");
+    setMobileSheetLevel((level) => level === "collapsed" ? "peek" : level);
+  }, [prepareMobileSheet]);
+  const selectMapRelation = useCallback((relation: MapRelationSelection) => {
+    relationReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setSelectedMapRelation(relation);
+    setMapOverlayMode(relation.kind === "war" ? "wars" : "alliances");
+  }, []);
+  const closeMapRelation = useCallback(() => {
+    setSelectedMapRelation(null);
+    window.requestAnimationFrame(() => relationReturnFocusRef.current?.focus());
   }, []);
   const openFamilyTree = useCallback(() => {
     if (selection.kind === "agent") setFamilyTreeAgentId(selection.id);
@@ -1039,10 +1126,57 @@ export function SovereigntyExperience() {
   }, []);
   const toggleMapFocus = useCallback(() => {
     setMapFocus((focused) => {
-      if (!focused) setCameraMode("free");
+      if (!focused) {
+        setCameraMode("free");
+        setMobileSheetLevel("collapsed");
+      }
       return !focused;
     });
   }, []);
+
+  const showMobileSheetTab = useCallback((tab: MobileSheetTab) => {
+    prepareMobileSheet();
+    setMobileSheetTab(tab);
+    setMobileSheetLevel((level) => level === "collapsed" ? "peek" : level);
+  }, [prepareMobileSheet]);
+
+  const toggleMobileSheet = useCallback(() => {
+    if (ignoreNextSheetClickRef.current) {
+      ignoreNextSheetClickRef.current = false;
+      return;
+    }
+    prepareMobileSheet();
+    setMobileSheetLevel((level) => level === "collapsed" ? "peek" : level === "peek" ? "open" : "collapsed");
+  }, [prepareMobileSheet]);
+
+  const toggleChronicle = useCallback(() => {
+    prepareMobileSheet();
+    setChronicleExpanded((expanded) => {
+      const next = !expanded;
+      setMobileSheetTab("chronicle");
+      setMobileSheetLevel(next ? "open" : "peek");
+      return next;
+    });
+  }, [prepareMobileSheet]);
+
+  const startMobileSheetDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    mobileSheetGestureRef.current = { pointerId: event.pointerId, startY: event.clientY, level: mobileSheetLevel };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [mobileSheetLevel]);
+
+  const endMobileSheetDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const gesture = mobileSheetGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    mobileSheetGestureRef.current = null;
+    const distance = event.clientY - gesture.startY;
+    if (Math.abs(distance) < 38) return;
+    ignoreNextSheetClickRef.current = true;
+    const levels: MobileSheetLevel[] = ["collapsed", "peek", "open"];
+    const current = levels.indexOf(gesture.level);
+    const next = Math.max(0, Math.min(levels.length - 1, current + (distance < 0 ? 1 : -1)));
+    if (levels[next] !== "collapsed") prepareMobileSheet();
+    setMobileSheetLevel(levels[next]);
+  }, [prepareMobileSheet]);
 
   const moveRosterFocus = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -1057,6 +1191,25 @@ export function SovereigntyExperience() {
     setRosterMode(nextMode);
     event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#sov-tab-${nextMode}`)?.focus();
   }, [rosterMode]);
+
+  const moveMobileSheetFocus = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const currentIndex = MOBILE_SHEET_TABS.indexOf(mobileSheetTab);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? MOBILE_SHEET_TABS.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + MOBILE_SHEET_TABS.length) % MOBILE_SHEET_TABS.length;
+    const nextTab = MOBILE_SHEET_TABS[nextIndex];
+    setMobileSheetTab(nextTab);
+    event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#sov-sheet-tab-${nextTab}`)?.focus();
+  }, [mobileSheetTab]);
+
+  useEffect(() => {
+    if (!selectedMapRelation) return;
+    window.requestAnimationFrame(() => relationCardRef.current?.focus());
+  }, [selectedMapRelation]);
 
   const cycleSelection = useCallback((direction: number, forceAgents = false) => {
     const list = forceAgents || selection.kind === "agent"
@@ -1090,7 +1243,31 @@ export function SovereigntyExperience() {
         setRevision(payload.revision ?? 0);
         setCatchUpPendingSeconds(Math.max(0, payload.catchUpPendingSeconds ?? 0));
         setSyncState(payload.persistent ? payload.caughtUp === false ? "catching_up" : "persistent" : "reconnecting");
+        let requestedSelection: Selection | undefined;
+        if (!queryStateHydratedRef.current) {
+          const params = new URLSearchParams(window.location.search);
+          requestedSelection = params.get("agent")
+            ? { kind: "agent", id: params.get("agent") ?? "" }
+            : params.get("belief")
+              ? { kind: "belief", id: params.get("belief") ?? "" }
+              : params.get("camp")
+                ? { kind: "camp", id: params.get("camp") ?? "" }
+                : undefined;
+          const requestedOverlay = params.get("overlay");
+          if (requestedOverlay && MAP_OVERLAY_OPTIONS.some((option) => option.mode === requestedOverlay)) {
+            setMapOverlayMode(requestedOverlay as MapOverlayMode);
+          }
+          queryStateHydratedRef.current = true;
+        }
         setSelection((current) => {
+          if (requestedSelection) {
+            const requestedExists = requestedSelection.kind === "agent"
+              ? world.agents.some((agent) => agent.id === requestedSelection.id)
+              : requestedSelection.kind === "camp"
+                ? world.camps.some((camp) => camp.id === requestedSelection.id && camp.active)
+                : world.beliefs.some((belief) => belief.id === requestedSelection.id && belief.active);
+            if (requestedExists) return requestedSelection;
+          }
           const exists = current.kind === "agent"
             ? world.agents.some((agent) => agent.id === current.id)
             : current.kind === "camp"
@@ -1098,8 +1275,11 @@ export function SovereigntyExperience() {
               : world.beliefs.some((belief) => belief.id === current.id && belief.active);
           return exists ? current : { kind: "agent", id: world.agents.find((agent) => agent.alive)?.id ?? world.agents[0]?.id ?? "" };
         });
+        setAuthoritativeReady(true);
       } catch (error) {
-        if (!disposed && !(error instanceof DOMException && error.name === "AbortError")) setSyncState("reconnecting");
+        if (!disposed && !(error instanceof DOMException && error.name === "AbortError")) {
+          setSyncState("reconnecting");
+        }
       }
     };
     void sync();
@@ -1112,6 +1292,18 @@ export function SovereigntyExperience() {
   }, []);
 
   useEffect(() => {
+    if (!authoritativeReady || !queryStateHydratedRef.current) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("agent");
+    url.searchParams.delete("camp");
+    url.searchParams.delete("belief");
+    if (selection.id) url.searchParams.set(selection.kind, selection.id);
+    if (mapOverlayMode === "world") url.searchParams.delete("overlay");
+    else url.searchParams.set("overlay", mapOverlayMode);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [authoritativeReady, mapOverlayMode, selection]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.isContentEditable || target?.closest("input, textarea, select, [contenteditable='true']")) return;
@@ -1120,6 +1312,11 @@ export function SovereigntyExperience() {
           event.preventDefault();
           closeFamilyTree();
         }
+        return;
+      }
+      if (selectedMapRelation && event.key === "Escape") {
+        event.preventDefault();
+        closeMapRelation();
         return;
       }
       if (!event.altKey && !event.ctrlKey && !event.metaKey) {
@@ -1142,7 +1339,7 @@ export function SovereigntyExperience() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeFamilyTree, cycleSelection, familyTreeAgentId, mapFocus, selection.kind]);
+  }, [closeFamilyTree, closeMapRelation, cycleSelection, familyTreeAgentId, mapFocus, selectedMapRelation, selection.kind]);
 
   const mergedEvents = useMemo(() => {
     const byId = new Map<string, MajorEvent>();
@@ -1168,9 +1365,22 @@ export function SovereigntyExperience() {
         ? "CONNECTING"
         : "LOCAL · RECONNECTING";
 
+  if (!authoritativeReady) {
+    return <main className="sov-shell" style={style}>
+      <div className="sov-world sov-world-pending" aria-hidden="true" />
+      <div className="sov-atmosphere" aria-hidden="true" />
+      <div className="sov-sync-gate" role="status" aria-live="polite">
+        <span className="sov-brand-mark"><Leaf size={18} /></span>
+        <strong>{syncState === "reconnecting" ? "Waiting for the living world" : "Rejoining the living world"}</strong>
+        <small>Loading the latest civilization and chronicle without resetting its timeline.</small>
+        <i aria-hidden="true" />
+      </div>
+    </main>;
+  }
+
   return (
-    <main className={`sov-shell ${mapFocus ? "sov-map-focus" : ""}`} style={style}>
-      <CivilizationCanvas worldRef={worldRef} selection={selection} cameraMode={cameraMode} overlayMode={mapOverlayMode} onSnapshot={publishSnapshot} onAgentSelect={selectAgent} onCampSelect={selectCamp} onBeliefSelect={selectBelief} onCameraModeChange={setCameraMode} />
+    <main className={`sov-shell sov-sheet-${mobileSheetLevel} sov-sheet-tab-${mobileSheetTab} ${mapFocus ? "sov-map-focus" : ""}`} style={style}>
+      <CivilizationCanvas worldRef={worldRef} selection={selection} cameraMode={cameraMode} overlayMode={mapOverlayMode} onSnapshot={publishSnapshot} onAgentSelect={selectAgent} onCampSelect={selectCamp} onBeliefSelect={selectBelief} onRelationSelect={selectMapRelation} onCameraModeChange={setCameraMode} />
       <div className="sov-atmosphere" aria-hidden="true" />
 
       <header className="sov-topbar">
@@ -1187,8 +1397,11 @@ export function SovereigntyExperience() {
         </div>
         <div className="sov-top-actions">
           <span className={`sov-live ${syncState === "persistent" ? "" : "reconnecting"}`} title={syncState === "catching_up" ? "The durable world is checkpointing an offline interval; each refresh continues from the last completed checkpoint." : "The shared world reconciles elapsed time on the server and resumes from durable state"}><span className="sov-live-dot" />{syncLabel}</span>
-          <Link className="sov-archive-link" href="/archive" aria-label="Open the map-free civilization and belief archive"><BookOpen size={14} /><span>World archive</span></Link>
-          <Link className="sov-archive-link sov-history-link" href="/history" aria-label="Read the world history in 200-day chapters"><ScrollText size={14} /><span>History book</span></Link>
+          <nav className="site-section-nav sov-site-nav" aria-label="World sections">
+            <span className="site-section-link active" aria-current="page"><MapIcon size={13} /><span>Map</span></span>
+            <Link className="site-section-link" href="/archive" aria-label="Open civilization and belief archive"><BookOpen size={13} /><span>Civilizations</span></Link>
+            <Link className="site-section-link" href="/history" aria-label="Read the world history in 200-day chapters"><ScrollText size={13} /><span>History</span></Link>
+          </nav>
           <button className="sov-map-focus-toggle" onClick={toggleMapFocus} aria-controls="sov-map-exploration" aria-pressed={mapFocus}><span>{mapFocus ? "Exit map" : "Explore map"}</span>{mapFocus ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           <div className="sov-camera" aria-label="Camera mode">
             <button className={cameraMode === "overview" ? "active" : ""} onClick={() => setCameraMode("overview")} aria-label="Overview camera" aria-pressed={cameraMode === "overview"} title="World overview (Esc)"><MapIcon size={14} /></button>
@@ -1235,11 +1448,117 @@ export function SovereigntyExperience() {
               </span>)}
             </div>
           </div>
+          {accessibleMapRelations.length > 0 && <div className="sov-map-relation-index" aria-label={`${overlayOption.label} available to inspect`}>
+            <span>Inspect on map</span>
+            <div>
+              {accessibleMapRelations.map((relation) => {
+                const fromCamp = hud.camps.find((camp) => camp.id === relation.fromCampId);
+                const toCamp = hud.camps.find((camp) => camp.id === relation.toCampId);
+                const kind: MapRelationSelection["kind"] = relation.status === "war"
+                  ? "war"
+                  : relation.status === "alliance"
+                    ? "alliance"
+                    : relation.status === "trade" || relation.status === "truce"
+                      ? "trade"
+                      : "hostile";
+                return <button
+                  key={relation.id}
+                  type="button"
+                  onClick={() => selectMapRelation({
+                    id: relation.id,
+                    kind,
+                    fromCampId: relation.fromCampId,
+                    toCampId: relation.toCampId,
+                    strength: relation.strength,
+                    intensity: relation.strength,
+                    clientX: window.innerWidth / 2,
+                    clientY: window.innerHeight / 3,
+                  })}
+                >
+                  <i aria-hidden="true" />
+                  <span>{fromCamp?.name ?? "Archived power"} ↔ {toCamp?.name ?? "Archived power"}</span>
+                  <small>{relationLabel(relation.status)}</small>
+                </button>;
+              })}
+            </div>
+          </div>}
         </div>
       </section>
       <div className="sov-map-gesture-hint" aria-hidden="true"><span>Drag to orbit</span><span>Pinch to zoom</span><span>Tap an agent or camp</span></div>
 
-      <aside className="sov-left sov-panel" aria-label="Civilization roster" aria-hidden={mapFocus || undefined}>
+      {selectedMapRelation && selectedRelationFromCamp && selectedRelationToCamp && <article
+        ref={relationCardRef}
+        role="dialog"
+        tabIndex={-1}
+        className="sov-relation-card sov-panel"
+        data-kind={selectedMapRelation.kind}
+        style={{ "--relation-x": `${selectedMapRelation.clientX}px`, "--relation-y": `${selectedMapRelation.clientY}px` } as CSSProperties}
+        aria-label={`${relationLabel(selectedRelationRecord?.status ?? selectedMapRelation.kind)} between ${selectedRelationFromCamp.name} and ${selectedRelationToCamp.name}`}
+      >
+        <header>
+          <span><i aria-hidden="true" />{relationLabel(selectedRelationRecord?.status ?? selectedMapRelation.kind)}</span>
+          <button onClick={closeMapRelation} aria-label="Close diplomatic relation details"><X size={15} /></button>
+        </header>
+        <h2>{selectedRelationFromCamp.name} <em>↔</em> {selectedRelationToCamp.name}</h2>
+        <div className="sov-relation-stats">
+          <span><small>Duration</small><b>{selectedRelationDuration} days · since {selectedRelationStartedDay}</b></span>
+          <span><small>Trust</small><b>{Math.round(percent(selectedRelationRecord?.trust ?? 0))}%</b></span>
+          <span><small>Tension</small><b>{Math.round(percent(selectedRelationRecord?.tension ?? 0))}%</b></span>
+          <span><small>{selectedMapRelation.kind === "war" ? "War lead" : "Strength"}</small><b>{selectedMapRelation.kind === "war" ? selectedWarLead : `${Math.round(percent(selectedRelationRecord?.strength ?? selectedMapRelation.strength ?? 0))}%`}</b></span>
+        </div>
+        <div className="sov-relation-actions">
+          <button onClick={() => selectCamp(selectedRelationFromCamp.id)}><Focus size={13} /><span>Focus {selectedRelationFromCamp.name}</span></button>
+          <button onClick={() => selectCamp(selectedRelationToCamp.id)}><Focus size={13} /><span>Focus {selectedRelationToCamp.name}</span></button>
+        </div>
+      </article>}
+
+      <div className="sov-mobile-selection-bar sov-panel" aria-label={`Current selection: ${selectedName}`} aria-hidden={mobileSheetLevel === "open"}>
+        <button tabIndex={mobileSheetLevel === "open" ? -1 : 0} onClick={() => cycleSelection(-1)} aria-label="Previous selected AI or power"><ChevronLeft size={18} /></button>
+        <button tabIndex={mobileSheetLevel === "open" ? -1 : 0} className="sov-mobile-selection-main" onClick={() => showMobileSheetTab("inspector")} aria-controls="sov-sheet-panel-inspector" aria-expanded={mobileSheetLevel !== "collapsed"}>
+          <i style={{ "--selection-color": accent } as CSSProperties}>{initials(selectedName)}</i>
+          <span>
+            <b>{selectedName}</b>
+            <small>{selectedContext}</small>
+            <em><time>{getWorldTimeLabel(hud)}</time>{latestMajor ? ` · ${latestMajor.title}` : " · The founding era begins"}</em>
+          </span>
+        </button>
+        <button tabIndex={mobileSheetLevel === "open" ? -1 : 0} onClick={() => cycleSelection(1)} aria-label="Next selected AI or power"><ChevronRight size={18} /></button>
+      </div>
+
+      <section className="sov-mobile-sheet sov-panel" aria-label="World information sheet">
+        <header className="sov-mobile-sheet-head">
+          <button
+            className="sov-mobile-sheet-handle"
+            onClick={toggleMobileSheet}
+            onPointerDown={startMobileSheetDrag}
+            onPointerUp={endMobileSheetDrag}
+            onPointerCancel={() => { mobileSheetGestureRef.current = null; }}
+            aria-expanded={mobileSheetLevel !== "collapsed"}
+            aria-label={mobileSheetLevel === "collapsed" ? "Open world information" : mobileSheetLevel === "peek" ? "Expand world information" : "Reduce world information"}
+          >
+            <span aria-hidden="true" />
+            <small>{mobileSheetLevel === "collapsed" ? "Swipe up for world details" : mobileSheetLevel === "peek" ? "Swipe up to expand" : "Swipe down to reduce"}</small>
+            <ChevronDown size={15} />
+          </button>
+          <div className="sov-mobile-sheet-tabs" role="tablist" aria-label="World information">
+            {MOBILE_SHEET_TABS.map((tab) => <button
+              key={tab}
+              role="tab"
+              id={`sov-sheet-tab-${tab}`}
+              aria-controls={`sov-sheet-panel-${tab}`}
+              aria-selected={mobileSheetTab === tab}
+              className={mobileSheetTab === tab ? "active" : ""}
+              tabIndex={mobileSheetTab === tab ? 0 : -1}
+              onClick={() => showMobileSheetTab(tab)}
+              onKeyDown={moveMobileSheetFocus}
+            >
+              {tab === "roster" ? <Users size={15} /> : tab === "inspector" ? <Eye size={15} /> : <ScrollText size={15} />}
+              <span>{humanize(tab)}</span>
+            </button>)}
+          </div>
+        </header>
+        <div className="sov-mobile-sheet-panels">
+      <aside id="sov-sheet-panel-roster" className="sov-left sov-panel" role="tabpanel" aria-label="Civilization roster" aria-labelledby="sov-sheet-tab-roster">
         <div className="sov-panel-head"><div><span className="sov-kicker">Power, people & meaning</span><h2>World roster</h2></div><span className="sov-count-chip">{activeCamps}/{MAX_ACTIVE_CAMPS} CAMPS</span></div>
         <div className="sov-tabs" role="tablist" aria-label="Roster view">
           {ROSTER_MODES.map((mode) => <button id={`sov-tab-${mode}`} key={mode} className={rosterMode === mode ? "active" : ""} onClick={() => setRosterMode(mode)} onKeyDown={moveRosterFocus} aria-controls="sov-roster-panel" aria-selected={rosterMode === mode} role="tab" tabIndex={rosterMode === mode ? 0 : -1}>{humanize(mode)}</button>)}
@@ -1286,22 +1605,24 @@ export function SovereigntyExperience() {
         <div className="sov-principle"><div><Shield size={12} /> ONE DIRECTIVE</div><p>Become the strongest power. Religions, civic traditions, or secular worldviews can emerge from incentives—none are assigned alongside personality scripts or fixed destinies.</p></div>
       </aside>
 
-      <aside className="sov-inspector sov-panel" aria-hidden={mapFocus || undefined} aria-label={selectedAgent ? `Observed AI: ${selectedAgent.name}` : selectedCamp ? `Observed power: ${selectedCamp.name}` : selectedBelief ? `Observed belief: ${selectedBelief.name}` : "World observer"}>
+      <aside id="sov-sheet-panel-inspector" className="sov-inspector sov-panel" role="tabpanel" aria-labelledby="sov-sheet-tab-inspector" aria-label={selectedAgent ? `Observed AI: ${selectedAgent.name}` : selectedCamp ? `Observed power: ${selectedCamp.name}` : selectedBelief ? `Observed belief: ${selectedBelief.name}` : "World observer"}>
         <div className="sov-inspector-nav"><button onClick={() => cycleSelection(-1)} aria-label="Previous selection" title="Previous selection ([)"><ChevronLeft size={16} /></button><span>{selection.kind === "agent" ? "OBSERVING AUTONOMOUS AI" : selection.kind === "camp" ? "OBSERVING SOVEREIGN POWER" : "OBSERVING EMERGENT BELIEF"}</span><button onClick={() => cycleSelection(1)} aria-label="Next selection" title="Next selection (])"><ChevronRight size={16} /></button></div>
         {selectedAgent ? <AgentInspector world={hud} agent={selectedAgent} onOpenFamily={openFamilyTree} familyTreeTriggerRef={familyTreeTriggerRef} /> : selectedCamp ? <CampInspector world={hud} camp={selectedCamp} /> : selectedBelief ? <BeliefInspector world={hud} belief={selectedBelief} /> : <div className="sov-empty">Select an agent, camp, or belief to inspect its evolving strategy.</div>}
       </aside>
 
-      <section className={`sov-chronicle sov-panel ${chronicleExpanded ? "expanded" : ""}`} aria-hidden={mapFocus || undefined} aria-label="Persistent world chronicle">
+      <section id="sov-sheet-panel-chronicle" className={`sov-chronicle sov-panel ${chronicleExpanded ? "expanded" : ""}`} role="tabpanel" aria-labelledby="sov-sheet-tab-chronicle" aria-label="Persistent world chronicle">
         <div className="sov-chronicle-head">
           <div className="sov-chronicle-title"><ScrollText size={13} /> World chronicle</div>
-          <div className="sov-event-filters">{(["all", "power", "war", "lineage", "technology", "belief"] as EventFilter[]).map((filter) => <button key={filter} className={eventFilter === filter ? "active" : ""} onClick={() => setEventFilter(filter)} aria-pressed={eventFilter === filter}>{filter}</button>)}</div>
-          <button className="sov-chronicle-toggle" onClick={() => setChronicleExpanded((open) => !open)} aria-label={chronicleExpanded ? "Collapse world chronicle" : "Expand world chronicle"} aria-expanded={chronicleExpanded}>{chronicleExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>
+          <div className="sov-event-filters" role="group" aria-label="Filter chronicle events">{(["all", "power", "war", "lineage", "technology", "belief"] as EventFilter[]).map((filter) => <button key={filter} className={eventFilter === filter ? "active" : ""} onClick={() => setEventFilter(filter)} aria-pressed={eventFilter === filter}>{filter}</button>)}</div>
+          <button className="sov-chronicle-toggle" onClick={toggleChronicle} aria-label={chronicleExpanded ? "Collapse world chronicle" : "Expand world chronicle"} aria-expanded={chronicleExpanded}>{chronicleExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>
         </div>
         <div className="sov-event-stream">
           {mergedEvents.length > 0 ? mergedEvents.map((event) => {
             const color = eventColor(event.type, event.tone);
             return <article className="sov-event" key={event.id} style={{ "--event-color": color } as CSSProperties}><span className="sov-event-node" /><p><strong>{event.title}</strong>{event.message}</p><time>DAY {Math.max(1, Math.floor(event.day))}</time></article>;
           }) : <div className="sov-empty">The world is young. Major decisions will be recorded here permanently.</div>}
+        </div>
+      </section>
         </div>
       </section>
 

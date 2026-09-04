@@ -11,6 +11,7 @@ import {
 } from "@/app/simulation/civilization-engine";
 
 const WORLD_ID = "canonical";
+const WORLD_SEED = "wildgrid-sovereignty-era-2";
 const WORLD_SCHEMA_VERSION = CIVILIZATION_SCHEMA_VERSION;
 const LEGACY_WORLD_SCHEMA_VERSION = 1;
 const DEFAULT_HISTORY_LIMIT = 200;
@@ -570,7 +571,7 @@ function ensureSchema(database: ReturnType<typeof getD1>) {
 
 function seedWorld(now: number) {
   return normalizeCivilizationWorld({
-    ...createCivilizationWorld(),
+    ...createCivilizationWorld(WORLD_SEED),
     lastSavedAt: now,
   });
 }

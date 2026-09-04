@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Baby,
   BookOpen,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   CircleDot,
@@ -17,6 +18,7 @@ import {
   Landmark,
   Leaf,
   RefreshCw,
+  Search,
   ScrollText,
   Sparkles,
   Swords,
@@ -24,6 +26,7 @@ import {
   UserRound,
   Users,
   Wrench,
+  X,
 } from "lucide-react";
 import {
   useCallback,
@@ -36,6 +39,7 @@ import {
 } from "react";
 
 type SyncState = "loading" | "current" | "refreshing" | "offline";
+type HistoryCategoryFilter = "all" | "defining" | "advancement" | "geopolitical" | "belief" | "identity" | "people";
 
 interface HistoryEvent {
   id: string;
@@ -188,6 +192,24 @@ function eventLabel(type: string) {
   return labels[type] ?? type.replaceAll("_", " ");
 }
 
+function readHistoryParam(name: string, fallback = "") {
+  if (typeof window === "undefined") return fallback;
+  return new URLSearchParams(window.location.search).get(name) ?? fallback;
+}
+
+function historyEventMatches(event: HistoryEvent, query: string) {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return true;
+  return `${event.title} ${event.message} ${eventLabel(event.type)} day ${event.day}`.toLocaleLowerCase().includes(normalized);
+}
+
+function mapOverlayForHistoryEvent(event: HistoryEvent) {
+  if (/war|peace|truce|alliance/.test(event.type)) return event.type === "war" ? "wars" : "alliances";
+  if (/belief|shrine/.test(event.type)) return "beliefs";
+  if (/camp|breakaway|capture|destroy|rename/.test(event.type)) return "territories";
+  return "world";
+}
+
 function EventIcon({ type }: { type: string }) {
   if (/war|peace|truce|alliance|capture|destroy|coup/.test(type)) return <Swords />;
   if (/tech|shrine|advance/.test(type)) return <Wrench />;
@@ -211,14 +233,25 @@ function ChapterStat({ icon, label, value, note }: {
   </div>;
 }
 
-function RecordList({ events, empty, compact: condensed = false }: {
+function RecordList({ events, empty, compact: condensed = false, historyIndex, focusDay }: {
   events: HistoryEvent[];
   empty: string;
   compact?: boolean;
+  historyIndex: HistoryIndex;
+  focusDay?: number | null;
 }) {
   if (events.length === 0) return <p className="history-empty-record">{empty}</p>;
   return <ol className={`history-record-list ${condensed ? "compact" : ""}`}>
-    {events.map((event, index) => <li key={event.id} data-tone={event.tone}>
+    {events.map((event, index) => {
+      const camp = event.campIds.map((id) => historyIndex.camps.find((candidate) => candidate.id === id)).find(Boolean);
+      const agent = event.agentIds.map((id) => historyIndex.agents.find((candidate) => candidate.id === id)).find(Boolean);
+      const beliefId = event.beliefIds[0];
+      const mapSearch = new URLSearchParams();
+      if (camp) mapSearch.set("camp", camp.id);
+      if (agent) mapSearch.set("agent", agent.id);
+      if (beliefId) mapSearch.set("belief", beliefId);
+      mapSearch.set("overlay", mapOverlayForHistoryEvent(event));
+      return <li key={event.id} id={`history-event-${event.id}`} className={focusDay === Math.max(1, Math.floor(event.day)) ? "focus-day" : undefined} data-tone={event.tone}>
       <div className="history-record-mark" aria-hidden="true">
         <span>{String(index + 1).padStart(2, "0")}</span><EventIcon type={event.type} />
       </div>
@@ -226,8 +259,15 @@ function RecordList({ events, empty, compact: condensed = false }: {
         <div><time>Day {Math.max(1, Math.floor(event.day))}</time><span>{eventLabel(event.type)}</span></div>
         <h4>{event.title}</h4>
         <p>{event.message}</p>
+        <div className="history-entity-actions" aria-label="Linked records">
+          {camp && <Link href={`/archive?camp=${encodeURIComponent(camp.id)}`}>{camp.name}</Link>}
+          {agent && <Link href={`/?agent=${encodeURIComponent(agent.id)}${camp ? `&camp=${encodeURIComponent(camp.id)}` : ""}&overlay=${mapOverlayForHistoryEvent(event)}`}>{agent.name}</Link>}
+          {beliefId && <Link href={`/archive?belief=${encodeURIComponent(beliefId)}#beliefs`}>Belief record</Link>}
+          {(camp || agent || beliefId) && <Link href={`/?${mapSearch.toString()}`}>Show on map</Link>}
+        </div>
       </article>
-    </li>)}
+    </li>;
+    })}
   </ol>;
 }
 
@@ -243,6 +283,28 @@ function SectionHeading({ icon, eyebrow, title, count: total, id }: {
     <div><small>{eyebrow}</small><h3 id={id}>{title}</h3></div>
     {typeof total === "number" && <b>{total} {total === 1 ? "record" : "records"}</b>}
   </header>;
+}
+
+function HistoryDetails({ icon, eyebrow, title, count: total, children, defaultOpen = true, className = "" }: {
+  icon: ReactNode;
+  eyebrow: string;
+  title: string;
+  count?: number;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  className?: string;
+}) {
+  const [expanded, setExpanded] = useState(defaultOpen);
+  const panelId = `history-section-${title.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  return <section className={`${className} history-collapsible`}>
+    <button type="button" className="history-collapsible-trigger" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded((current) => !current)}>
+      <span className="history-collapsible-icon" aria-hidden="true">{icon}</span>
+      <span><small>{eyebrow}</small><b>{title}</b></span>
+      {typeof total === "number" && <em>{total} {total === 1 ? "record" : "records"}</em>}
+      <ChevronRight aria-hidden="true" />
+    </button>
+    {expanded && <div id={panelId} className="history-collapsible-body">{children}</div>}
+  </section>;
 }
 
 function emptyChapter(throughDay: number): HistoryChapter {
@@ -265,7 +327,7 @@ function emptyChapter(throughDay: number): HistoryChapter {
   };
 }
 
-function NotablePeople({ chapter, historyIndex }: { chapter: HistoryChapter; historyIndex: HistoryIndex }) {
+function NotablePeople({ chapter, historyIndex, query }: { chapter: HistoryChapter; historyIndex: HistoryIndex; query: string }) {
   const people = useMemo(() => {
     const byId = new Map<string, number>();
     const byEventId = new Map<string, HistoryEvent>();
@@ -279,31 +341,41 @@ function NotablePeople({ chapter, historyIndex }: { chapter: HistoryChapter; his
     for (const event of byEventId.values()) {
       for (const id of new Set(event.agentIds)) byId.set(id, (byId.get(id) ?? 0) + 1);
     }
+    const normalized = query.trim().toLocaleLowerCase();
     return [...byId.entries()]
       .map(([id, mentions]) => ({ agent: historyIndex.agents.find((agent) => agent.id === id), mentions }))
       .filter((entry): entry is { agent: HistoryIndexAgent; mentions: number } => Boolean(entry.agent))
+      .filter(({ agent }) => {
+        const camp = historyIndex.camps.find((candidate) => candidate.id === agent.campId);
+        return !normalized || `${agent.name} ${camp?.name ?? "unaffiliated"}`.toLocaleLowerCase().includes(normalized);
+      })
       .sort((left, right) => right.mentions - left.mentions
         || (right.agent.influence + right.agent.spiritualInfluence) - (left.agent.influence + left.agent.spiritualInfluence)
         || left.agent.id.localeCompare(right.agent.id))
       .slice(0, 6);
-  }, [chapter, historyIndex.agents]);
+  }, [chapter, historyIndex.agents, historyIndex.camps, query]);
 
-  return <section className="history-people" aria-labelledby="history-people-title">
-    <SectionHeading id="history-people-title" icon={<UserRound />} eyebrow="Named in the evidence" title="People of the chapter" count={chapter.humanImpact.agentMentions} />
+  return <div className="history-people-body">
     {people.length > 0 ? <div className="history-people-grid">
       {people.map(({ agent, mentions }) => {
         const camp = historyIndex.camps.find((candidate) => candidate.id === agent.campId);
         return <article key={agent.id} style={{ "--person-color": agent.color } as CSSProperties}>
           <i aria-hidden="true">{agent.name.slice(0, 1).toUpperCase()}</i>
-          <div><h4>{agent.name}</h4><p>{camp?.name ?? (agent.alive ? "Unaffiliated" : "Archived affiliation")} · generation {agent.generation}</p></div>
+          <div><h4><Link href={`/?agent=${encodeURIComponent(agent.id)}${camp ? `&camp=${encodeURIComponent(camp.id)}` : ""}`}>{agent.name}</Link></h4><p>{camp?.name ?? (agent.alive ? "Unaffiliated" : "Archived affiliation")} · generation {agent.generation}</p>{camp && <Link className="history-linked-chip" href={`/archive?camp=${encodeURIComponent(camp.id)}`}>Civilization record</Link>}</div>
           <span><b>{mentions}</b><small>key {mentions === 1 ? "record" : "records"}</small></span>
         </article>;
       })}
-    </div> : <p className="history-empty-record">No retained agent appears by ID in this chapter&apos;s curated records.</p>}
-  </section>;
+    </div> : <p className="history-empty-record">{query ? "No notable person matches this search." : "No retained agent appears by ID in this chapter's curated records."}</p>}
+  </div>;
 }
 
-function ChapterArticle({ chapter, historyIndex }: { chapter: HistoryChapter; historyIndex: HistoryIndex }) {
+function ChapterArticle({ chapter, historyIndex, query, category, focusDay }: {
+  chapter: HistoryChapter;
+  historyIndex: HistoryIndex;
+  query: string;
+  category: HistoryCategoryFilter;
+  focusDay: number | null;
+}) {
   const rises = count(chapter, "camp_founded", "breakaway");
   const falls = count(chapter, "camp_destroyed", "camp_captured");
   const wars = count(chapter, "war");
@@ -318,6 +390,13 @@ function ChapterArticle({ chapter, historyIndex }: { chapter: HistoryChapter; hi
     "belief_faded",
   );
   const territoryRenamings = count(chapter, "camp_renamed");
+  const filterRecords = (records: HistoryEvent[]) => records.filter((event) => historyEventMatches(event, query));
+  const definingRecords = filterRecords(chapter.topMoments);
+  const advancementRecords = filterRecords(chapter.advancementHighlights);
+  const geopoliticalRecords = filterRecords(chapter.geopoliticalHighlights);
+  const beliefRecords = filterRecords(chapter.beliefHighlights);
+  const identityRecords = filterRecords(chapter.identityHighlights);
+  const show = (target: HistoryCategoryFilter) => category === "all" || category === target;
 
   return <article className="history-chapter" aria-labelledby="history-chapter-title">
     <header className="history-chapter-cover">
@@ -343,44 +422,41 @@ function ChapterArticle({ chapter, historyIndex }: { chapter: HistoryChapter; hi
       <ChapterStat icon={<Sparkles />} label="Belief change" value={faithChanges} note={`${chapter.categoryCounts.belief} belief records`} />
     </section>
 
-    <section className="history-defining" aria-labelledby="history-defining-title">
-      <SectionHeading id="history-defining-title" icon={<Crown />} eyebrow="Ranked by consequence" title="The defining record" count={chapter.topMoments.length} />
-      <RecordList events={chapter.topMoments} empty="No major moment has been written into this chapter yet." />
-    </section>
+    {show("defining") && <HistoryDetails className="history-defining" icon={<Crown />} eyebrow="Ranked by consequence" title="The defining record" count={definingRecords.length}>
+      <RecordList events={definingRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No defining moment matches this search." : "No major moment has been written into this chapter yet."} />
+    </HistoryDetails>}
 
-    <div className="history-columns">
-      <section className="history-column" aria-labelledby="history-advancement-title">
-        <SectionHeading id="history-advancement-title" icon={<Wrench />} eyebrow="Knowledge & works" title="Advancements" count={chapter.categoryCounts.advancement} />
-        <RecordList compact events={chapter.advancementHighlights} empty="No advancement was completed during these days." />
-      </section>
-      <section className="history-column" aria-labelledby="history-geopolitical-title">
-        <SectionHeading id="history-geopolitical-title" icon={<Landmark />} eyebrow="Territory & diplomacy" title="Powers in motion" count={chapter.categoryCounts.geopolitical} />
+    {(show("advancement") || show("geopolitical")) && <div className="history-columns">
+      {show("advancement") && <HistoryDetails className="history-column" icon={<Wrench />} eyebrow="Knowledge & works" title="Advancements" count={advancementRecords.length}>
+        <RecordList compact events={advancementRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No advancement matches this search." : "No advancement was completed during these days."} />
+      </HistoryDetails>}
+      {show("geopolitical") && <HistoryDetails className="history-column" icon={<Landmark />} eyebrow="Territory & diplomacy" title="Powers in motion" count={geopoliticalRecords.length}>
         <div className="history-ledger" aria-label="Geopolitical totals">
           <span><small>New powers</small><b>{rises}</b></span>
           <span><small>Captured / fallen</small><b>{falls}</b></span>
           <span><small>Wars declared</small><b>{wars}</b></span>
           <span><small>Accords made</small><b>{accords}</b></span>
         </div>
-        <RecordList compact events={chapter.geopoliticalHighlights} empty="No territorial or diplomatic upheaval was recorded." />
-      </section>
-    </div>
+        <RecordList compact events={geopoliticalRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No geopolitical record matches this search." : "No territorial or diplomatic upheaval was recorded."} />
+      </HistoryDetails>}
+    </div>}
 
-    <div className="history-columns history-secondary-columns">
-      <section className="history-column" aria-labelledby="history-belief-title">
-        <SectionHeading id="history-belief-title" icon={<Sparkles />} eyebrow="Ideas & conviction" title="Belief and public life" count={chapter.categoryCounts.belief} />
-        <RecordList compact events={chapter.beliefHighlights} empty="No major religious or belief-system change was recorded." />
-      </section>
-      <section className="history-column history-identity" aria-labelledby="history-identity-title">
-        <SectionHeading id="history-identity-title" icon={<Feather />} eyebrow="Chosen identities" title="The changing names" count={chapter.categoryCounts.identity} />
+    {(show("belief") || show("identity")) && <div className="history-columns history-secondary-columns">
+      {show("belief") && <HistoryDetails className="history-column" icon={<Sparkles />} eyebrow="Ideas & conviction" title="Belief and public life" count={beliefRecords.length}>
+        <RecordList compact events={beliefRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No belief record matches this search." : "No major religious or belief-system change was recorded."} />
+      </HistoryDetails>}
+      {show("identity") && <HistoryDetails className="history-column history-identity" icon={<Feather />} eyebrow="Chosen identities" title="The changing names" count={identityRecords.length}>
         <div className="history-name-totals">
           <span><b>{chapter.humanImpact.agentRenamings}</b> agent self-{chapter.humanImpact.agentRenamings === 1 ? "naming" : "namings"}</span>
           <span><b>{territoryRenamings}</b> territory {territoryRenamings === 1 ? "renamed" : "renamings"}</span>
         </div>
-        <RecordList compact events={chapter.identityHighlights} empty="No agent or territory chose a new name during these days." />
-      </section>
-    </div>
+        <RecordList compact events={identityRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No identity record matches this search." : "No agent or territory chose a new name during these days."} />
+      </HistoryDetails>}
+    </div>}
 
-    <NotablePeople chapter={chapter} historyIndex={historyIndex} />
+    {show("people") && <HistoryDetails className="history-people" icon={<UserRound />} eyebrow="Named in the evidence" title="People of the chapter" count={chapter.humanImpact.agentMentions}>
+      <NotablePeople chapter={chapter} historyIndex={historyIndex} query={query} />
+    </HistoryDetails>}
 
     <section className="history-ledger-notes" aria-labelledby="history-ledger-title">
       <SectionHeading id="history-ledger-title" icon={<GitBranch />} eyebrow="Exact ledger totals" title="What changed" />
@@ -411,9 +487,19 @@ export function HistoryBook() {
   const [book, setBook] = useState<HistoryBookData | null>(null);
   const [historyIndex, setHistoryIndex] = useState<HistoryIndex | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [historyQuery, setHistoryQuery] = useState(() => readHistoryParam("q"));
+  const [category, setCategory] = useState<HistoryCategoryFilter>(() => {
+    const value = readHistoryParam("category");
+    return value === "defining" || value === "advancement" || value === "geopolitical" || value === "belief" || value === "identity" || value === "people" ? value : "all";
+  });
+  const [focusDay, setFocusDay] = useState<number | null>(() => {
+    const value = Number(readHistoryParam("day"));
+    return Number.isFinite(value) && value >= 1 ? Math.floor(value) : null;
+  });
   const [syncState, setSyncState] = useState<SyncState>("loading");
   const [error, setError] = useState<string | null>(null);
   const chapterRef = useRef<HTMLDivElement>(null);
+  const initialDeepLinkHandled = useRef(false);
 
   const loadHistory = useCallback(async (silent = false) => {
     try {
@@ -427,12 +513,14 @@ export function HistoryBook() {
       const nextBook = { ...payload.historyBook, chapters };
       setBook(nextBook);
       setHistoryIndex(payload.historyIndex);
+      setFocusDay((current) => current === null ? null : Math.max(1, Math.min(Math.floor(nextBook.throughDay), current)));
       setSelectedIndex((current) => {
         if (current !== null && chapters.some((chapter) => chapter.index === current)) return current;
         const requested = Number(new URLSearchParams(window.location.search).get("chapter"));
-        return chapters.some((chapter) => chapter.index === requested)
-          ? requested
-          : chapters.at(-1)?.index ?? 1;
+        if (chapters.some((chapter) => chapter.index === requested)) return requested;
+        const requestedDay = Number(new URLSearchParams(window.location.search).get("day"));
+        const dayChapter = Number.isFinite(requestedDay) ? chapters.find((chapter) => requestedDay >= chapter.startDay && requestedDay <= chapter.endDay) : undefined;
+        return dayChapter?.index ?? chapters.at(-1)?.index ?? 1;
       });
       setError(null);
       setSyncState("current");
@@ -451,23 +539,78 @@ export function HistoryBook() {
     };
   }, [loadHistory]);
 
+  useEffect(() => {
+    if (!book || selectedIndex === null) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("chapter", String(selectedIndex));
+    if (focusDay) url.searchParams.set("day", String(focusDay));
+    else url.searchParams.delete("day");
+    if (historyQuery.trim()) url.searchParams.set("q", historyQuery.trim());
+    else url.searchParams.delete("q");
+    if (category !== "all") url.searchParams.set("category", category);
+    else url.searchParams.delete("category");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [book, category, focusDay, historyQuery, selectedIndex]);
+
   const chapters = useMemo(() => {
     if (!book) return [];
     return book.chapters.length > 0 ? book.chapters : [emptyChapter(book.throughDay)];
   }, [book]);
   const selectedPosition = Math.max(0, chapters.findIndex((chapter) => chapter.index === selectedIndex));
   const chapter = chapters[selectedPosition] ?? chapters.at(-1);
+  const matchingRecordCount = useMemo(() => {
+    if (!chapter) return 0;
+    const unique = new Map<string, HistoryEvent>();
+    const groups: Array<[HistoryCategoryFilter, HistoryEvent[]]> = [
+      ["defining", chapter.topMoments],
+      ["advancement", chapter.advancementHighlights],
+      ["geopolitical", chapter.geopoliticalHighlights],
+      ["belief", chapter.beliefHighlights],
+      ["identity", chapter.identityHighlights],
+    ];
+    if (category === "people") {
+      const mentionedAgentIds = new Set(groups.flatMap(([, records]) => records).flatMap((event) => event.agentIds));
+      const normalized = historyQuery.trim().toLocaleLowerCase();
+      return historyIndex?.agents.filter((agent) => {
+        if (!mentionedAgentIds.has(agent.id)) return false;
+        const camp = historyIndex.camps.find((candidate) => candidate.id === agent.campId);
+        return !normalized || `${agent.name} ${camp?.name ?? "unaffiliated"}`.toLocaleLowerCase().includes(normalized);
+      }).length ?? 0;
+    }
+    for (const [group, records] of groups) {
+      if (category !== "all" && category !== group) continue;
+      for (const event of records) if (historyEventMatches(event, historyQuery)) unique.set(event.id, event);
+    }
+    return unique.size;
+  }, [category, chapter, historyIndex, historyQuery]);
 
   const chooseChapter = useCallback((index: number, focus = true) => {
     setSelectedIndex(index);
-    const url = new URL(window.location.href);
-    url.searchParams.set("chapter", String(index));
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    setFocusDay(null);
     if (focus) {
       const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       window.requestAnimationFrame(() => chapterRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" }));
     }
   }, []);
+
+  const jumpToDay = useCallback((rawDay: string) => {
+    const day = Math.max(1, Math.floor(Number(rawDay)));
+    if (!Number.isFinite(day) || chapters.length === 0) return;
+    const matchingChapter = chapters.find((candidate) => day >= candidate.startDay && day <= candidate.endDay)
+      ?? (day < chapters[0].startDay ? chapters[0] : chapters.at(-1));
+    if (!matchingChapter) return;
+    setFocusDay(Math.min(matchingChapter.endDay, Math.max(matchingChapter.startDay, day)));
+    setSelectedIndex(matchingChapter.index);
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.requestAnimationFrame(() => chapterRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" }));
+  }, [chapters]);
+
+  useEffect(() => {
+    if (!chapter || initialDeepLinkHandled.current) return;
+    if (!readHistoryParam("chapter") && !readHistoryParam("day") && !readHistoryParam("q") && !readHistoryParam("category")) return;
+    initialDeepLinkHandled.current = true;
+    window.requestAnimationFrame(() => chapterRef.current?.scrollIntoView({ block: "start" }));
+  }, [chapter]);
 
   if ((!book || !historyIndex) && syncState === "loading") return <HistoryLoading />;
 
@@ -490,10 +633,10 @@ export function HistoryBook() {
       <Link href="/" className="history-brand" aria-label="Wildgrid Sovereignty live map">
         <span><Leaf /></span><div><b>WILDGRID <em>SOVEREIGNTY</em></b><small>The living history</small></div>
       </Link>
-      <nav aria-label="Site pages">
-        <Link href="/"><Activity />Live map</Link>
-        <Link href="/archive"><Landmark />World archive</Link>
-        <span aria-current="page"><BookOpen />History</span>
+      <nav className="site-section-nav" aria-label="Site pages">
+        <Link href="/"><Activity /><span>Map</span></Link>
+        <Link href="/archive"><Landmark /><span>Civilizations</span></Link>
+        <span className="site-section-link" aria-current="page"><BookOpen /><span>History</span></span>
       </nav>
       <div className="history-live" title={`Persistent world revision ${book.throughRevision}`}><i className={syncState === "offline" ? "offline" : ""} /><span>{syncState === "refreshing" ? "UPDATING" : syncState === "offline" ? "LAST KNOWN" : `LIVE · R${book.throughRevision}`}</span></div>
     </header>
@@ -513,7 +656,20 @@ export function HistoryBook() {
 
     {error && <div className="history-sync-warning" role="status"><CircleDot />Showing the last verified edition while the ledger reconnects.<button onClick={() => void loadHistory()}>Retry now</button></div>}
 
-    <section className="history-shelf" aria-labelledby="history-shelf-title">
+    <section className="history-discovery-toolbar" aria-labelledby="history-discovery-title">
+      <header><div><span className="history-kicker">Find a passage</span><h2 id="history-discovery-title">Search the annals</h2></div><p>{matchingRecordCount} matching curated {matchingRecordCount === 1 ? "record" : "records"} in this chapter</p></header>
+      <div className="history-filter-grid">
+        <label className="history-search"><Search /><span className="sr-only">Search this history chapter</span><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Search names, events, discoveries…" /></label>
+        <label><span>Category</span><select value={category} onChange={(event) => setCategory(event.target.value as HistoryCategoryFilter)}>
+          <option value="all">All passages</option><option value="defining">Defining moments</option><option value="advancement">Advancements</option><option value="geopolitical">Territory & diplomacy</option><option value="belief">Belief & public life</option><option value="identity">Names & identity</option><option value="people">People</option>
+        </select></label>
+        <label><span>Jump to day</span><span className="history-day-input"><CalendarDays /><input type="number" min={1} max={book.throughDay} inputMode="numeric" value={focusDay ?? ""} onChange={(event) => event.target.value ? jumpToDay(event.target.value) : setFocusDay(null)} placeholder={`1–${book.throughDay}`} /></span></label>
+        {(historyQuery || category !== "all" || focusDay) && <button type="button" className="history-clear-filters" onClick={() => { setHistoryQuery(""); setCategory("all"); setFocusDay(null); }}><X />Clear filters</button>}
+      </div>
+      {focusDay && <p className="history-day-context"><CircleDot />Reading the chapter containing day {focusDay}. Matching day markers are highlighted where that day appears in the curated passages.</p>}
+    </section>
+
+    <section className="history-shelf history-era-nav" aria-labelledby="history-shelf-title">
       <header><div><span className="history-kicker">Table of contents</span><h2 id="history-shelf-title">Choose a chapter</h2></div><p>Each volume covers one 200-day era. The final volume continues to change with the world.</p></header>
       <nav aria-label="History chapters">
         {chapters.map((item) => <button
@@ -541,7 +697,7 @@ export function HistoryBook() {
       </nav>
 
       <p className="sr-only" role="status" aria-live="polite">Reading chapter {chapter.index}: {chapter.title}, days {chapter.startDay} through {chapter.endDay}.</p>
-      <ChapterArticle chapter={chapter} historyIndex={historyIndex} />
+      <ChapterArticle chapter={chapter} historyIndex={historyIndex} query={historyQuery} category={category} focusDay={focusDay} />
 
       <nav className="history-end-pager" aria-label="Continue reading">
         {previous ? <button type="button" onClick={() => chooseChapter(previous.index)}><ArrowLeft /><span><small>Previous</small><b>{previous.title}</b></span></button> : <span />}
