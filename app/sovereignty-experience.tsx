@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -1293,6 +1292,7 @@ export function SovereigntyExperience() {
 
   useEffect(() => {
     if (!authoritativeReady || !queryStateHydratedRef.current) return;
+    if (window.location.pathname !== "/") return;
     const url = new URL(window.location.href);
     url.searchParams.delete("agent");
     url.searchParams.delete("camp");
@@ -1399,8 +1399,8 @@ export function SovereigntyExperience() {
           <span className={`sov-live ${syncState === "persistent" ? "" : "reconnecting"}`} title={syncState === "catching_up" ? "The durable world is checkpointing an offline interval; each refresh continues from the last completed checkpoint." : "The shared world reconciles elapsed time on the server and resumes from durable state"}><span className="sov-live-dot" />{syncLabel}</span>
           <nav className="site-section-nav sov-site-nav" aria-label="World sections">
             <span className="site-section-link active" aria-current="page"><MapIcon size={13} /><span>Map</span></span>
-            <Link className="site-section-link" href="/archive" aria-label="Open civilization and belief archive"><BookOpen size={13} /><span>Civilizations</span></Link>
-            <Link className="site-section-link" href="/history" aria-label="Read the world history in 200-day chapters"><ScrollText size={13} /><span>History</span></Link>
+            <a className="site-section-link" href="/archive" aria-label="Open civilization and belief archive"><BookOpen size={13} /><span>Civilizations</span></a>
+            <a className="site-section-link" href="/history" aria-label="Read the world history in 200-day chapters"><ScrollText size={13} /><span>History</span></a>
           </nav>
           <button className="sov-map-focus-toggle" onClick={toggleMapFocus} aria-controls="sov-map-exploration" aria-pressed={mapFocus}><span>{mapFocus ? "Exit map" : "Explore map"}</span>{mapFocus ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           <div className="sov-camera" aria-label="Camera mode">

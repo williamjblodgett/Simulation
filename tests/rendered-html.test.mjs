@@ -185,8 +185,10 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
   assert.match(experience, /getRankedInfluentialAgents|sov-influence-card|INFLUENCE/i);
   assert.match(experience, /Explore family tree|CURRENT THINKING|Recent outcome memory/i);
   assert.match(experience, /Explore map|Drag to orbit|Pinch to zoom/i);
-  assert.match(experience, /href="\/archive"|World archive/i);
-  assert.match(experience, /href="\/history"|History book/i);
+  assert.match(experience, /<a className="site-section-link" href="\/archive"/i);
+  assert.match(experience, /<a className="site-section-link" href="\/history"/i);
+  assert.match(experience, /window\.location\.pathname\s*!==\s*"\/"/i);
+  assert.doesNotMatch(experience, /<Link className="site-section-link" href="\/(?:archive|history)"/i);
   assert.match(archivePage, /CivilizationArchive|World Archive \| Wildgrid: Sovereignty/i);
   assert.match(archive, /Every power leaves a record|Powers, living and fallen|Biggest moments/i);
   assert.match(archive, /TENET_VALUES|Core values|founderAgentId|originCampId|foundedDay/i);
@@ -199,6 +201,7 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
   assert.match(historyBook, /chapterLengthDays|Every 200 days|Table of contents|The defining record/i);
   assert.match(historyBook, /Advancements|Powers in motion|Belief and public life|The changing names/i);
   assert.match(historyBook, /\/api\/world\?view=history|historyIndex|topMoments|humanImpact|typeCounts/i);
+  assert.match(historyBook, /replaceState\(window\.history\.state/i);
   assert.doesNotMatch(historyBook, /civilization-scene|createCivilizationScene|normalizeCivilizationWorld|validateCivilizationWorld|simulation\/civilization-engine|three/i);
   assert.match(styles, /\.archive-page|\.archive-civ-layout|\.archive-core-values/i);
   assert.match(styles, /\.history-page|\.history-shelf|\.history-chapter|\.history-record-list/i);

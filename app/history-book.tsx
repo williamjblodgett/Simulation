@@ -549,7 +549,7 @@ export function HistoryBook() {
     else url.searchParams.delete("q");
     if (category !== "all") url.searchParams.set("category", category);
     else url.searchParams.delete("category");
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }, [book, category, focusDay, historyQuery, selectedIndex]);
 
   const chapters = useMemo(() => {
