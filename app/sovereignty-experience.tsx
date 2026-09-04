@@ -86,7 +86,7 @@ const MAP_OVERLAY_OPTIONS: ReadonlyArray<{
   { mode: "alliances", label: "Alliances", shortcut: "2", description: "Trace alliances, trade routes, and truces" },
   { mode: "wars", label: "Wars", shortcut: "3", description: "Isolate active wars and belligerent camps" },
   { mode: "beliefs", label: "Beliefs", shortcut: "4", description: "Map religions, belief systems, and secular populations" },
-  { mode: "territories", label: "Territories", shortcut: "5", description: "Compare every active camp's territorial reach" },
+  { mode: "territories", label: "Territories", shortcut: "5", description: "Compare exclusive claims and their shared political edges" },
   { mode: "resources", label: "Resources", shortcut: "6", description: "Reveal food, water, wood, and ore deposits" },
 ];
 
@@ -343,10 +343,10 @@ function getOverlayPresentation(
 
   if (mode === "territories") {
     return {
-      summary: `${camps.length} active camp ${camps.length === 1 ? "territory" : "territories"} · larger fields mark broader control`,
+      summary: `${camps.length} exclusive camp ${camps.length === 1 ? "territory" : "territories"} · adjoining claims resolve to one shared edge`,
       legend: [
         ...camps.slice(0, 5).map((camp) => ({
-          label: `${camp.name} · ${Math.round(camp.territoryRadius)} radius`,
+          label: `${camp.name} · claim reach ${Math.round(camp.territoryRadius)}`,
           color: camp.color,
           kind: "area" as const,
         })),
@@ -854,7 +854,7 @@ function CampInspector({ world, camp }: { world: CivilizationWorldState; camp: C
         </div>
         <div className="sov-metrics">
           <Meter label="Cohesion" value={camp.cohesion} color={percent(camp.cohesion) < 35 ? "#ff8066" : camp.color} icon={<Users size={10} />} />
-          <Meter label="Territory" value={camp.territoryRadius / 0.42} color="#c7f36a" icon={<MapIcon size={10} />} />
+          <Meter label="Claim reach" value={camp.territoryRadius / 0.42} color="#c7f36a" icon={<MapIcon size={10} />} />
           <Meter label="Economic" value={camp.economicPower} color="#e7b95e" icon={<Wheat size={10} />} />
           <Meter label="Military" value={camp.militaryPower} color="#ff8066" icon={<Swords size={10} />} />
         </div>
@@ -864,7 +864,7 @@ function CampInspector({ world, camp }: { world: CivilizationWorldState; camp: C
           <div className="sov-section-head"><span className="sov-kicker">Power structure</span><b>{Math.round(camp.power)} PWR</b></div>
           <div className="sov-data-grid">
             <DataCell label="Population" value={camp.memberIds.length} />
-            <DataCell label="Territory" value={`${camp.territoryRadius.toFixed(1)} km²`} />
+            <DataCell label="Claim radius" value={`${camp.territoryRadius.toFixed(1)} map units`} />
             <DataCell label="Knowledge" value={Math.round(camp.knowledgePower)} />
             <DataCell label="Stores" value={compactNumber(stock)} />
             <DataCell label="Worldview" value={dominantBelief?.name ?? getBeliefName(world, camp.dominantBeliefId)} />

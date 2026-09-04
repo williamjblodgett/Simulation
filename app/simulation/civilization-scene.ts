@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import {
+  layoutExclusiveTerritories,
+  type TerritoryCell,
+} from "./territory-layout";
 
 export type VisualId = string;
 export type VisualResourceKind = "food" | "water" | "wood" | "ore";
@@ -182,8 +186,8 @@ interface ResourceVisual {
 interface CampVisual {
   root: THREE.Group;
   hitTarget: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>;
-  territory: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
-  territoryFill: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
+  territory: THREE.LineLoop<THREE.BufferGeometry, THREE.LineBasicMaterial>;
+  territoryFill: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   attackRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   beliefRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   shrine: THREE.Group;
@@ -198,6 +202,7 @@ interface CampVisual {
   target: THREE.Vector2;
   territoryTarget: number;
   territoryCurrent: number;
+  territoryGeometryKey: string;
   underAttack: boolean;
   level: number;
   techLevel: number;
@@ -935,13 +940,98 @@ function makeWatchtower(color: THREE.Color, x: number, z: number) {
   return group;
 }
 
+function campTerritoryRadius(camp: VisualCamp, profile: TerrainProfile) {
+  return clamp(finite(camp.territory, 7), 3.8, Math.min(32, profile.halfSize * 0.42));
+}
+
+function polygonCentroid(vertices: readonly { x: number; z: number }[]) {
+  if (vertices.length === 0) return { x: 0, z: 0 };
+  let twiceArea = 0;
+  let weightedX = 0;
+  let weightedZ = 0;
+  for (let index = 0; index < vertices.length; index += 1) {
+    const current = vertices[index];
+    const next = vertices[(index + 1) % vertices.length];
+    const cross = current.x * next.z - next.x * current.z;
+    twiceArea += cross;
+    weightedX += (current.x + next.x) * cross;
+    weightedZ += (current.z + next.z) * cross;
+  }
+  if (Math.abs(twiceArea) <= 1e-9) {
+    return vertices.reduce(
+      (total, point) => ({ x: total.x + point.x / vertices.length, z: total.z + point.z / vertices.length }),
+      { x: 0, z: 0 },
+    );
+  }
+  return {
+    x: weightedX / (3 * twiceArea),
+    z: weightedZ / (3 * twiceArea),
+  };
+}
+
+function makeTerritoryFillGeometry(cell: TerritoryCell, profile: TerrainProfile) {
+  const geometry = new THREE.BufferGeometry();
+  if (cell.vertices.length < 3) return geometry;
+  const centerHeight = terrainHeight(cell.center.x, cell.center.z, profile);
+  const centroid = polygonCentroid(cell.vertices);
+  const points = [centroid, ...cell.vertices];
+  const positions = new Float32Array(points.length * 3);
+  points.forEach((point, index) => {
+    positions[index * 3] = point.x - cell.center.x;
+    positions[index * 3 + 1] = terrainHeight(point.x, point.z, profile) + 0.055 - centerHeight;
+    positions[index * 3 + 2] = point.z - cell.center.z;
+  });
+  const indices: number[] = [];
+  for (let index = 0; index < cell.vertices.length; index += 1) {
+    const current = index + 1;
+    const next = (index + 1) % cell.vertices.length + 1;
+    indices.push(0, next, current);
+  }
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function makeTerritoryBorderGeometry(cell: TerritoryCell, profile: TerrainProfile) {
+  const geometry = new THREE.BufferGeometry();
+  if (cell.vertices.length < 3) return geometry;
+  const centerHeight = terrainHeight(cell.center.x, cell.center.z, profile);
+  const positions = new Float32Array(cell.vertices.length * 3);
+  cell.vertices.forEach((point, index) => {
+    positions[index * 3] = point.x - cell.center.x;
+    positions[index * 3 + 1] = terrainHeight(point.x, point.z, profile) + 0.09 - centerHeight;
+    positions[index * 3 + 2] = point.z - cell.center.z;
+  });
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function applyTerritoryGeometry(visual: CampVisual, cell: TerritoryCell, profile: TerrainProfile) {
+  const geometryKey = `${profile.seed}|${profile.halfSize}|${cell.geometryKey}`;
+  if (geometryKey === visual.territoryGeometryKey) return false;
+  const nextFillGeometry = makeTerritoryFillGeometry(cell, profile);
+  const nextBorderGeometry = makeTerritoryBorderGeometry(cell, profile);
+  const previousFillGeometry = visual.territoryFill.geometry;
+  const previousBorderGeometry = visual.territory.geometry;
+  visual.territoryFill.geometry = nextFillGeometry;
+  visual.territory.geometry = nextBorderGeometry;
+  visual.territoryGeometryKey = geometryKey;
+  previousFillGeometry.dispose();
+  previousBorderGeometry.dispose();
+  return true;
+}
+
 function makeCamp(camp: VisualCamp): CampVisual {
   const color = safeColor(camp.color);
   const root = new THREE.Group();
   root.name = `camp:${camp.id}`;
 
   const territoryFill = new THREE.Mesh(
-    new THREE.CircleGeometry(1, 64),
+    new THREE.BufferGeometry(),
     new THREE.MeshBasicMaterial({
       color,
       transparent: true,
@@ -950,23 +1040,18 @@ function makeCamp(camp: VisualCamp): CampVisual {
       depthWrite: false,
     }),
   );
-  territoryFill.rotation.x = -Math.PI / 2;
-  territoryFill.position.y = 0.055;
   territoryFill.renderOrder = 2;
   root.add(territoryFill);
 
-  const territory = new THREE.Mesh(
-    new THREE.RingGeometry(0.965, 1, 96),
-    new THREE.MeshBasicMaterial({
+  const territory = new THREE.LineLoop(
+    new THREE.BufferGeometry(),
+    new THREE.LineBasicMaterial({
       color,
       transparent: true,
       opacity: 0.48,
-      side: THREE.DoubleSide,
       depthWrite: false,
     }),
   );
-  territory.rotation.x = -Math.PI / 2;
-  territory.position.y = 0.09;
   territory.renderOrder = 5;
   root.add(territory);
 
@@ -1198,6 +1283,7 @@ function makeCamp(camp: VisualCamp): CampVisual {
     target: new THREE.Vector2(finite(camp.position.x), finite(camp.position.z)),
     territoryTarget: territoryRadius,
     territoryCurrent: territoryRadius,
+    territoryGeometryKey: "",
     underAttack: camp.underAttack,
     level: Math.max(0, Math.floor(finite(camp.level))),
     techLevel: Math.max(0, Math.floor(finite(camp.techLevel))),
@@ -1219,7 +1305,7 @@ function applyCampState(visual: CampVisual, camp: VisualCamp, profile: TerrainPr
     sceneCoordinate(camp.position.x, profile.halfSize),
     sceneCoordinate(camp.position.z, profile.halfSize),
   );
-  visual.territoryTarget = clamp(finite(camp.territory, 7), 3.8, Math.min(32, profile.halfSize * 0.42));
+  visual.territoryTarget = campTerritoryRadius(camp, profile);
   visual.underAttack = camp.underAttack;
   visual.level = Math.max(0, Math.floor(finite(camp.level)));
   visual.techLevel = Math.max(0, Math.floor(finite(camp.techLevel)));
@@ -2097,6 +2183,17 @@ export function createCivilizationScene(
   };
 
   const syncCamps = (camps: VisualCamp[], immediate: boolean) => {
+    const territoryCells = new Map<VisualId, TerritoryCell>(layoutExclusiveTerritories(
+      camps.map((camp) => ({
+        id: camp.id,
+        position: {
+          x: sceneCoordinate(camp.position.x, activeProfile.halfSize),
+          z: sceneCoordinate(camp.position.z, activeProfile.halfSize),
+        },
+        radius: campTerritoryRadius(camp, activeProfile),
+      })),
+      { halfSize: activeProfile.halfSize, edgeInset: EDGE_INSET },
+    ).map((cell) => [cell.id, cell] as const));
     const incoming = new Set(camps.map((camp) => camp.id));
     campVisuals.forEach((visual, id) => {
       if (incoming.has(id)) return;
@@ -2113,8 +2210,14 @@ export function createCivilizationScene(
         scene.add(visual.root);
         created = true;
       }
+      const previousTargetX = visual.target.x;
+      const previousTargetZ = visual.target.y;
       applyCampState(visual, camp, activeProfile);
-      if (immediate || created) {
+      const centerChanged = Math.abs(previousTargetX - visual.target.x) > 1e-9
+        || Math.abs(previousTargetZ - visual.target.y) > 1e-9;
+      const territoryCell = territoryCells.get(camp.id);
+      if (territoryCell) applyTerritoryGeometry(visual, territoryCell, activeProfile);
+      if (immediate || created || centerChanged) {
         visual.root.position.set(
           visual.target.x,
           terrainHeight(visual.target.x, visual.target.y, activeProfile),
@@ -2498,8 +2601,6 @@ export function createCivilizationScene(
       visual.root.position.z = damp(visual.root.position.z, visual.target.y, 8, delta);
       visual.root.position.y = terrainHeight(visual.root.position.x, visual.root.position.z, activeProfile);
       visual.territoryCurrent = damp(visual.territoryCurrent, visual.territoryTarget, 4, delta);
-      visual.territory.scale.setScalar(visual.territoryCurrent);
-      visual.territoryFill.scale.setScalar(visual.territoryCurrent);
       const isSelected = id === selectedCampId;
       const followsSelectedBelief = Boolean(selectedBeliefId && visual.dominantBeliefId === selectedBeliefId);
       const isWorldOverlay = activeOverlayMode === "world";
@@ -2508,7 +2609,7 @@ export function createCivilizationScene(
       const isTerritoryOverlay = activeOverlayMode === "territories";
       const hasBelief = Boolean(visual.dominantBeliefId && visual.beliefColor);
 
-      visual.territory.visible = activeOverlayMode !== "resources" || isSelected;
+      visual.territory.visible = isSelected;
       visual.territoryFill.visible = activeOverlayMode !== "resources" || isSelected;
       if (isTerritoryOverlay) {
         visual.territory.material.opacity = isSelected ? 1 : 0.9;
