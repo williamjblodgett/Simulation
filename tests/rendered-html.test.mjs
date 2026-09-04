@@ -40,11 +40,16 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
   assert.match(experience, /createCivilizationScene|simulateCivilization|Sovereign roster|World chronicle/i);
   assert.match(experience, /Beliefs|emergent worldview|beliefRanking/i);
   assert.match(experience, /MAP_OVERLAY_OPTIONS|Choose a map overlay|Map layers/i);
+  assert.match(experience, /getRankedInfluentialAgents|sov-influence-card|INFLUENCE/i);
+  assert.match(experience, /Explore family tree|CURRENT THINKING|Recent outcome memory/i);
+  assert.match(experience, /Explore map|Drag to orbit|Pinch to zoom/i);
   assert.match(engine, /createCivilizationWorld|catchUpCivilization|breakaway|defection|tech_unlocked|reproduce/i);
   assert.match(engine, /belief_founded|belief_schism|free_conscience|MAX_ACTIVE_CAMPS\s*=\s*48/i);
+  assert.match(engine, /getAgentFamilyTree|getRankedInfluentialAgents|reflectOnPreviousPlan|planLearning|recentMemories/i);
   assert.match(scene, /WebGLRenderer|OrbitControls|Raycaster|followCamp/);
   assert.match(scene, /VisualBelief|sacredSite|beliefHalo/i);
   assert.match(scene, /MapOverlayMode|abundanceRing|influenceFill/i);
+  assert.match(scene, /TOUCH\.ROTATE|TOUCH\.DOLLY_PAN|handlePointerDownCapture/i);
   assert.match(route, /catchUpCivilization|civilization_events|no-store|migrat/i);
   assert.match(hosting, /"d1"\s*:\s*"DB"/i);
   assert.match(packageJson, /"three"/);

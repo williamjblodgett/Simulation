@@ -2035,12 +2035,26 @@ export function createCivilizationScene(
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = !reducedMotion;
   controls.dampingFactor = 0.065;
+  controls.enableRotate = true;
+  controls.enableZoom = true;
+  controls.enablePan = true;
+  controls.rotateSpeed = 0.62;
+  controls.zoomSpeed = 0.88;
+  controls.panSpeed = 0.78;
   controls.screenSpacePanning = false;
   controls.minDistance = 5;
   controls.maxDistance = activeProfile.halfSize * 3.15;
+  controls.minTargetRadius = 0;
+  controls.maxTargetRadius = activeProfile.halfSize * 1.5;
+  controls.cursor.set(0, 0, 0);
   controls.maxPolarAngle = Math.PI * 0.485;
   controls.minPolarAngle = 0.14;
+  controls.touches.ONE = THREE.TOUCH.ROTATE;
+  controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+  controls.zoomToCursor = true;
   controls.enabled = false;
+  let controlsPrimedForPointer = false;
+  let pointerGestureOwnsCamera = false;
 
   let staticWorld = makeStaticWorld(activeProfile);
   scene.add(staticWorld.root);
@@ -2078,6 +2092,7 @@ export function createCivilizationScene(
     camera.far = activeProfile.halfSize * 8;
     camera.updateProjectionMatrix();
     controls.maxDistance = activeProfile.halfSize * 3.15;
+    controls.maxTargetRadius = activeProfile.halfSize * 1.5;
     configureShadowCamera();
   };
 
@@ -2253,12 +2268,16 @@ export function createCivilizationScene(
   };
 
   const setCameraMode = (mode: CameraMode) => {
-    if (mode === activeCameraMode && controls.enabled === (mode === "free")) return;
-    activeCameraMode = mode;
-    controls.enabled = mode === "free";
-    if (controls.enabled) {
+    const effectiveMode = controlsPrimedForPointer && pointerGestureOwnsCamera ? "free" : mode;
+    const shouldEnableControls = effectiveMode === "free" || controlsPrimedForPointer;
+    if (effectiveMode === activeCameraMode && controls.enabled === shouldEnableControls) return;
+    activeCameraMode = effectiveMode;
+    controls.enabled = shouldEnableControls;
+    if (effectiveMode === "free") {
       controls.target.copy(cameraTarget);
       controls.update();
+    } else if (controlsPrimedForPointer) {
+      controls.target.copy(cameraTarget);
     }
   };
 
@@ -2755,8 +2774,14 @@ export function createCivilizationScene(
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
-  let pointerDown: { x: number; y: number } | null = null;
-  let pointerDragged = false;
+  const activePointers = new Map<number, {
+    startX: number;
+    startY: number;
+    pointerType: string;
+    canSelect: boolean;
+    dragged: boolean;
+  }>();
+  let gestureBlocksSelection = false;
 
   const setRayFromPointer = (event: PointerEvent) => {
     const rectangle = renderer.domElement.getBoundingClientRect();
@@ -2789,57 +2814,120 @@ export function createCivilizationScene(
   };
 
   const activateFreeCamera = () => {
+    controls.enabled = true;
+    if (controlsPrimedForPointer) pointerGestureOwnsCamera = true;
     if (activeCameraMode === "free") return;
     activeCameraMode = "free";
-    controls.enabled = true;
     controls.target.copy(cameraTarget);
     controls.update();
     options.onCameraModeChange?.("free");
   };
 
+  // OrbitControls normally sees pointerdown before our bubble listener. Prime it in
+  // capture phase so the very first drag/pinch is tracked, but do not leave the
+  // automatic overview/follow camera until movement proves this is a gesture.
+  const handlePointerDownCapture = () => {
+    controlsPrimedForPointer = true;
+    controls.enabled = true;
+    if (activeCameraMode !== "free") {
+      controls.target.copy(cameraTarget);
+    }
+  };
+
   const handlePointerDown = (event: PointerEvent) => {
-    pointerDown = { x: event.clientX, y: event.clientY };
-    pointerDragged = false;
+    if (activePointers.size === 0) pointerGestureOwnsCamera = false;
+    if (activePointers.size > 0) gestureBlocksSelection = true;
+    activePointers.set(event.pointerId, {
+      startX: event.clientX,
+      startY: event.clientY,
+      pointerType: event.pointerType,
+      canSelect: event.pointerType === "touch" || event.button === 0,
+      dragged: false,
+    });
   };
   const handlePointerMove = (event: PointerEvent) => {
-    if (pointerDown) {
-      const distance = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
-      if (distance > 6) {
-        pointerDragged = true;
+    const trackedPointer = activePointers.get(event.pointerId);
+    if (trackedPointer) {
+      const distance = Math.hypot(
+        event.clientX - trackedPointer.startX,
+        event.clientY - trackedPointer.startY,
+      );
+      const touchPointerCount = Array.from(activePointers.values())
+        .filter((candidate) => candidate.pointerType === "touch").length;
+      const isMultiTouchGesture = event.pointerType === "touch" && touchPointerCount > 1;
+      if (distance > 6 || isMultiTouchGesture) {
+        trackedPointer.dragged = true;
+        gestureBlocksSelection = true;
+        if (isMultiTouchGesture) {
+          activePointers.forEach((candidate) => {
+            candidate.dragged = true;
+          });
+        }
         activateFreeCamera();
+      } else if (activeCameraMode !== "free") {
+        // Keep OrbitControls' start coordinates, while preventing sub-threshold
+        // movement from nudging an automatic camera before a tap is resolved.
+        controls.enabled = false;
       }
     }
-    const hit = objectAtPointer(event);
-    renderer.domElement.style.cursor = hit.agentId || hit.campId || hit.beliefId
-      ? "pointer"
-      : activeCameraMode === "free"
-        ? pointerDown ? "grabbing" : "grab"
-        : "default";
+    if (event.pointerType === "mouse") {
+      const hit = objectAtPointer(event);
+      renderer.domElement.style.cursor = hit.agentId || hit.campId || hit.beliefId
+        ? "pointer"
+        : activeCameraMode === "free"
+          ? activePointers.size > 0 ? "grabbing" : "grab"
+          : "default";
+    }
   };
   const handlePointerUp = (event: PointerEvent) => {
-    if (!pointerDown) return;
-    const distance = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
-    pointerDown = null;
-    if (!pointerDragged && distance < 6) {
+    const trackedPointer = activePointers.get(event.pointerId);
+    if (!trackedPointer) return;
+    const distance = Math.hypot(
+      event.clientX - trackedPointer.startX,
+      event.clientY - trackedPointer.startY,
+    );
+    const isOnlyPointer = activePointers.size === 1;
+    const shouldSelect = isOnlyPointer &&
+      trackedPointer.canSelect &&
+      !trackedPointer.dragged &&
+      !gestureBlocksSelection &&
+      distance < 6;
+    activePointers.delete(event.pointerId);
+    if (shouldSelect) {
       const hit = objectAtPointer(event);
       if (hit.agentId) options.onAgentSelect(hit.agentId);
       else if (hit.campId) options.onCampSelect(hit.campId);
       else if (hit.beliefId) options.onBeliefSelect?.(hit.beliefId);
     }
-    pointerDragged = false;
+    if (activePointers.size === 0) {
+      controlsPrimedForPointer = false;
+      if (activeCameraMode !== "free") controls.enabled = false;
+      gestureBlocksSelection = false;
+      pointerGestureOwnsCamera = false;
+    }
   };
-  const handlePointerCancel = () => {
-    pointerDown = null;
-    pointerDragged = false;
+  const handlePointerCancel = (event: PointerEvent) => {
+    if (activePointers.has(event.pointerId)) gestureBlocksSelection = true;
+    activePointers.delete(event.pointerId);
+    if (activePointers.size === 0) {
+      controlsPrimedForPointer = false;
+      if (activeCameraMode !== "free") controls.enabled = false;
+      gestureBlocksSelection = false;
+      pointerGestureOwnsCamera = false;
+    }
     renderer.domElement.style.cursor = activeCameraMode === "free" ? "grab" : "default";
+  };
+  const handlePointerLeave = (event: PointerEvent) => {
+    if (!renderer.domElement.hasPointerCapture(event.pointerId)) handlePointerCancel(event);
   };
   const handleWheelIntent = () => activateFreeCamera();
 
+  renderer.domElement.addEventListener("pointerdown", handlePointerDownCapture, { capture: true });
   renderer.domElement.addEventListener("pointerdown", handlePointerDown);
   renderer.domElement.addEventListener("pointermove", handlePointerMove);
   renderer.domElement.addEventListener("pointerup", handlePointerUp);
   renderer.domElement.addEventListener("pointercancel", handlePointerCancel);
-  renderer.domElement.addEventListener("pointerleave", handlePointerCancel);
+  renderer.domElement.addEventListener("pointerleave", handlePointerLeave);
   renderer.domElement.addEventListener("wheel", handleWheelIntent, { passive: true, capture: true });
 
   let resizeObserver: ResizeObserver | null = null;
@@ -2908,11 +2996,12 @@ export function createCivilizationScene(
       disposed = true;
       resizeObserver?.disconnect();
       if (!resizeObserver && typeof window !== "undefined") window.removeEventListener("resize", resize);
+      renderer.domElement.removeEventListener("pointerdown", handlePointerDownCapture, true);
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
       renderer.domElement.removeEventListener("pointercancel", handlePointerCancel);
-      renderer.domElement.removeEventListener("pointerleave", handlePointerCancel);
+      renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("wheel", handleWheelIntent, true);
       controls.dispose();
       disposeObject(scene);

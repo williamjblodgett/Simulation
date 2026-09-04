@@ -22,6 +22,8 @@ export const EXACT_CATCH_UP_LIMIT_SECONDS = MAX_CATCH_UP_STEPS * FIXED_STEP;
 const MAX_LONG_GAP_STEPS = 48;
 const MAX_MAJOR_EVENTS = 1_000;
 const MAX_BELIEF_SYSTEMS = 36;
+const MAX_AGENT_MEMORIES = 8;
+const MAX_DELIBERATION_ALTERNATIVES = 3;
 const STRATEGY_INTERVAL = 5;
 const CAMP_STORAGE_LIMIT = 600;
 
@@ -95,6 +97,7 @@ export type AgentPlan =
   | "seize_leadership"
   | "found_camp"
   | "seek_home";
+export type AgentOutcome = "success" | "mixed" | "setback";
 export type DiplomaticStatus = "neutral" | "alliance" | "truce" | "war";
 export type EventTone = "neutral" | "positive" | "warning" | "critical";
 export type MajorEventType =
@@ -150,6 +153,98 @@ export interface AgentTarget {
   position: Vec2;
 }
 
+/** A learned estimate starts empty for every agent and changes only after outcomes. */
+export interface AgentPlanLearning {
+  attempts: number;
+  expectedValue: number;
+}
+
+export interface AgentDecisionAlternative {
+  plan: AgentPlan;
+  goal: string;
+  score: number;
+}
+
+/** UI-ready account of the choice an agent most recently made. */
+export interface AgentDeliberation {
+  formedDay: number;
+  chosenPlan: AgentPlan;
+  statement: string;
+  confidence: number;
+  alternatives: AgentDecisionAlternative[];
+}
+
+/** Bounded autobiographical evidence used by the local learning rule. */
+export interface AgentMemory {
+  id: string;
+  day: number;
+  plan: AgentPlan;
+  outcome: AgentOutcome;
+  score: number;
+  summary: string;
+}
+
+export interface AgentOutcomeSignals {
+  health: number;
+  nutrition: number;
+  hydration: number;
+  energy: number;
+  personalPower: number;
+  influence: number;
+  knowledge: number;
+  family: number;
+  campSecurity: number;
+  resources: number;
+}
+
+/** Persisted baseline for reflecting on a plan when the next choice is due. */
+export interface AgentDecisionSnapshot {
+  formedTime: number;
+  formedDay: number;
+  plan: AgentPlan;
+  signals: AgentOutcomeSignals;
+}
+
+export interface AgentInfluenceBreakdown {
+  agentId: string;
+  socialInfluence: number;
+  spiritualInfluence: number;
+  achievedInfluence: number;
+  personalPower: number;
+  knowledge: number;
+  directDescendants: number;
+}
+
+export interface AgentFamilyTreeOptions {
+  direction?: "ancestors" | "descendants" | "both";
+  maxDepth?: number;
+  maxNodes?: number;
+}
+
+export interface AgentFamilyTreeNode {
+  id: string;
+  name: string;
+  alive: boolean;
+  generation: number;
+  campId: string | null;
+  parentIds: string[];
+  childrenIds: string[];
+  achievedInfluence: number;
+}
+
+export interface AgentFamilyTreeEdge {
+  parentId: string;
+  childId: string;
+}
+
+export interface AgentFamilyTree {
+  rootId: string;
+  nodes: AgentFamilyTreeNode[];
+  edges: AgentFamilyTreeEdge[];
+  unresolvedIds: string[];
+  truncated: boolean;
+}
+
 export interface CivilizationAgent {
   id: string;
   name: string;
@@ -200,6 +295,11 @@ export interface CivilizationAgent {
   conviction: number;
   spiritualInfluence: number;
   lastBeliefChangeDay: number;
+  /** Identical empty priors at birth; entries appear only after lived outcomes. */
+  planLearning: Partial<Record<AgentPlan, AgentPlanLearning>>;
+  recentMemories: AgentMemory[];
+  deliberation: AgentDeliberation;
+  decisionSnapshot: AgentDecisionSnapshot | null;
 }
 
 export interface StructureLevels {
@@ -567,6 +667,26 @@ const RESOURCE_LABELS: Readonly<Record<ResourceKind, string>> = {
   ore: "ore deposit",
 };
 
+export const AGENT_PLANS: readonly AgentPlan[] = [
+  "survive",
+  "secure_food",
+  "secure_water",
+  "stockpile",
+  "fortify",
+  "advance_knowledge",
+  "grow_lineage",
+  "expand_influence",
+  "defend_home",
+  "weaken_rival",
+  "make_peace",
+  "change_allegiance",
+  "seize_leadership",
+  "found_camp",
+  "seek_home",
+] as const;
+
+const AGENT_PLAN_SET = new Set<AgentPlan>(AGENT_PLANS);
+
 interface RandomCursor {
   state: number;
 }
@@ -608,6 +728,16 @@ function copyVec(position: Vec2): Vec2 {
 
 function copyInventory(inventory: Inventory): Inventory {
   return { ...inventory };
+}
+
+function emptyDeliberation(day = 1): AgentDeliberation {
+  return {
+    formedDay: day,
+    chosenPlan: "survive",
+    statement: "I have no prior outcomes yet; present conditions will guide my first plan.",
+    confidence: 0.5,
+    alternatives: [],
+  };
 }
 
 function totalInventory(inventory: Inventory): number {
@@ -804,6 +934,10 @@ function createFounder(index: number, position: Vec2): CivilizationAgent {
     conviction: 0,
     spiritualInfluence: 0,
     lastBeliefChangeDay: -100,
+    planLearning: {},
+    recentMemories: [],
+    deliberation: emptyDeliberation(1),
+    decisionSnapshot: null,
   };
 }
 
@@ -1046,6 +1180,25 @@ export function cloneCivilizationWorld(state: CivilizationWorldState): Civilizat
       ),
       target: agent.target
         ? { ...agent.target, position: copyVec(agent.target.position) }
+        : null,
+      planLearning: Object.fromEntries(
+        Object.entries(agent.planLearning ?? {}).map(([plan, learning]) => [
+          plan,
+          learning ? { ...learning } : learning,
+        ]),
+      ),
+      recentMemories: (agent.recentMemories ?? []).map((memory) => ({ ...memory })),
+      deliberation: agent.deliberation
+        ? {
+            ...agent.deliberation,
+            alternatives: (agent.deliberation.alternatives ?? []).map((alternative) => ({ ...alternative })),
+          }
+        : emptyDeliberation(state.day),
+      decisionSnapshot: agent.decisionSnapshot
+        ? {
+            ...agent.decisionSnapshot,
+            signals: { ...agent.decisionSnapshot.signals },
+          }
         : null,
     })),
     resources: state.resources.map((resource) => ({
@@ -1320,6 +1473,131 @@ function enemyCamps(world: CivilizationWorldState, camp: CivilizationCamp): Civi
   return world.camps.filter((candidate) => candidate.active && enemyIds.has(candidate.id));
 }
 
+function observeAgentOutcome(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+): AgentOutcomeSignals {
+  const camp = getActiveCamp(world, agent.campId);
+  const population = camp ? Math.max(1, camp.memberIds.length) : 1;
+  const perMemberStores = camp ? totalInventory(camp.storage) / population : 0;
+  const campSecurity = camp
+    ? clamp(
+        28 +
+          camp.cohesion * 26 +
+          camp.structures.walls * 4 +
+          camp.structures.council * 2 +
+          camp.militaryPower / population * 0.22 +
+          Math.min(12, perMemberStores * 0.18) -
+          camp.losses * 0.35,
+        0,
+        100,
+      )
+    : 0;
+  return {
+    health: round(agent.health, 3),
+    nutrition: round(agent.hunger, 3),
+    hydration: round(agent.hydration, 3),
+    energy: round(agent.energy, 3),
+    personalPower: round(agent.personalPower, 3),
+    influence: round(agent.influence + agent.spiritualInfluence, 3),
+    knowledge: round(agent.knowledge, 3),
+    family: agent.childrenIds.length,
+    campSecurity: round(campSecurity, 3),
+    resources: round(totalInventory(agent.inventory) + perMemberStores * 0.18, 3),
+  };
+}
+
+function outcomeDeltaScore(
+  before: AgentOutcomeSignals,
+  after: AgentOutcomeSignals,
+): number {
+  const score =
+    clamp((after.health - before.health) / 14, -1, 1) * 0.18 +
+    clamp((after.nutrition - before.nutrition) / 30, -1, 1) * 0.03 +
+    clamp((after.hydration - before.hydration) / 30, -1, 1) * 0.04 +
+    clamp((after.energy - before.energy) / 35, -1, 1) * 0.01 +
+    clamp((after.personalPower - before.personalPower) / 3, -1, 1) * 0.16 +
+    clamp((after.influence - before.influence) / 0.8, -1, 1) * 0.15 +
+    clamp((after.knowledge - before.knowledge) / 0.35, -1, 1) * 0.12 +
+    clamp(after.family - before.family, -1, 1) * 0.14 +
+    clamp((after.campSecurity - before.campSecurity) / 24, -1, 1) * 0.1 +
+    clamp((after.resources - before.resources) / 7, -1, 1) * 0.07;
+  return clamp(round(score, 4), -1, 1);
+}
+
+function outcomeSummary(
+  plan: AgentPlan,
+  outcome: AgentOutcome,
+  score: number,
+  before: AgentOutcomeSignals,
+  after: AgentOutcomeSignals,
+): string {
+  const changes: Array<{ magnitude: number; phrase: string }> = [
+    { magnitude: Math.abs(after.health - before.health) / 8, phrase: after.health >= before.health ? "protected my health" : "lost health" },
+    { magnitude: Math.abs(after.nutrition - before.nutrition) / 18, phrase: after.nutrition >= before.nutrition ? "restored nutrition" : "became hungrier" },
+    { magnitude: Math.abs(after.hydration - before.hydration) / 18, phrase: after.hydration >= before.hydration ? "restored hydration" : "became thirstier" },
+    { magnitude: Math.abs(after.energy - before.energy) / 20, phrase: after.energy >= before.energy ? "recovered energy" : "spent energy" },
+    { magnitude: Math.abs(after.personalPower - before.personalPower) / 2, phrase: after.personalPower >= before.personalPower ? "gained personal power" : "lost personal power" },
+    { magnitude: Math.abs(after.influence - before.influence) / 0.5, phrase: after.influence >= before.influence ? "expanded my influence" : "lost influence" },
+    { magnitude: Math.abs(after.knowledge - before.knowledge) / 0.2, phrase: after.knowledge >= before.knowledge ? "gained knowledge" : "made no knowledge gain" },
+    { magnitude: Math.abs(after.family - before.family), phrase: after.family > before.family ? "expanded my family" : "my family did not grow" },
+    { magnitude: Math.abs(after.campSecurity - before.campSecurity) / 15, phrase: after.campSecurity >= before.campSecurity ? "improved camp security" : "saw camp security weaken" },
+    { magnitude: Math.abs(after.resources - before.resources) / 4, phrase: after.resources >= before.resources ? "gained usable resources" : "spent or lost resources" },
+  ];
+  changes.sort((left, right) => right.magnitude - left.magnitude || left.phrase.localeCompare(right.phrase));
+  const planLabel = plan.replaceAll("_", " ");
+  if ((changes[0]?.magnitude ?? 0) < 0.035) {
+    return `I saw little measurable change from ${planLabel}; the result was ${outcome}.`;
+  }
+  return `I ${changes[0].phrase} while pursuing ${planLabel}; the result was ${outcome} (${score >= 0 ? "+" : ""}${round(score, 2)}).`;
+}
+
+/** Reflects without consuming randomness, preserving fixed-step replay. */
+function reflectOnPreviousPlan(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+): AgentMemory | null {
+  const snapshot = agent.decisionSnapshot;
+  if (!snapshot || world.time - snapshot.formedTime < EPSILON) return null;
+  const after = observeAgentOutcome(world, agent);
+  const score = outcomeDeltaScore(snapshot.signals, after);
+  const outcome: AgentOutcome = score > 0.035 ? "success" : score < -0.035 ? "setback" : "mixed";
+  const previous = agent.planLearning[snapshot.plan] ?? { attempts: 0, expectedValue: 0 };
+  const attempts = Math.min(1_000_000, previous.attempts + 1);
+  agent.planLearning[snapshot.plan] = {
+    attempts,
+    expectedValue: clamp(
+      round(previous.expectedValue + (score - previous.expectedValue) / attempts, 4),
+      -1,
+      1,
+    ),
+  };
+  const memory: AgentMemory = {
+    id: `${agent.id}-memory-${String(world.tick).padStart(9, "0")}`,
+    day: world.day,
+    plan: snapshot.plan,
+    outcome,
+    score,
+    summary: outcomeSummary(snapshot.plan, outcome, score, snapshot.signals, after),
+  };
+  agent.recentMemories.push(memory);
+  if (agent.recentMemories.length > MAX_AGENT_MEMORIES) {
+    agent.recentMemories.splice(0, agent.recentMemories.length - MAX_AGENT_MEMORIES);
+  }
+  return memory;
+}
+
+function learnedPlanBonus(agent: CivilizationAgent, plan: AgentPlan): number {
+  const learned = agent.planLearning[plan] ?? { attempts: 0, expectedValue: 0 };
+  const exploration = 2.4 / Math.sqrt(learned.attempts + 1);
+  // Survival may become more attractive after success, but negative outcomes
+  // can never suppress it. Immediate survival utilities remain hard constraints.
+  const expected = plan === "survive"
+    ? Math.max(0, learned.expectedValue)
+    : clamp(learned.expectedValue, -1, 1);
+  return expected * 4 + exploration;
+}
+
 /**
  * Every agent evaluates this same utility slate. Scores contain no personality,
  * role, faction archetype, or hidden ambition term: only current needs, achieved
@@ -1328,6 +1606,7 @@ function enemyCamps(world: CivilizationWorldState, camp: CivilizationCamp): Civi
  */
 function chooseAgentAction(world: CivilizationWorldState, agent: CivilizationAgent): void {
   if (!agent.alive) return;
+  reflectOnPreviousPlan(world, agent);
   const candidates: ActionCandidate[] = [];
   const camp = getActiveCamp(world, agent.campId);
   const atCamp = camp ? isNear(agent.position, camp.position, camp.radius) : false;
@@ -1343,7 +1622,7 @@ function chooseAgentAction(world: CivilizationWorldState, agent: CivilizationAge
     candidates.push({
       action,
       plan,
-      score: score + worldRandom(world) * 0.035,
+      score: score + learnedPlanBonus(agent, plan) + worldRandom(world) * 0.035,
       goal,
       rationale,
       target: actionTarget,
@@ -1545,6 +1824,24 @@ function chooseCandidate(
   candidates.sort((left, right) => right.score - left.score || left.action.localeCompare(right.action));
   const choice = candidates[0];
   if (!choice) return;
+  const alternatives: AgentDecisionAlternative[] = [];
+  const representedPlans = new Set<AgentPlan>([choice.plan]);
+  for (const candidate of candidates.slice(1)) {
+    if (representedPlans.has(candidate.plan)) continue;
+    representedPlans.add(candidate.plan);
+    alternatives.push({
+      plan: candidate.plan,
+      goal: candidate.goal,
+      score: round(candidate.score, 2),
+    });
+    if (alternatives.length >= MAX_DELIBERATION_ALTERNATIVES) break;
+  }
+  const runnerUpScore = candidates[1]?.score ?? choice.score - 18;
+  const confidence = clamp(0.5 + (choice.score - runnerUpScore) / 44, 0.36, 0.96);
+  const latestMemory = agent.recentMemories.at(-1);
+  const evidence = latestMemory
+    ? `${latestMemory.summary} `
+    : "I have no personal outcome to rely on yet. ";
   agent.action = choice.action;
   agent.currentPlan = choice.plan;
   agent.goal = choice.goal;
@@ -1552,6 +1849,19 @@ function chooseCandidate(
   agent.target = choice.target;
   agent.actionProgress = 0;
   agent.decisionTimer = 2.2 + worldRandom(world) * 2.8;
+  agent.deliberation = {
+    formedDay: world.day,
+    chosenPlan: choice.plan,
+    statement: `${evidence}I choose to ${choice.goal.charAt(0).toLowerCase()}${choice.goal.slice(1)} because ${choice.rationale.charAt(0).toLowerCase()}${choice.rationale.slice(1)}`.slice(0, 360),
+    confidence: round(confidence, 3),
+    alternatives,
+  };
+  agent.decisionSnapshot = {
+    formedTime: world.time,
+    formedDay: world.day,
+    plan: choice.plan,
+    signals: observeAgentOutcome(world, agent),
+  };
 }
 
 function bestResourceFor(
@@ -1904,6 +2214,61 @@ function canReproduce(
   return camp.storage.food >= 9 + population * 1.2 && camp.storage.water >= 9 + population * 1.2;
 }
 
+function ancestorIds(
+  byId: ReadonlyMap<string, CivilizationAgent>,
+  agent: CivilizationAgent,
+  maxDepth = 4,
+): Set<string> {
+  const ancestors = new Set<string>();
+  let frontier = [...agent.parentIds];
+  for (let depth = 0; depth < maxDepth && frontier.length > 0; depth += 1) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      if (ancestors.has(id)) continue;
+      ancestors.add(id);
+      const relative = byId.get(id);
+      if (relative) next.push(...relative.parentIds);
+    }
+    frontier = next;
+  }
+  return ancestors;
+}
+
+function areCloseKin(
+  byId: ReadonlyMap<string, CivilizationAgent>,
+  left: CivilizationAgent,
+  right: CivilizationAgent,
+): boolean {
+  if (left.id === right.id || left.parentIds.includes(right.id) || right.parentIds.includes(left.id)) return true;
+  if (left.childrenIds.includes(right.id) || right.childrenIds.includes(left.id)) return true;
+  const leftAncestors = ancestorIds(byId, left);
+  const rightAncestors = ancestorIds(byId, right);
+  return leftAncestors.has(right.id) || rightAncestors.has(left.id) ||
+    [...leftAncestors].some((id) => rightAncestors.has(id));
+}
+
+function chooseReproductionPartner(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+  camp: CivilizationCamp,
+): CivilizationAgent | null {
+  const byId = new Map(world.agents.map((candidate) => [candidate.id, candidate]));
+  return world.agents
+    .filter((candidate) => {
+      if (!candidate.alive || candidate.campId !== camp.id || areCloseKin(byId, agent, candidate)) return false;
+      if (candidate.age < 16 || world.day - candidate.lastReproductionDay < 3.1) return false;
+      if (candidate.health < 52 || candidate.hunger < 48 || candidate.hydration < 48) return false;
+      return true;
+    })
+    .sort((left, right) => {
+      const leftBond = agent.relationships[left.id];
+      const rightBond = agent.relationships[right.id];
+      const leftScore = (leftBond?.trust ?? 0.48) + (leftBond?.respect ?? 0.28) - (leftBond?.grievance ?? 0) + left.satisfaction * 0.16;
+      const rightScore = (rightBond?.trust ?? 0.48) + (rightBond?.respect ?? 0.28) - (rightBond?.grievance ?? 0) + right.satisfaction * 0.16;
+      return rightScore - leftScore || left.id.localeCompare(right.id);
+    })[0] ?? null;
+}
+
 function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgent, dt: number): void {
   const camp = getActiveCamp(world, agent.campId);
   if (!camp || !canReproduce(world, agent, camp)) {
@@ -1918,6 +2283,14 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
   const id = `agent-${String(ordinal).padStart(3, "0")}`;
   world.nextAgentId += 1;
   const angle = worldRandom(world) * TAU;
+  const coParent = chooseReproductionPartner(world, agent, camp);
+  const parents = coParent ? [agent, coParent] : [agent];
+  const childRelationships = Object.fromEntries(
+    parents.map((parent) => [
+      parent.id,
+      { trust: 0.82, respect: 0.58, grievance: 0, lastInteractionDay: world.day },
+    ]),
+  );
   const child: CivilizationAgent = {
     id,
     name: `Agent ${String(ordinal).padStart(2, "0")}`,
@@ -1931,8 +2304,8 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
     speed: 3,
     capacity: 12,
     age: 0,
-    generation: agent.generation + 1,
-    parentIds: [agent.id],
+    generation: Math.max(...parents.map((parent) => parent.generation)) + 1,
+    parentIds: parents.map((parent) => parent.id),
     childrenIds: [],
     bornAtDay: world.day,
     alive: true,
@@ -1954,9 +2327,7 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
     influence: 0,
     knowledge: 0,
     experience: 0,
-    relationships: {
-      [agent.id]: { trust: 0.82, respect: 0.58, grievance: 0, lastInteractionDay: world.day },
-    },
+    relationships: childRelationships,
     loyalty: 0.76,
     satisfaction: 0.76,
     lastReproductionDay: world.day,
@@ -1970,15 +2341,35 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
     conviction: agent.beliefId ? clamp(agent.conviction * 0.45, 0.08, 0.42) : 0,
     spiritualInfluence: 0,
     lastBeliefChangeDay: world.day,
+    planLearning: {},
+    recentMemories: [],
+    deliberation: emptyDeliberation(world.day),
+    decisionSnapshot: null,
   };
-  agent.childrenIds.push(child.id);
-  agent.lastReproductionDay = world.day;
-  agent.relationships[child.id] = {
-    trust: 0.84,
-    respect: 0.48,
-    grievance: 0,
-    lastInteractionDay: world.day,
-  };
+  for (const parent of parents) {
+    parent.childrenIds.push(child.id);
+    parent.lastReproductionDay = world.day;
+    parent.relationships[child.id] = {
+      trust: 0.84,
+      respect: 0.48,
+      grievance: 0,
+      lastInteractionDay: world.day,
+    };
+  }
+  if (coParent) {
+    const bond = agent.relationships[coParent.id] ?? {
+      trust: 0.5,
+      respect: 0.32,
+      grievance: 0,
+      lastInteractionDay: world.day,
+    };
+    agent.relationships[coParent.id] = {
+      ...bond,
+      trust: clamp(bond.trust + 0.05, 0, 1),
+      lastInteractionDay: world.day,
+    };
+    coParent.relationships[agent.id] = { ...agent.relationships[coParent.id] };
+  }
   camp.memberIds.push(child.id);
   world.agents.push(child);
   world.stats.births += 1;
@@ -1987,8 +2378,8 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
     "birth",
     "positive",
     `${child.name} is born at ${camp.name}`,
-    `${agent.name} creates a generation ${child.generation} descendant, extending the lineage and ${camp.name}'s future population.`,
-    [agent.id, child.id],
+    `${parents.map((parent) => parent.name).join(" and ")} ${parents.length === 1 ? "creates" : "create"} a generation ${child.generation} descendant, extending the lineage and ${camp.name}'s future population.`,
+    [...parents.map((parent) => parent.id), child.id],
     [camp.id],
   );
   chooseAgentAction(world, child);
@@ -3762,6 +4153,67 @@ function uniqueStringIds(items: unknown[]): boolean {
   return ids.every((id): id is string => id !== null) && new Set(ids).size === ids.length;
 }
 
+function isAgentPlan(value: unknown): value is AgentPlan {
+  return typeof value === "string" && AGENT_PLAN_SET.has(value as AgentPlan);
+}
+
+function validOutcomeSignals(value: unknown): value is AgentOutcomeSignals {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const signals = value as Record<string, unknown>;
+  return ["health", "nutrition", "hydration", "energy", "personalPower", "influence", "knowledge", "family", "campSecurity", "resources"].every(
+    (key) => typeof signals[key] === "number" && Number.isFinite(signals[key]),
+  );
+}
+
+function validAgentCognition(agent: Record<string, unknown>): boolean {
+  // Old schema-v2 rows predate cognition. Missing fields are accepted here so
+  // parseWorld can pass them to normalizeCivilizationWorld for deterministic
+  // hydration. Any cognition that is present must already be structurally safe.
+  if (agent.planLearning !== undefined) {
+    if (!agent.planLearning || typeof agent.planLearning !== "object" || Array.isArray(agent.planLearning)) return false;
+    for (const [plan, learningValue] of Object.entries(agent.planLearning as Record<string, unknown>)) {
+      if (!isAgentPlan(plan) || !learningValue || typeof learningValue !== "object" || Array.isArray(learningValue)) return false;
+      const learning = learningValue as Record<string, unknown>;
+      if (typeof learning.attempts !== "number" || !Number.isSafeInteger(learning.attempts) || learning.attempts < 0) return false;
+      if (typeof learning.expectedValue !== "number" || !Number.isFinite(learning.expectedValue) || learning.expectedValue < -1 || learning.expectedValue > 1) return false;
+    }
+  }
+  if (agent.recentMemories !== undefined) {
+    if (!Array.isArray(agent.recentMemories) || agent.recentMemories.length > MAX_AGENT_MEMORIES) return false;
+    for (const memoryValue of agent.recentMemories) {
+      if (!memoryValue || typeof memoryValue !== "object" || Array.isArray(memoryValue)) return false;
+      const memory = memoryValue as Record<string, unknown>;
+      if (typeof memory.id !== "string" || memory.id.length === 0 || !isAgentPlan(memory.plan)) return false;
+      if (!(["success", "mixed", "setback"] as const).includes(memory.outcome as AgentOutcome)) return false;
+      if (typeof memory.day !== "number" || !Number.isFinite(memory.day)) return false;
+      if (typeof memory.score !== "number" || !Number.isFinite(memory.score) || memory.score < -1 || memory.score > 1) return false;
+      if (typeof memory.summary !== "string" || memory.summary.length > 500) return false;
+    }
+  }
+  if (agent.deliberation !== undefined) {
+    if (!agent.deliberation || typeof agent.deliberation !== "object" || Array.isArray(agent.deliberation)) return false;
+    const deliberation = agent.deliberation as Record<string, unknown>;
+    if (typeof deliberation.formedDay !== "number" || !Number.isFinite(deliberation.formedDay) || !isAgentPlan(deliberation.chosenPlan)) return false;
+    if (typeof deliberation.statement !== "string" || deliberation.statement.length > 500) return false;
+    if (typeof deliberation.confidence !== "number" || !Number.isFinite(deliberation.confidence) || deliberation.confidence < 0 || deliberation.confidence > 1) return false;
+    if (!Array.isArray(deliberation.alternatives) || deliberation.alternatives.length > MAX_DELIBERATION_ALTERNATIVES) return false;
+    for (const alternativeValue of deliberation.alternatives) {
+      if (!alternativeValue || typeof alternativeValue !== "object" || Array.isArray(alternativeValue)) return false;
+      const alternative = alternativeValue as Record<string, unknown>;
+      if (!isAgentPlan(alternative.plan) || typeof alternative.goal !== "string" || alternative.goal.length > 300) return false;
+      if (typeof alternative.score !== "number" || !Number.isFinite(alternative.score)) return false;
+    }
+  }
+  if (agent.decisionSnapshot !== undefined && agent.decisionSnapshot !== null) {
+    if (!agent.decisionSnapshot || typeof agent.decisionSnapshot !== "object" || Array.isArray(agent.decisionSnapshot)) return false;
+    const snapshot = agent.decisionSnapshot as Record<string, unknown>;
+    if (typeof snapshot.formedTime !== "number" || !Number.isFinite(snapshot.formedTime)) return false;
+    if (typeof snapshot.formedDay !== "number" || !Number.isFinite(snapshot.formedDay) || !isAgentPlan(snapshot.plan)) return false;
+    if (!validOutcomeSignals(snapshot.signals)) return false;
+  }
+  return true;
+}
+
 /** A non-throwing structural and finite-number validation for persisted JSON. */
 export function validateCivilizationWorld(input: unknown): input is CivilizationWorldState {
   try {
@@ -3784,8 +4236,9 @@ export function validateCivilizationWorld(input: unknown): input is Civilization
       const agent = item as Record<string, unknown>;
       if (typeof agent.id !== "string" || typeof agent.name !== "string" || typeof agent.color !== "string") return false;
       if (!validPosition(agent.position) || !validPosition(agent.velocity) || !validInventory(agent.inventory)) return false;
-      if (typeof agent.alive !== "boolean" || typeof agent.action !== "string" || typeof agent.currentPlan !== "string") return false;
+      if (typeof agent.alive !== "boolean" || typeof agent.action !== "string" || !isAgentPlan(agent.currentPlan)) return false;
       if (!(agent.action in ACTION_LABELS)) return false;
+      if (!validAgentCognition(agent)) return false;
       if (!Array.isArray(agent.parentIds) || !agent.parentIds.every((id) => typeof id === "string")) return false;
       if (!Array.isArray(agent.childrenIds) || !agent.childrenIds.every((id) => typeof id === "string")) return false;
       if (!agent.relationships || typeof agent.relationships !== "object" || Array.isArray(agent.relationships)) return false;
@@ -3923,6 +4376,12 @@ function upgradeSchemaOneWorld(input: unknown): CivilizationWorldState | null {
       agent.conviction = 0;
       agent.spiritualInfluence = 0;
       agent.lastBeliefChangeDay = -100;
+      agent.planLearning = {};
+      agent.recentMemories = [];
+      agent.deliberation = emptyDeliberation(
+        typeof migrated.day === "number" && Number.isFinite(migrated.day) ? migrated.day : 1,
+      );
+      agent.decisionSnapshot = null;
     }
     for (const camp of camps) {
       camp.dominantBeliefId = null;
@@ -3993,6 +4452,32 @@ function upgradeSchemaOneWorld(input: unknown): CivilizationWorldState | null {
 }
 
 /**
+ * Adds cognition defaults to pre-cognition schema-v2 JSON without advancing the
+ * simulation or PRNG. This is a field hydration, not a schema/timeline reset.
+ */
+function hydrateSchemaTwoCognition(input: unknown): unknown {
+  try {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+    const source = input as Record<string, unknown>;
+    if (source.version !== CIVILIZATION_SCHEMA_VERSION || !Array.isArray(source.agents)) return input;
+    const hydrated = JSON.parse(JSON.stringify(source)) as Record<string, unknown>;
+    const agents = hydrated.agents as Array<Record<string, unknown>>;
+    const day = typeof hydrated.day === "number" && Number.isFinite(hydrated.day)
+      ? hydrated.day
+      : 1;
+    for (const agent of agents) {
+      if (agent.planLearning === undefined) agent.planLearning = {};
+      if (agent.recentMemories === undefined) agent.recentMemories = [];
+      if (agent.deliberation === undefined) agent.deliberation = emptyDeliberation(day);
+      if (agent.decisionSnapshot === undefined) agent.decisionSnapshot = null;
+    }
+    return hydrated;
+  } catch {
+    return input;
+  }
+}
+
+/**
  * Normalization never throws. Schema-1 snapshots are upgraded in place and
  * schema-2 states are cloned, bounded, and de-duplicated. Corrupt or unknown versions restart from a deterministic
  * fallback seed rather than allowing damaged state into the live simulation.
@@ -4011,6 +4496,9 @@ export function normalizeCivilizationWorld(
   }
   if (candidate && typeof candidate === "object" && !Array.isArray(candidate) && (candidate as { version?: unknown }).version === 1) {
     candidate = upgradeSchemaOneWorld(candidate);
+  }
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate) && (candidate as { version?: unknown }).version === CIVILIZATION_SCHEMA_VERSION) {
+    candidate = hydrateSchemaTwoCognition(candidate);
   }
   if (!validateCivilizationWorld(candidate)) {
     const seed = candidate && typeof candidate === "object" && !Array.isArray(candidate)
@@ -4070,6 +4558,56 @@ function stabilizeWorld(world: CivilizationWorldState): void {
     agent.conviction = clamp(finite(agent.conviction, 0), 0, 1);
     agent.spiritualInfluence = Math.max(0, finite(agent.spiritualInfluence, 0));
     agent.lastBeliefChangeDay = finite(agent.lastBeliefChangeDay, -100);
+    const normalizedLearning: Partial<Record<AgentPlan, AgentPlanLearning>> = {};
+    for (const plan of AGENT_PLANS) {
+      const learning = agent.planLearning?.[plan];
+      if (!learning) continue;
+      normalizedLearning[plan] = {
+        attempts: clamp(Math.floor(finite(learning.attempts, 0)), 0, 1_000_000),
+        expectedValue: clamp(finite(learning.expectedValue, 0), -1, 1),
+      };
+    }
+    agent.planLearning = normalizedLearning;
+    agent.recentMemories = (agent.recentMemories ?? []).slice(-MAX_AGENT_MEMORIES).map((memory) => ({
+      ...memory,
+      day: Math.max(0, finite(memory.day, world.day)),
+      score: clamp(finite(memory.score, 0), -1, 1),
+      summary: String(memory.summary ?? "").slice(0, 500),
+    }));
+    const deliberation = agent.deliberation ?? emptyDeliberation(world.day);
+    agent.deliberation = {
+      formedDay: Math.max(0, finite(deliberation.formedDay, world.day)),
+      chosenPlan: AGENT_PLAN_SET.has(deliberation.chosenPlan) ? deliberation.chosenPlan : "survive",
+      statement: String(deliberation.statement ?? "").slice(0, 500),
+      confidence: clamp(finite(deliberation.confidence, 0.5), 0, 1),
+      alternatives: (deliberation.alternatives ?? []).slice(0, MAX_DELIBERATION_ALTERNATIVES).map((alternative) => ({
+        plan: AGENT_PLAN_SET.has(alternative.plan) ? alternative.plan : "survive",
+        goal: String(alternative.goal ?? "Reassess current conditions").slice(0, 300),
+        score: finite(alternative.score, 0),
+      })),
+    };
+    if (agent.decisionSnapshot) {
+      const signals = agent.decisionSnapshot.signals;
+      agent.decisionSnapshot = {
+        formedTime: Math.max(0, finite(agent.decisionSnapshot.formedTime, world.time)),
+        formedDay: Math.max(0, finite(agent.decisionSnapshot.formedDay, world.day)),
+        plan: AGENT_PLAN_SET.has(agent.decisionSnapshot.plan) ? agent.decisionSnapshot.plan : "survive",
+        signals: {
+          health: finite(signals.health, agent.health),
+          nutrition: finite(signals.nutrition, agent.hunger),
+          hydration: finite(signals.hydration, agent.hydration),
+          energy: finite(signals.energy, agent.energy),
+          personalPower: finite(signals.personalPower, agent.personalPower),
+          influence: finite(signals.influence, agent.influence + agent.spiritualInfluence),
+          knowledge: finite(signals.knowledge, agent.knowledge),
+          family: Math.max(0, finite(signals.family, agent.childrenIds.length)),
+          campSecurity: clamp(finite(signals.campSecurity, 0), 0, 100),
+          resources: Math.max(0, finite(signals.resources, totalInventory(agent.inventory))),
+        },
+      };
+    } else {
+      agent.decisionSnapshot = null;
+    }
     for (const kind of ["food", "water", "wood", "ore"] as const) {
       agent.inventory[kind] = clamp(finite(agent.inventory[kind], 0), 0, Math.max(0, agent.capacity));
     }
@@ -4172,9 +4710,31 @@ function stabilizeWorld(world: CivilizationWorldState): void {
 function pruneHistoricalEntities(world: CivilizationWorldState): void {
   if (world.agents.length > 240) {
     const living = world.agents.filter((agent) => agent.alive);
+    const byId = new Map(world.agents.map((agent) => [agent.id, agent]));
+    const genealogyDistance = new Map<string, number>();
+    const queue: Array<{ id: string; distance: number }> = living.map((agent) => ({
+      id: agent.id,
+      distance: 0,
+    }));
+    for (let index = 0; index < queue.length; index += 1) {
+      const current = queue[index];
+      if (!current || genealogyDistance.has(current.id)) continue;
+      genealogyDistance.set(current.id, current.distance);
+      const relative = byId.get(current.id);
+      if (!relative) continue;
+      for (const id of [...relative.parentIds, ...relative.childrenIds]) {
+        if (!genealogyDistance.has(id) && byId.has(id)) {
+          queue.push({ id, distance: current.distance + 1 });
+        }
+      }
+    }
     const dead = world.agents
       .filter((agent) => !agent.alive)
-      .sort((left, right) => (right.deathDay ?? 0) - (left.deathDay ?? 0));
+      .sort((left, right) => {
+        const leftDistance = genealogyDistance.get(left.id) ?? Number.POSITIVE_INFINITY;
+        const rightDistance = genealogyDistance.get(right.id) ?? Number.POSITIVE_INFINITY;
+        return leftDistance - rightDistance || (right.deathDay ?? 0) - (left.deathDay ?? 0) || left.id.localeCompare(right.id);
+      });
     world.agents = [...living, ...dead.slice(0, Math.max(0, 240 - living.length))];
     const retained = new Set(world.agents.map((agent) => agent.id));
     for (const agent of world.agents) {
@@ -4211,6 +4771,129 @@ export function getRankedAgents(world: CivilizationWorldState): CivilizationAgen
     if (left.alive !== right.alive) return left.alive ? -1 : 1;
     return right.personalPower - left.personalPower || right.influence - left.influence || left.id.localeCompare(right.id);
   });
+}
+
+export function getAgentInfluenceBreakdown(
+  world: CivilizationWorldState,
+  agentOrId: CivilizationAgent | string,
+): AgentInfluenceBreakdown | null {
+  const agent = typeof agentOrId === "string"
+    ? world.agents.find((candidate) => candidate.id === agentOrId)
+    : agentOrId;
+  if (!agent) return null;
+  const socialInfluence = Math.max(0, finite(agent.influence, 0));
+  const spiritualInfluence = Math.max(0, finite(agent.spiritualInfluence, 0));
+  return {
+    agentId: agent.id,
+    socialInfluence,
+    spiritualInfluence,
+    achievedInfluence: socialInfluence + spiritualInfluence,
+    personalPower: Math.max(0, finite(agent.personalPower, 0)),
+    knowledge: Math.max(0, finite(agent.knowledge, 0)),
+    directDescendants: agent.childrenIds.length,
+  };
+}
+
+/** Ranks attained influence, without any hidden or assigned prestige trait. */
+export function getRankedInfluentialAgents(world: CivilizationWorldState): CivilizationAgent[] {
+  return [...world.agents].sort((left, right) => {
+    const leftInfluence = left.influence + left.spiritualInfluence;
+    const rightInfluence = right.influence + right.spiritualInfluence;
+    return rightInfluence - leftInfluence ||
+      right.personalPower - left.personalPower ||
+      right.knowledge - left.knowledge ||
+      right.childrenIds.length - left.childrenIds.length ||
+      Number(right.alive) - Number(left.alive) ||
+      left.id.localeCompare(right.id);
+  });
+}
+
+/** Cycle-safe bounded genealogy projection suitable for a compact UI panel. */
+export function getAgentFamilyTree(
+  world: CivilizationWorldState,
+  rootId: string,
+  options: AgentFamilyTreeOptions = {},
+): AgentFamilyTree {
+  const direction = options.direction ?? "both";
+  const maxDepth = clamp(Math.floor(finite(options.maxDepth, 4)), 0, 12);
+  const maxNodes = clamp(Math.floor(finite(options.maxNodes, 60)), 1, 160);
+  const byId = new Map(world.agents.map((agent) => [agent.id, agent]));
+  const root = byId.get(rootId);
+  if (!root) {
+    return { rootId, nodes: [], edges: [], unresolvedIds: [rootId], truncated: false };
+  }
+
+  const visited = new Set<string>();
+  const unresolved = new Set<string>();
+  const edgeKeys = new Set<string>();
+  const edges: AgentFamilyTreeEdge[] = [];
+  const nodes: AgentFamilyTreeNode[] = [];
+  const queue: Array<{ id: string; depth: number }> = [{ id: root.id, depth: 0 }];
+  let truncated = false;
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    if (!current || visited.has(current.id)) continue;
+    const agent = byId.get(current.id);
+    if (!agent) {
+      unresolved.add(current.id);
+      continue;
+    }
+    if (nodes.length >= maxNodes) {
+      truncated = true;
+      break;
+    }
+    visited.add(agent.id);
+    nodes.push({
+      id: agent.id,
+      name: agent.name,
+      alive: agent.alive,
+      generation: agent.generation,
+      campId: agent.campId,
+      parentIds: [...agent.parentIds],
+      childrenIds: [...agent.childrenIds],
+      achievedInfluence: agent.influence + agent.spiritualInfluence,
+    });
+    if (current.depth >= maxDepth) {
+      if ((direction !== "descendants" && agent.parentIds.length > 0) ||
+          (direction !== "ancestors" && agent.childrenIds.length > 0)) {
+        truncated = true;
+      }
+      continue;
+    }
+
+    if (direction !== "descendants") {
+      for (const parentId of agent.parentIds) {
+        const key = `${parentId}>${agent.id}`;
+        if (!edgeKeys.has(key)) {
+          edgeKeys.add(key);
+          edges.push({ parentId, childId: agent.id });
+        }
+        if (byId.has(parentId)) queue.push({ id: parentId, depth: current.depth + 1 });
+        else unresolved.add(parentId);
+      }
+    }
+    if (direction !== "ancestors") {
+      for (const childId of agent.childrenIds) {
+        const key = `${agent.id}>${childId}`;
+        if (!edgeKeys.has(key)) {
+          edgeKeys.add(key);
+          edges.push({ parentId: agent.id, childId });
+        }
+        if (byId.has(childId)) queue.push({ id: childId, depth: current.depth + 1 });
+        else unresolved.add(childId);
+      }
+    }
+  }
+
+  const retainedIds = new Set(nodes.map((node) => node.id));
+  return {
+    rootId,
+    nodes,
+    edges: edges.filter((edge) => retainedIds.has(edge.parentId) && retainedIds.has(edge.childId)),
+    unresolvedIds: [...unresolved].sort(),
+    truncated,
+  };
 }
 
 export function getRankedBeliefs(world: CivilizationWorldState): CivilizationBeliefSystem[] {
