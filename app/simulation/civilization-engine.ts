@@ -4710,6 +4710,7 @@ function stabilizeWorld(world: CivilizationWorldState): void {
 function pruneHistoricalEntities(world: CivilizationWorldState): void {
   if (world.agents.length > 240) {
     const living = world.agents.filter((agent) => agent.alive);
+    const beliefFounderIds = new Set(world.beliefs.map((belief) => belief.founderAgentId));
     const byId = new Map(world.agents.map((agent) => [agent.id, agent]));
     const genealogyDistance = new Map<string, number>();
     const queue: Array<{ id: string; distance: number }> = living.map((agent) => ({
@@ -4731,9 +4732,14 @@ function pruneHistoricalEntities(world: CivilizationWorldState): void {
     const dead = world.agents
       .filter((agent) => !agent.alive)
       .sort((left, right) => {
+        const leftFoundedBelief = beliefFounderIds.has(left.id) ? 0 : 1;
+        const rightFoundedBelief = beliefFounderIds.has(right.id) ? 0 : 1;
         const leftDistance = genealogyDistance.get(left.id) ?? Number.POSITIVE_INFINITY;
         const rightDistance = genealogyDistance.get(right.id) ?? Number.POSITIVE_INFINITY;
-        return leftDistance - rightDistance || (right.deathDay ?? 0) - (left.deathDay ?? 0) || left.id.localeCompare(right.id);
+        return leftFoundedBelief - rightFoundedBelief ||
+          leftDistance - rightDistance ||
+          (right.deathDay ?? 0) - (left.deathDay ?? 0) ||
+          left.id.localeCompare(right.id);
       });
     world.agents = [...living, ...dead.slice(0, Math.max(0, 240 - living.length))];
     const retained = new Set(world.agents.map((agent) => agent.id));
@@ -4744,10 +4750,21 @@ function pruneHistoricalEntities(world: CivilizationWorldState): void {
     }
   }
   const inactive = world.camps.filter((camp) => !camp.active);
-  if (inactive.length > 24) {
+  if (inactive.length > 48) {
+    const beliefOriginCampIds = new Set(
+      world.beliefs
+        .map((belief) => belief.originCampId)
+        .filter((id): id is string => id !== null),
+    );
     const keptInactive = inactive
-      .sort((left, right) => (right.destroyedDay ?? 0) - (left.destroyedDay ?? 0))
-      .slice(0, 24);
+      .sort((left, right) => {
+        const leftOrigin = beliefOriginCampIds.has(left.id) ? 0 : 1;
+        const rightOrigin = beliefOriginCampIds.has(right.id) ? 0 : 1;
+        return leftOrigin - rightOrigin ||
+          (right.destroyedDay ?? 0) - (left.destroyedDay ?? 0) ||
+          left.id.localeCompare(right.id);
+      })
+      .slice(0, 48);
     const keptIds = new Set([
       ...world.camps.filter((camp) => camp.active).map((camp) => camp.id),
       ...keptInactive.map((camp) => camp.id),

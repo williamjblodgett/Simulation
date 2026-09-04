@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -1185,6 +1186,7 @@ export function SovereigntyExperience() {
         </div>
         <div className="sov-top-actions">
           <span className={`sov-live ${syncState === "persistent" ? "" : "reconnecting"}`} title={syncState === "catching_up" ? "The durable world is checkpointing an offline interval; each refresh continues from the last completed checkpoint." : "The shared world reconciles elapsed time on the server and resumes from durable state"}><span className="sov-live-dot" />{syncLabel}</span>
+          <Link className="sov-archive-link" href="/archive" aria-label="Open the map-free civilization and belief archive"><BookOpen size={14} /><span>World archive</span></Link>
           <button className="sov-map-focus-toggle" onClick={toggleMapFocus} aria-controls="sov-map-exploration" aria-pressed={mapFocus}><span>{mapFocus ? "Exit map" : "Explore map"}</span>{mapFocus ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           <div className="sov-camera" aria-label="Camera mode">
             <button className={cameraMode === "overview" ? "active" : ""} onClick={() => setCameraMode("overview")} aria-label="Overview camera" aria-pressed={cameraMode === "overview"} title="World overview (Esc)"><MapIcon size={14} /></button>
