@@ -38,11 +38,15 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
 
   assert.match(page, /SovereigntyExperience/);
   assert.match(experience, /createCivilizationScene|simulateCivilization|Sovereign roster|World chronicle/i);
+  assert.match(experience, /Beliefs|emergent worldview|beliefRanking/i);
   assert.match(engine, /createCivilizationWorld|catchUpCivilization|breakaway|defection|tech_unlocked|reproduce/i);
+  assert.match(engine, /belief_founded|belief_schism|free_conscience|MAX_ACTIVE_CAMPS\s*=\s*48/i);
   assert.match(scene, /WebGLRenderer|OrbitControls|Raycaster|followCamp/);
-  assert.match(route, /catchUpCivilization|civilization_events|no-store/i);
+  assert.match(scene, /VisualBelief|sacredSite|beliefHalo/i);
+  assert.match(route, /catchUpCivilization|civilization_events|no-store|migrat/i);
   assert.match(hosting, /"d1"\s*:\s*"DB"/i);
   assert.match(packageJson, /"three"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+  await access(new URL("../public/og.png", import.meta.url));
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });

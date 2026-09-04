@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDot,
+  Compass,
   Crown,
   Droplets,
   Eye,
@@ -28,6 +29,7 @@ import {
   Package,
   ScrollText,
   Shield,
+  Sparkles,
   Swords,
   Tent,
   Users,
@@ -35,18 +37,22 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  BELIEF_TENET_LABELS,
   FIXED_STEP,
+  MAX_ACTIVE_CAMPS,
   TECHNOLOGY_TREE,
   WORLD_HALF_SIZE,
   createCivilizationWorld,
   getActionLabel,
   getRankedAgents,
+  getRankedBeliefs,
   getRankedCamps,
   getTechnologyLabel,
   getWorldTimeLabel,
   normalizeCivilizationWorld,
   simulateCivilization,
   type CivilizationAgent,
+  type CivilizationBeliefSystem,
   type CivilizationCamp,
   type CivilizationWorldState,
   type MajorEvent,
@@ -61,11 +67,12 @@ import {
 
 const INITIAL_SEED = 2_846_731;
 const POLL_INTERVAL = 4_000;
+const ROSTER_MODES = ["powers", "agents", "beliefs"] as const;
 
-type RosterMode = "powers" | "agents";
-type EventFilter = "all" | "power" | "war" | "lineage" | "technology";
-type SyncState = "connecting" | "persistent" | "reconnecting";
-type Selection = { kind: "agent" | "camp"; id: string };
+type RosterMode = "powers" | "agents" | "beliefs";
+type EventFilter = "all" | "power" | "war" | "lineage" | "technology" | "belief";
+type SyncState = "connecting" | "persistent" | "catching_up" | "reconnecting";
+type Selection = { kind: "agent" | "camp" | "belief"; id: string };
 
 interface WorldResponse {
   world: unknown;
@@ -73,6 +80,8 @@ interface WorldResponse {
   serverTime?: number;
   persistent?: boolean;
   history?: MajorEvent[];
+  caughtUp?: boolean;
+  catchUpPendingSeconds?: number;
 }
 
 interface LooseResource {
@@ -141,9 +150,21 @@ function compactNumber(value: number) {
   return Math.round(value).toString();
 }
 
+function compactDuration(seconds: number) {
+  if (seconds >= 86_400) return `${Math.ceil(seconds / 86_400)}D`;
+  if (seconds >= 3_600) return `${Math.ceil(seconds / 3_600)}H`;
+  if (seconds >= 60) return `${Math.ceil(seconds / 60)}M`;
+  return `${Math.ceil(seconds)}S`;
+}
+
 function getCampName(world: CivilizationWorldState, campId: string | null) {
   if (!campId) return "Unaffiliated";
   return world.camps.find((camp) => camp.id === campId)?.name ?? "Lost camp";
+}
+
+function getBeliefName(world: CivilizationWorldState, beliefId: string | null) {
+  if (!beliefId) return "No shared belief";
+  return world.beliefs.find((belief) => belief.id === beliefId)?.name ?? "Faded belief";
 }
 
 function relationView(relation: unknown, index: number) {
@@ -184,6 +205,7 @@ function eventView(event: MajorEvent) {
 
 function eventColor(type: string, tone: string) {
   if (/war|raid|battle|death|destroy|capture|coup/.test(type) || tone === "danger") return "#ff8066";
+  if (/belief|faith|shrine|schism|reform|conversion/.test(type)) return "#cf9df2";
   if (/birth|offspring|lineage|join|allegiance|alliance|peace/.test(type)) return "#c7f36a";
   if (/tech|research|discover|build/.test(type)) return "#66d7d1";
   if (/break|defect|found|leader|power/.test(type)) return "#e7b95e";
@@ -195,6 +217,7 @@ function eventMatches(type: string, filter: EventFilter) {
   if (filter === "war") return /war|raid|battle|death|destroy|capture|truce|peace/.test(type);
   if (filter === "lineage") return /birth|offspring|lineage|join|allegiance|defect|break|found|coup/.test(type);
   if (filter === "technology") return /tech|research|discover|build|advance/.test(type);
+  if (filter === "belief") return /belief|faith|shrine|schism|reform|conversion/.test(type);
   return /power|leader|camp|capture|coup|victory|found/.test(type);
 }
 
@@ -223,9 +246,10 @@ function worldEra(world: CivilizationWorldState) {
   return "Founding age";
 }
 
-function toVisualWorld(world: CivilizationWorldState): VisualWorld {
+function toVisualWorld(world: CivilizationWorldState, selectedBeliefId: string | null = null): VisualWorld {
   const activeCampIds = new Set(world.camps.filter((camp) => camp.active).map((camp) => camp.id));
   const relations = world.relations.map(relationView);
+  const beliefById = new Map(world.beliefs.map((belief) => [belief.id, belief]));
   return {
     seed: world.seed,
     elapsed: world.time,
@@ -243,6 +267,9 @@ function toVisualWorld(world: CivilizationWorldState): VisualWorld {
       campId: agent.campId,
       power: agent.personalPower,
       inventory: agent.inventory,
+      beliefId: agent.beliefId,
+      beliefColor: agent.beliefId ? beliefById.get(agent.beliefId)?.color ?? null : null,
+      conviction: agent.conviction,
     })),
     resources: world.resources.map((resource) => {
       const loose = resource as unknown as LooseResource;
@@ -266,7 +293,21 @@ function toVisualWorld(world: CivilizationWorldState): VisualWorld {
       techLevel: camp.technologies.length,
       leaderId: camp.leaderId,
       underAttack: relations.some((relation) => relation.status === "war" && (relation.fromCampId === camp.id || relation.toCampId === camp.id)),
+      dominantBeliefId: camp.dominantBeliefId,
+      beliefColor: camp.dominantBeliefId ? beliefById.get(camp.dominantBeliefId)?.color ?? null : null,
+      beliefDiversity: camp.beliefDiversity,
+      shrineLevel: camp.shrineLevel,
     })),
+    beliefs: world.beliefs.map((belief) => ({
+      id: belief.id,
+      name: belief.name,
+      color: belief.color,
+      sacredSite: belief.sacredSite,
+      influence: belief.influence,
+      adherents: belief.adherentIds.length,
+      active: belief.active,
+    })),
+    selectedBeliefId,
     diplomaticLinks: relations
       .filter((relation) => relation.fromCampId && relation.toCampId && relation.status !== "neutral" && relation.status !== "war")
       .filter((relation) => activeCampIds.has(relation.fromCampId) && activeCampIds.has(relation.toCampId))
@@ -309,6 +350,7 @@ function CivilizationCanvas({
   onSnapshot,
   onAgentSelect,
   onCampSelect,
+  onBeliefSelect,
   onCameraModeChange,
 }: {
   worldRef: MutableRefObject<CivilizationWorldState>;
@@ -317,6 +359,7 @@ function CivilizationCanvas({
   onSnapshot(world: CivilizationWorldState): void;
   onAgentSelect(id: string): void;
   onCampSelect(id: string): void;
+  onBeliefSelect(id: string): void;
   onCameraModeChange(mode: CameraMode): void;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -334,6 +377,7 @@ function CivilizationCanvas({
       controller = createCivilizationScene(mount, toVisualWorld(worldRef.current), {
         onAgentSelect,
         onCampSelect,
+        onBeliefSelect,
         onCameraModeChange,
         reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       });
@@ -361,6 +405,7 @@ function CivilizationCanvas({
         visualWorld = toVisualWorld(sourceWorld);
       }
       const active = selectionRef.current;
+      visualWorld.selectedBeliefId = active.kind === "belief" ? active.id : null;
       controller.update(
         visualWorld,
         active.kind === "agent" ? active.id : null,
@@ -380,7 +425,7 @@ function CivilizationCanvas({
       cancelAnimationFrame(frameId);
       controller.dispose();
     };
-  }, [onAgentSelect, onCampSelect, onCameraModeChange, onSnapshot, worldRef]);
+  }, [onAgentSelect, onBeliefSelect, onCampSelect, onCameraModeChange, onSnapshot, worldRef]);
 
   return (
     <div ref={mountRef} className="sov-world" aria-label="Live three-dimensional autonomous civilization map">
@@ -391,6 +436,7 @@ function CivilizationCanvas({
 
 function AgentInspector({ world, agent }: { world: CivilizationWorldState; agent: CivilizationAgent }) {
   const camp = world.camps.find((candidate) => candidate.id === agent.campId);
+  const belief = world.beliefs.find((candidate) => candidate.id === agent.beliefId);
   const parents = agent.parentIds.map((id) => world.agents.find((candidate) => candidate.id === id)?.name).filter(Boolean).join(" + ");
   const relationshipEntries = Object.entries(agent.relationships)
     .sort(([, left], [, right]) => (right.trust + right.respect - right.grievance) - (left.trust + left.respect - left.grievance))
@@ -417,11 +463,20 @@ function AgentInspector({ world, agent }: { world: CivilizationWorldState; agent
         </div>
       </div>
       <div>
+        <section className="sov-section sov-belief-section" style={{ "--belief-color": belief?.color ?? "#718078" } as CSSProperties}>
+          <div className="sov-section-head"><span className="sov-kicker">Chosen worldview</span><Compass size={13} /></div>
+          <div className="sov-belief-summary">
+            <span className="sov-belief-glyph" aria-hidden="true"><i /></span>
+            <div><b>{belief?.name ?? "Secular path"}</b><p>{belief ? `${Math.round(percent(agent.conviction))}% conviction · joined day ${Math.max(1, agent.lastBeliefChangeDay).toFixed(0)}` : "No doctrine adopted; this agent may remain secular or respond to a future movement."}</p></div>
+          </div>
+          {belief && <div className="sov-tenet-list">{belief.tenets.map((tenet) => <span key={tenet}>{BELIEF_TENET_LABELS[tenet]}</span>)}</div>}
+        </section>
         <section className="sov-section">
           <div className="sov-section-head"><span className="sov-kicker">Power & allegiance</span><b>{Math.round(agent.personalPower)} PWR</b></div>
           <div className="sov-data-grid">
             <DataCell label="Influence" value={Math.round(agent.influence)} />
             <DataCell label="Knowledge" value={Math.round(agent.knowledge)} />
+            <DataCell label="Belief influence" value={Math.round(agent.spiritualInfluence)} />
             <DataCell label="Loyalty" value={`${Math.round(percent(agent.loyalty))}%`} />
             <DataCell label="Satisfaction" value={`${Math.round(percent(agent.satisfaction))}%`} />
           </div>
@@ -462,6 +517,7 @@ function AgentInspector({ world, agent }: { world: CivilizationWorldState; agent
 
 function CampInspector({ world, camp }: { world: CivilizationWorldState; camp: CivilizationCamp }) {
   const leader = world.agents.find((agent) => agent.id === camp.leaderId);
+  const dominantBelief = world.beliefs.find((belief) => belief.id === camp.dominantBeliefId);
   const structures = Object.entries(camp.structures as unknown as LooseStructures).filter(([, level]) => (level ?? 0) > 0);
   const relations = world.relations.map(relationView).filter((relation) => relation.fromCampId === camp.id || relation.toCampId === camp.id);
   const stock = camp.storage.food + camp.storage.water + camp.storage.wood + camp.storage.ore;
@@ -495,9 +551,19 @@ function CampInspector({ world, camp }: { world: CivilizationWorldState; camp: C
             <DataCell label="Territory" value={`${camp.territoryRadius.toFixed(1)} km²`} />
             <DataCell label="Knowledge" value={Math.round(camp.knowledgePower)} />
             <DataCell label="Stores" value={compactNumber(stock)} />
+            <DataCell label="Worldview" value={dominantBelief?.name ?? getBeliefName(world, camp.dominantBeliefId)} />
+            <DataCell label="Belief diversity" value={`${Math.round(percent(camp.beliefDiversity))}%`} />
             <DataCell label="Victories" value={camp.victories} />
             <DataCell label="Losses" value={camp.losses} />
           </div>
+        </section>
+        <section className="sov-section sov-belief-section" style={{ "--belief-color": dominantBelief?.color ?? "#718078" } as CSSProperties}>
+          <div className="sov-section-head"><span className="sov-kicker">Belief landscape</span><Sparkles size={13} /></div>
+          <div className="sov-belief-summary">
+            <span className="sov-belief-glyph" aria-hidden="true"><i /></span>
+            <div><b>{dominantBelief?.name ?? "No dominant belief"}</b><p>{camp.shrineLevel > 0 ? `Tier ${camp.shrineLevel} gathering site · beliefs may strengthen unity or seed dissent.` : "Citizens decide individually; no shared gathering site has been raised."}</p></div>
+          </div>
+          {dominantBelief && <div className="sov-tenet-list">{dominantBelief.tenets.map((tenet) => <span key={tenet}>{BELIEF_TENET_LABELS[tenet]}</span>)}</div>}
         </section>
         <section className="sov-section">
           <div className="sov-section-head"><span className="sov-kicker">Technology</span><BookOpen size={13} /></div>
@@ -529,6 +595,64 @@ function CampInspector({ world, camp }: { world: CivilizationWorldState; camp: C
   );
 }
 
+function BeliefInspector({ world, belief }: { world: CivilizationWorldState; belief: CivilizationBeliefSystem }) {
+  const founder = world.agents.find((agent) => agent.id === belief.founderAgentId);
+  const origin = world.camps.find((camp) => camp.id === belief.originCampId);
+  const parent = world.beliefs.find((candidate) => candidate.id === belief.parentBeliefId);
+  const livingAdherents = belief.adherentIds.filter((id) => world.agents.some((agent) => agent.id === id && agent.alive)).length;
+  const activeCampIds = new Set(world.camps.filter((camp) => camp.active).map((camp) => camp.id));
+  const activeCampReach = belief.campIds.filter((id) => activeCampIds.has(id)).length;
+  const totalLiving = Math.max(1, world.agents.filter((agent) => agent.alive).length);
+  const totalCamps = Math.max(1, activeCampIds.size);
+  const influenceCeiling = Math.max(1, ...world.beliefs.filter((candidate) => candidate.active).map((candidate) => candidate.influence));
+  const tenetStory = belief.tenets.map((tenet) => BELIEF_TENET_LABELS[tenet].toLowerCase()).join(", ");
+  return (
+    <div className="sov-inspector-scroll">
+      <div>
+        <div className="sov-identity">
+          <div className="sov-identity-mark sov-identity-belief"><span className="sov-belief-glyph" aria-hidden="true"><i /></span></div>
+          <div><h1>{belief.name}</h1><p>Founded day {belief.foundedDay.toFixed(0)} · {livingAdherents} living adherents</p></div>
+          <span className="sov-status-chip"><CircleDot size={9} />{belief.active ? "Evolving" : "Faded"}</span>
+        </div>
+        <div className="sov-decision">
+          <div className="sov-decision-label"><Sparkles size={12} /> EMERGENT WORLDVIEW</div>
+          <p>This movement formed from lived conditions around {tenetStory || "shared meaning"}. No agent was assigned it; each may embrace, reinterpret, abandon, or oppose it.</p>
+          <div className="sov-detail-line"><span>FOUNDER</span><b>{founder?.name ?? "Remembered founder"}</b></div>
+          <div className="sov-detail-line"><span>ORIGIN</span><b>{origin?.name ?? "Beyond a surviving camp"}</b></div>
+        </div>
+        <div className="sov-metrics">
+          <Meter label="Influence" value={belief.influence / influenceCeiling} color={belief.color} icon={<Sparkles size={10} />} />
+          <Meter label="Unity" value={belief.unity} color="#c7f36a" icon={<Users size={10} />} />
+          <Meter label="Population reach" value={livingAdherents / totalLiving} color="#cf9df2" icon={<CircleDot size={10} />} />
+          <Meter label="Camp reach" value={activeCampReach / totalCamps} color="#66d7d1" icon={<Tent size={10} />} />
+        </div>
+      </div>
+      <div>
+        <section className="sov-section sov-belief-section" style={{ "--belief-color": belief.color } as CSSProperties}>
+          <div className="sov-section-head"><span className="sov-kicker">Living tenets</span><Compass size={13} /></div>
+          <div className="sov-tenet-list prominent">{belief.tenets.map((tenet) => <span key={tenet}>{BELIEF_TENET_LABELS[tenet]}</span>)}</div>
+          <p className="sov-section-note">Tenets shift the incentives agents weigh for aid, stewardship, research, expansion, duty, freedom, or conflict.</p>
+        </section>
+        <section className="sov-section">
+          <div className="sov-section-head"><span className="sov-kicker">Movement record</span><ScrollText size={13} /></div>
+          <div className="sov-data-grid">
+            <DataCell label="Living adherents" value={livingAdherents} />
+            <DataCell label="Active camps" value={activeCampReach} />
+            <DataCell label="Reformations" value={belief.reformationCount} />
+            <DataCell label="Schisms" value={belief.schismCount} />
+            <DataCell label="Parent belief" value={parent?.name ?? "Original movement"} />
+            <DataCell label="Sacred site" value={`${belief.sacredSite.x.toFixed(0)}, ${belief.sacredSite.z.toFixed(0)}`} />
+          </div>
+        </section>
+        <section className="sov-section">
+          <div className="sov-section-head"><span className="sov-kicker">Autonomous fate</span><Activity size={13} /></div>
+          <div className="sov-principle"><div><Sparkles size={12} /> NO FIXED DESTINY</div><p>Survival, kinship, camp politics, alliances, war, and knowledge can spread this belief—or fracture it into something new.</p></div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export function SovereigntyExperience() {
   const [initialWorld] = useState(() => createCivilizationWorld(INITIAL_SEED));
   const worldRef = useRef<CivilizationWorldState>(initialWorld);
@@ -541,17 +665,21 @@ export function SovereigntyExperience() {
   const [syncState, setSyncState] = useState<SyncState>("connecting");
   const [history, setHistory] = useState<MajorEvent[]>(initialWorld.majorEvents);
   const [revision, setRevision] = useState(0);
+  const [catchUpPendingSeconds, setCatchUpPendingSeconds] = useState(0);
 
   const rankedCamps = useMemo(() => getRankedCamps(hud).filter((camp) => camp.active), [hud]);
   const rankedAgents = useMemo(() => getRankedAgents(hud), [hud]);
+  const beliefRanking = useMemo(() => getRankedBeliefs(hud).filter((belief) => belief.active), [hud]);
   const aliveAgents = rankedAgents.filter((agent) => agent.alive);
   const activeCamps = rankedCamps.length;
+  const activeBeliefs = beliefRanking.length;
   const relationViews = useMemo(() => hud.relations.map(relationView), [hud.relations]);
   const wars = relationViews.filter((relation) => relation.status === "war");
   const topCamp = rankedCamps[0];
   const selectedAgent = selection.kind === "agent" ? hud.agents.find((agent) => agent.id === selection.id) : undefined;
   const selectedCamp = selection.kind === "camp" ? hud.camps.find((camp) => camp.id === selection.id) : undefined;
-  const accent = selectedAgent?.color ?? selectedCamp?.color ?? topCamp?.color ?? "#c7f36a";
+  const selectedBelief = selection.kind === "belief" ? hud.beliefs.find((belief) => belief.id === selection.id) : undefined;
+  const accent = selectedAgent?.color ?? selectedCamp?.color ?? selectedBelief?.color ?? topCamp?.color ?? "#c7f36a";
 
   const publishSnapshot = useCallback((world: CivilizationWorldState) => setHud(world), []);
   const selectAgent = useCallback((id: string) => {
@@ -562,15 +690,39 @@ export function SovereigntyExperience() {
     setSelection({ kind: "camp", id });
     setCameraMode("followCamp");
   }, []);
+  const selectBelief = useCallback((id: string) => {
+    setSelection({ kind: "belief", id });
+    setRosterMode("beliefs");
+    setCameraMode("overview");
+  }, []);
+
+  const moveRosterFocus = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const currentIndex = ROSTER_MODES.indexOf(rosterMode);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? ROSTER_MODES.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + ROSTER_MODES.length) % ROSTER_MODES.length;
+    const nextMode = ROSTER_MODES[nextIndex];
+    setRosterMode(nextMode);
+    event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#sov-tab-${nextMode}`)?.focus();
+  }, [rosterMode]);
 
   const cycleSelection = useCallback((direction: number, forceAgents = false) => {
-    const list = forceAgents || selection.kind === "agent" ? getRankedAgents(worldRef.current).filter((agent) => agent.alive) : getRankedCamps(worldRef.current).filter((camp) => camp.active);
+    const list = forceAgents || selection.kind === "agent"
+      ? getRankedAgents(worldRef.current).filter((agent) => agent.alive)
+      : selection.kind === "camp"
+        ? getRankedCamps(worldRef.current).filter((camp) => camp.active)
+        : getRankedBeliefs(worldRef.current).filter((belief) => belief.active);
     if (!list.length) return;
     const current = list.findIndex((item) => item.id === selection.id);
     const next = (Math.max(0, current) + direction + list.length) % list.length;
     if (forceAgents || selection.kind === "agent") selectAgent(list[next].id);
-    else selectCamp(list[next].id);
-  }, [selectAgent, selectCamp, selection]);
+    else if (selection.kind === "camp") selectCamp(list[next].id);
+    else selectBelief(list[next].id);
+  }, [selectAgent, selectBelief, selectCamp, selection]);
 
   useEffect(() => {
     let disposed = false;
@@ -588,9 +740,14 @@ export function SovereigntyExperience() {
         setHud(world);
         setHistory(payload.history?.length ? payload.history : world.majorEvents);
         setRevision(payload.revision ?? 0);
-        setSyncState(payload.persistent ? "persistent" : "reconnecting");
+        setCatchUpPendingSeconds(Math.max(0, payload.catchUpPendingSeconds ?? 0));
+        setSyncState(payload.persistent ? payload.caughtUp === false ? "catching_up" : "persistent" : "reconnecting");
         setSelection((current) => {
-          const exists = current.kind === "agent" ? world.agents.some((agent) => agent.id === current.id) : world.camps.some((camp) => camp.id === current.id && camp.active);
+          const exists = current.kind === "agent"
+            ? world.agents.some((agent) => agent.id === current.id)
+            : current.kind === "camp"
+              ? world.camps.some((camp) => camp.id === current.id && camp.active)
+              : world.beliefs.some((belief) => belief.id === current.id && belief.active);
           return exists ? current : { kind: "agent", id: world.agents.find((agent) => agent.alive)?.id ?? world.agents[0]?.id ?? "" };
         });
       } catch (error) {
@@ -614,6 +771,7 @@ export function SovereigntyExperience() {
       else if (event.key === "]") cycleSelection(1, true);
       else if (event.key.toLowerCase() === "f" && selection.kind === "agent") setCameraMode("followAgent");
       else if (event.key.toLowerCase() === "c" && selection.kind === "camp") setCameraMode("followCamp");
+      else if (event.key.toLowerCase() === "b" && selection.kind === "belief") setCameraMode("overview");
       else if (event.key === "Escape") setCameraMode("overview");
     };
     window.addEventListener("keydown", onKeyDown);
@@ -636,27 +794,33 @@ export function SovereigntyExperience() {
   }, [history, hud.majorEvents]);
 
   const style = { "--sov-accent": accent, "--leader-color": topCamp?.color ?? "#c7f36a" } as CSSProperties;
-  const syncLabel = syncState === "persistent" ? `PERSISTENT · R${revision}` : syncState === "connecting" ? "CONNECTING" : "LOCAL · RECONNECTING";
+  const syncLabel = syncState === "persistent"
+    ? `PERSISTENT · R${revision}`
+    : syncState === "catching_up"
+      ? `CATCHING UP · ${compactDuration(catchUpPendingSeconds)}`
+      : syncState === "connecting"
+        ? "CONNECTING"
+        : "LOCAL · RECONNECTING";
 
   return (
     <main className="sov-shell" style={style}>
-      <CivilizationCanvas worldRef={worldRef} selection={selection} cameraMode={cameraMode} onSnapshot={publishSnapshot} onAgentSelect={selectAgent} onCampSelect={selectCamp} onCameraModeChange={setCameraMode} />
+      <CivilizationCanvas worldRef={worldRef} selection={selection} cameraMode={cameraMode} onSnapshot={publishSnapshot} onAgentSelect={selectAgent} onCampSelect={selectCamp} onBeliefSelect={selectBelief} onCameraModeChange={setCameraMode} />
       <div className="sov-atmosphere" aria-hidden="true" />
 
       <header className="sov-topbar">
         <div className="sov-brand">
           <span className="sov-brand-mark"><Leaf size={16} /></span>
-          <div><div className="sov-brand-name">WILDGRID <span>SOVEREIGNTY</span></div><div className="sov-brand-sub">Autonomous civilization observatory</div></div>
+          <div><div className="sov-brand-name">WILDGRID <span>SOVEREIGNTY</span></div><div className="sov-brand-sub">200 × 200 autonomous frontier</div></div>
         </div>
         <div className="sov-top-stats" aria-label="World status">
           <div className="sov-stat"><span>World time</span><b>{getWorldTimeLabel(hud)}</b></div>
           <div className="sov-stat"><span>Population</span><b><Users size={11} />{aliveAgents.length}</b></div>
           <div className="sov-stat"><span>Active powers</span><b><Tent size={11} />{activeCamps}</b></div>
+          <div className="sov-stat"><span>Living beliefs</span><b><Sparkles size={11} />{activeBeliefs}</b></div>
           <div className="sov-stat"><span>Open wars</span><b><Swords size={11} />{wars.length}</b></div>
-          <div className="sov-stat"><span>Leading power</span><b><Crown size={11} />{topCamp?.name ?? "Unclaimed"}</b></div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className={`sov-live ${syncState === "persistent" ? "" : "reconnecting"}`} title="The shared world reconciles elapsed time on the server and resumes from durable state"><span className="sov-live-dot" />{syncLabel}</span>
+          <span className={`sov-live ${syncState === "persistent" ? "" : "reconnecting"}`} title={syncState === "catching_up" ? "The durable world is checkpointing an offline interval; each refresh continues from the last completed checkpoint." : "The shared world reconciles elapsed time on the server and resumes from durable state"}><span className="sov-live-dot" />{syncLabel}</span>
           <div className="sov-camera" aria-label="Camera mode">
             <button className={cameraMode === "overview" ? "active" : ""} onClick={() => setCameraMode("overview")} aria-label="Overview camera" aria-pressed={cameraMode === "overview"} title="World overview (Esc)"><MapIcon size={14} /></button>
             <button className={cameraMode === "followAgent" ? "active" : ""} onClick={() => selectedAgent && setCameraMode("followAgent")} aria-label="Follow selected agent" aria-pressed={cameraMode === "followAgent"} title="Follow selected AI (F)"><Focus size={14} /></button>
@@ -669,12 +833,11 @@ export function SovereigntyExperience() {
       {topCamp && <div className="sov-leader-ribbon"><Crown size={11} /> #1 {topCamp.name.toUpperCase()} <span>{Math.round(topCamp.power)} power · {topCamp.memberIds.length} citizens · {worldEra(hud)}</span></div>}
 
       <aside className="sov-left sov-panel" aria-label="Civilization roster">
-        <div className="sov-panel-head"><div><span className="sov-kicker">The power race</span><h2>Sovereign roster</h2></div><span className="sov-count-chip">{activeCamps} POWERS</span></div>
+        <div className="sov-panel-head"><div><span className="sov-kicker">Power, people & meaning</span><h2>World roster</h2></div><span className="sov-count-chip">{activeCamps}/{MAX_ACTIVE_CAMPS} CAMPS</span></div>
         <div className="sov-tabs" role="tablist" aria-label="Roster view">
-          <button className={rosterMode === "powers" ? "active" : ""} onClick={() => setRosterMode("powers")} aria-selected={rosterMode === "powers"} role="tab">Powers</button>
-          <button className={rosterMode === "agents" ? "active" : ""} onClick={() => setRosterMode("agents")} aria-selected={rosterMode === "agents"} role="tab">Agents</button>
+          {ROSTER_MODES.map((mode) => <button id={`sov-tab-${mode}`} key={mode} className={rosterMode === mode ? "active" : ""} onClick={() => setRosterMode(mode)} onKeyDown={moveRosterFocus} aria-controls="sov-roster-panel" aria-selected={rosterMode === mode} role="tab" tabIndex={rosterMode === mode ? 0 : -1}>{humanize(mode)}</button>)}
         </div>
-        <div className="sov-roster">
+        <div className="sov-roster" id="sov-roster-panel" role="tabpanel" aria-labelledby={`sov-tab-${rosterMode}`}>
           {rosterMode === "powers" ? rankedCamps.map((camp, index) => {
             const active = selection.kind === "camp" && selection.id === camp.id;
             const powerWidth = topCamp ? clamp((camp.power / Math.max(1, topCamp.power)) * 100) : 0;
@@ -685,7 +848,7 @@ export function SovereigntyExperience() {
               <span className="sov-card-copy"><span className="sov-card-title">{camp.name}</span><span className="sov-card-meta">{camp.memberIds.length} citizens · {camp.technologies.length} tech · {atWar ? "at war" : `${Math.round(percent(camp.cohesion))}% cohesion`}</span></span>
               <span className="sov-card-value">{compactNumber(camp.power)}<small>POWER</small></span>
             </button>;
-          }) : aliveAgents.map((agent, index) => {
+          }) : rosterMode === "agents" ? aliveAgents.map((agent, index) => {
             const active = selection.kind === "agent" && selection.id === agent.id;
             const topAgentPower = Math.max(1, aliveAgents[0]?.personalPower ?? 1);
             return <button key={agent.id} className={`sov-agent-card ${active ? "active" : ""} ${agent.alive ? "" : "inactive"}`} style={{ "--card-color": agent.color, "--power-width": `${clamp((agent.personalPower / topAgentPower) * 100)}%` } as CSSProperties} onClick={() => selectAgent(agent.id)} aria-pressed={active}>
@@ -693,20 +856,29 @@ export function SovereigntyExperience() {
               <span className="sov-card-copy"><span className="sov-card-title">{agent.name}</span><span className="sov-card-meta">#{index + 1} · {getCampName(hud, agent.campId)} · {agent.alive ? getActionLabel(agent.action) : "fallen"}</span></span>
               <span className="sov-card-value">{compactNumber(agent.personalPower)}<small>POWER</small></span>
             </button>;
-          })}
+          }) : beliefRanking.length > 0 ? beliefRanking.map((belief, index) => {
+            const active = selection.kind === "belief" && selection.id === belief.id;
+            const strongestBelief = Math.max(1, beliefRanking[0]?.influence ?? 1);
+            const livingAdherents = belief.adherentIds.filter((id) => hud.agents.some((agent) => agent.id === id && agent.alive)).length;
+            return <button key={belief.id} className={`sov-belief-card ${active ? "active" : ""}`} style={{ "--card-color": belief.color, "--belief-color": belief.color, "--power-width": `${clamp((belief.influence / strongestBelief) * 100)}%` } as CSSProperties} onClick={() => selectBelief(belief.id)} aria-pressed={active}>
+              <span className="sov-agent-token sov-belief-token"><span className="sov-belief-glyph" aria-hidden="true"><i /></span></span>
+              <span className="sov-card-copy"><span className="sov-card-title">{belief.name}</span><span className="sov-card-meta">#{index + 1} · {livingAdherents} adherents · {belief.tenets.map((tenet) => BELIEF_TENET_LABELS[tenet]).join(" / ")}</span></span>
+              <span className="sov-card-value">{compactNumber(belief.influence)}<small>INFLUENCE</small></span>
+            </button>;
+          }) : <div className="sov-empty sov-belief-empty"><Sparkles size={16} /><span>No religion or belief system has formed yet. Agents may create one when lived conditions make shared meaning useful.</span></div>}
         </div>
-        <div className="sov-principle"><div><Shield size={12} /> ONE DIRECTIVE</div><p>Become the strongest power. No personality scripts—every alliance, family, defection, discovery, and war emerges from changing incentives.</p></div>
+        <div className="sov-principle"><div><Shield size={12} /> ONE DIRECTIVE</div><p>Become the strongest power. Religions, civic traditions, or secular worldviews can emerge from incentives—none are assigned alongside personality scripts or fixed destinies.</p></div>
       </aside>
 
-      <aside className="sov-inspector sov-panel" aria-label={selectedAgent ? `Observed AI: ${selectedAgent.name}` : selectedCamp ? `Observed power: ${selectedCamp.name}` : "World observer"}>
-        <div className="sov-inspector-nav"><button onClick={() => cycleSelection(-1)} aria-label="Previous selection" title="Previous AI ([)"><ChevronLeft size={16} /></button><span>{selection.kind === "agent" ? "OBSERVING AUTONOMOUS AI" : "OBSERVING SOVEREIGN POWER"}</span><button onClick={() => cycleSelection(1)} aria-label="Next selection" title="Next AI (])"><ChevronRight size={16} /></button></div>
-        {selectedAgent ? <AgentInspector world={hud} agent={selectedAgent} /> : selectedCamp ? <CampInspector world={hud} camp={selectedCamp} /> : <div className="sov-empty">Select an agent or camp to inspect its strategy.</div>}
+      <aside className="sov-inspector sov-panel" aria-label={selectedAgent ? `Observed AI: ${selectedAgent.name}` : selectedCamp ? `Observed power: ${selectedCamp.name}` : selectedBelief ? `Observed belief: ${selectedBelief.name}` : "World observer"}>
+        <div className="sov-inspector-nav"><button onClick={() => cycleSelection(-1)} aria-label="Previous selection" title="Previous selection ([)"><ChevronLeft size={16} /></button><span>{selection.kind === "agent" ? "OBSERVING AUTONOMOUS AI" : selection.kind === "camp" ? "OBSERVING SOVEREIGN POWER" : "OBSERVING EMERGENT BELIEF"}</span><button onClick={() => cycleSelection(1)} aria-label="Next selection" title="Next selection (])"><ChevronRight size={16} /></button></div>
+        {selectedAgent ? <AgentInspector world={hud} agent={selectedAgent} /> : selectedCamp ? <CampInspector world={hud} camp={selectedCamp} /> : selectedBelief ? <BeliefInspector world={hud} belief={selectedBelief} /> : <div className="sov-empty">Select an agent, camp, or belief to inspect its evolving strategy.</div>}
       </aside>
 
       <section className={`sov-chronicle sov-panel ${chronicleExpanded ? "expanded" : ""}`} aria-label="Persistent world chronicle">
         <div className="sov-chronicle-head">
           <div className="sov-chronicle-title"><ScrollText size={13} /> World chronicle</div>
-          <div className="sov-event-filters">{(["all", "power", "war", "lineage", "technology"] as EventFilter[]).map((filter) => <button key={filter} className={eventFilter === filter ? "active" : ""} onClick={() => setEventFilter(filter)} aria-pressed={eventFilter === filter}>{filter}</button>)}</div>
+          <div className="sov-event-filters">{(["all", "power", "war", "lineage", "technology", "belief"] as EventFilter[]).map((filter) => <button key={filter} className={eventFilter === filter ? "active" : ""} onClick={() => setEventFilter(filter)} aria-pressed={eventFilter === filter}>{filter}</button>)}</div>
           <button className="sov-chronicle-toggle" onClick={() => setChronicleExpanded((open) => !open)} aria-label={chronicleExpanded ? "Collapse world chronicle" : "Expand world chronicle"} aria-expanded={chronicleExpanded}>{chronicleExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>
         </div>
         <div className="sov-event-stream">
@@ -717,7 +889,7 @@ export function SovereigntyExperience() {
         </div>
       </section>
 
-      <div className="sov-map-key" aria-hidden="true"><span><i style={{ "--key-color": "#e7b95e" } as CSSProperties} />Food</span><span><i style={{ "--key-color": "#66d7d1" } as CSSProperties} />Water</span><span><i style={{ "--key-color": "#94be75" } as CSSProperties} />Wood</span><span><i style={{ "--key-color": "#b9a8c8" } as CSSProperties} />Ore</span></div>
+      <div className="sov-map-key" aria-hidden="true"><span><i style={{ "--key-color": "#e7b95e" } as CSSProperties} />Food</span><span><i style={{ "--key-color": "#66d7d1" } as CSSProperties} />Water</span><span><i style={{ "--key-color": "#94be75" } as CSSProperties} />Wood</span><span><i style={{ "--key-color": "#b9a8c8" } as CSSProperties} />Ore</span><span><i className="belief" style={{ "--key-color": "#cf9df2" } as CSSProperties} />Sacred site</span></div>
       <div className="sov-screen-reader-status" aria-live="polite">{latestMajor ? `${latestMajor.title}: ${latestMajor.message}` : "Ten founders are establishing independent camps."}</div>
     </main>
   );

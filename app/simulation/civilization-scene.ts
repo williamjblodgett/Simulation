@@ -31,6 +31,9 @@ export interface VisualAgent {
   campId: VisualId | null;
   power: number;
   inventory: VisualInventory;
+  beliefId?: VisualId | null;
+  beliefColor?: string | null;
+  conviction?: number;
 }
 
 export interface VisualResource {
@@ -53,6 +56,20 @@ export interface VisualCamp {
   techLevel: number;
   leaderId: VisualId | null;
   underAttack: boolean;
+  dominantBeliefId?: VisualId | null;
+  beliefColor?: string | null;
+  beliefDiversity?: number;
+  shrineLevel?: number;
+}
+
+export interface VisualBelief {
+  id: VisualId;
+  name: string;
+  color: string;
+  sacredSite: VisualPoint;
+  influence: number;
+  adherents: number;
+  active: boolean;
 }
 
 export interface VisualDiplomaticLink {
@@ -77,6 +94,8 @@ export interface VisualWorld {
   agents: VisualAgent[];
   resources: VisualResource[];
   camps: VisualCamp[];
+  beliefs?: VisualBelief[];
+  selectedBeliefId?: VisualId | null;
   diplomaticLinks: VisualDiplomaticLink[];
   wars: VisualWar[];
 }
@@ -84,6 +103,7 @@ export interface VisualWorld {
 export interface CivilizationSceneOptions {
   onAgentSelect(id: VisualId): void;
   onCampSelect(id: VisualId): void;
+  onBeliefSelect?(id: VisualId): void;
   onCameraModeChange?(mode: CameraMode): void;
   reducedMotion?: boolean;
 }
@@ -122,6 +142,7 @@ interface AgentVisual {
   head: THREE.Mesh<THREE.IcosahedronGeometry, THREE.MeshStandardMaterial>;
   direction: THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial>;
   selection: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  beliefHalo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   healthBack: THREE.Sprite;
   healthFill: THREE.Sprite;
   label: THREE.Sprite;
@@ -137,6 +158,9 @@ interface AgentVisual {
   health: number;
   power: number;
   color: string;
+  beliefId: VisualId | null;
+  beliefColor: string | null;
+  conviction: number;
   name: string;
   labelKey: string;
   phase: number;
@@ -158,6 +182,9 @@ interface CampVisual {
   territory: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   territoryFill: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
   attackRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  beliefRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  shrine: THREE.Group;
+  shrineBeacon: THREE.Mesh<THREE.DodecahedronGeometry, THREE.MeshStandardMaterial>;
   tiers: THREE.Group[];
   banner: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
   beacon: THREE.Mesh<THREE.OctahedronGeometry, THREE.MeshStandardMaterial>;
@@ -175,7 +202,29 @@ interface CampVisual {
   population: number;
   name: string;
   color: string;
+  dominantBeliefId: VisualId | null;
+  beliefColor: string | null;
+  beliefDiversity: number;
+  shrineLevel: number;
   labelKey: string;
+  phase: number;
+}
+
+interface BeliefVisual {
+  root: THREE.Group;
+  hitTarget: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>;
+  influenceRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  selectionRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  beacon: THREE.Mesh<THREE.DodecahedronGeometry, THREE.MeshStandardMaterial>;
+  label: THREE.Sprite;
+  labelMaterial: THREE.SpriteMaterial;
+  labelKey: string;
+  target: THREE.Vector2;
+  influenceTarget: number;
+  influenceCurrent: number;
+  adherents: number;
+  active: boolean;
+  color: string;
   phase: number;
 }
 
@@ -207,7 +256,7 @@ const TAU = Math.PI * 2;
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
 
-const finite = (value: number, fallback = 0) => Number.isFinite(value) ? value : fallback;
+const finite = (value: number | null | undefined, fallback = 0) => Number.isFinite(value) ? Number(value) : fallback;
 
 const damp = (current: number, target: number, speed: number, delta: number) =>
   THREE.MathUtils.lerp(current, target, 1 - Math.exp(-speed * delta));
@@ -289,11 +338,11 @@ function terrainHeight(x: number, z: number, profile: TerrainProfile) {
 }
 
 function makeTerrainProfile(seed: number, halfSize: number): TerrainProfile {
-  const safeHalf = clamp(finite(halfSize, DEFAULT_HALF_SIZE), 38, 130);
+  const safeHalf = clamp(finite(halfSize, DEFAULT_HALF_SIZE), 38, 220);
   const preliminary: TerrainProfile = { seed: finite(seed), halfSize: safeHalf, water: [] };
   const random = seededRandom(seed + safeHalf * 3.7);
   const water: WaterFeature[] = [];
-  const featureCount = safeHalf > 80 ? 5 : 4;
+  const featureCount = safeHalf > 150 ? 7 : safeHalf > 85 ? 6 : 4;
   for (let index = 0; index < featureCount; index += 1) {
     const angle = index / featureCount * TAU + (random() - 0.5) * 0.65;
     const radius = safeHalf * (0.24 + random() * 0.35);
@@ -417,7 +466,7 @@ interface StaticWorldVisual {
 
 function makeTerrainGeometry(profile: TerrainProfile) {
   const size = profile.halfSize * 2;
-  const segments = clamp(Math.round(size / 2), 44, 92);
+  const segments = clamp(Math.round(size / 2), 44, 116);
   const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -917,6 +966,22 @@ function makeCamp(camp: VisualCamp): CampVisual {
   attackRing.renderOrder = 7;
   root.add(attackRing);
 
+  const initialBeliefColor = camp.beliefColor ? safeColor(camp.beliefColor, 0xb89cff) : new THREE.Color(0xb89cff);
+  const beliefRing = new THREE.Mesh(
+    new THREE.RingGeometry(3.38, 3.55, 48),
+    new THREE.MeshBasicMaterial({
+      color: initialBeliefColor,
+      transparent: true,
+      opacity: 0.42,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  beliefRing.rotation.x = -Math.PI / 2;
+  beliefRing.position.y = 0.145;
+  beliefRing.renderOrder = 6;
+  root.add(beliefRing);
+
   const ground = new THREE.Mesh(
     new THREE.CylinderGeometry(3.05, 3.28, 0.18, 18),
     new THREE.MeshStandardMaterial({ color: 0x384038, roughness: 1 }),
@@ -924,6 +989,41 @@ function makeCamp(camp: VisualCamp): CampVisual {
   ground.position.y = 0.09;
   ground.receiveShadow = true;
   root.add(ground);
+
+  // A deliberately abstract shrine: a stepped plinth, three uprights, and a
+  // floating polyhedron. It communicates a belief site without borrowing any
+  // real-world religious iconography.
+  const shrine = new THREE.Group();
+  shrine.position.set(-1.45, 0.18, 0.7);
+  const shrineBase = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.62, 0.78, 0.2, 6),
+    new THREE.MeshStandardMaterial({ color: 0x59605a, roughness: 0.88, metalness: 0.12 }),
+  );
+  shrineBase.position.y = 0.1;
+  shrine.add(shrineBase);
+  for (let index = 0; index < 3; index += 1) {
+    const angle = index / 3 * TAU;
+    const pillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.055, 0.075, 0.78, 5),
+      new THREE.MeshStandardMaterial({ color: initialBeliefColor.clone().multiplyScalar(0.72), roughness: 0.62 }),
+    );
+    pillar.position.set(Math.cos(angle) * 0.37, 0.54, Math.sin(angle) * 0.37);
+    pillar.userData.beliefAccent = true;
+    shrine.add(pillar);
+  }
+  const shrineBeacon = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.27, 0),
+    new THREE.MeshStandardMaterial({
+      color: initialBeliefColor,
+      emissive: initialBeliefColor,
+      emissiveIntensity: 0.76,
+      roughness: 0.28,
+      metalness: 0.25,
+    }),
+  );
+  shrineBeacon.position.y = 1.1;
+  shrine.add(shrineBeacon);
+  root.add(shrine);
 
   const hitTarget = new THREE.Mesh(
     new THREE.CylinderGeometry(3.5, 3.5, 4.2, 12),
@@ -1053,6 +1153,8 @@ function makeCamp(camp: VisualCamp): CampVisual {
   territoryFill.castShadow = false;
   territoryFill.receiveShadow = false;
   attackRing.castShadow = false;
+  beliefRing.castShadow = false;
+  beliefRing.receiveShadow = false;
   hitTarget.castShadow = false;
   hitTarget.receiveShadow = false;
   label.castShadow = false;
@@ -1064,6 +1166,9 @@ function makeCamp(camp: VisualCamp): CampVisual {
     territory,
     territoryFill,
     attackRing,
+    beliefRing,
+    shrine,
+    shrineBeacon,
     tiers,
     banner,
     beacon,
@@ -1081,6 +1186,10 @@ function makeCamp(camp: VisualCamp): CampVisual {
     population: Math.max(0, Math.floor(finite(camp.population))),
     name: camp.name,
     color: camp.color,
+    dominantBeliefId: camp.dominantBeliefId ?? null,
+    beliefColor: camp.beliefColor ?? null,
+    beliefDiversity: clamp(finite(camp.beliefDiversity), 0, 1),
+    shrineLevel: Math.max(0, finite(camp.shrineLevel)),
     labelKey: initialLabelKey,
     phase: hashString(camp.id) * TAU,
   };
@@ -1097,6 +1206,10 @@ function applyCampState(visual: CampVisual, camp: VisualCamp, profile: TerrainPr
   visual.techLevel = Math.max(0, Math.floor(finite(camp.techLevel)));
   visual.power = Math.max(0, finite(camp.power));
   visual.population = Math.max(0, Math.floor(finite(camp.population)));
+  visual.dominantBeliefId = camp.dominantBeliefId ?? null;
+  visual.beliefColor = camp.beliefColor ?? null;
+  visual.beliefDiversity = clamp(finite(camp.beliefDiversity), 0, 1);
+  visual.shrineLevel = Math.max(0, finite(camp.shrineLevel));
 
   const color = safeColor(camp.color);
   visual.territory.material.color.copy(color);
@@ -1105,6 +1218,18 @@ function applyCampState(visual: CampVisual, camp: VisualCamp, profile: TerrainPr
   visual.banner.material.emissive.copy(color);
   visual.beacon.material.color.copy(color);
   visual.beacon.material.emissive.copy(color);
+  const beliefColor = camp.beliefColor ? safeColor(camp.beliefColor, 0xb89cff) : new THREE.Color(0xb89cff);
+  visual.beliefRing.material.color.copy(beliefColor);
+  visual.beliefRing.visible = Boolean(visual.dominantBeliefId && visual.beliefColor);
+  visual.shrine.visible = visual.beliefRing.visible && visual.shrineLevel > 0.02;
+  visual.shrine.scale.setScalar(clamp(0.7 + Math.sqrt(visual.shrineLevel) * 0.16, 0.7, 1.5));
+  visual.shrineBeacon.material.color.copy(beliefColor);
+  visual.shrineBeacon.material.emissive.copy(beliefColor);
+  visual.shrine.traverse((object) => {
+    if (!object.userData.beliefAccent || !(object instanceof THREE.Mesh)) return;
+    const material = object.material;
+    if (material instanceof THREE.MeshStandardMaterial) material.color.copy(beliefColor).multiplyScalar(0.72);
+  });
   visual.tiers.forEach((tier, index) => {
     tier.visible = index <= clamp(Math.max(visual.level - 1, visual.techLevel - 1), 0, 3);
   });
@@ -1194,6 +1319,22 @@ function makeAgent(agent: VisualAgent, profile: TerrainProfile): AgentVisual {
   selection.renderOrder = 9;
   root.add(selection);
 
+  const initialBeliefColor = agent.beliefColor ? safeColor(agent.beliefColor, 0xb89cff) : new THREE.Color(0xb89cff);
+  const beliefHalo = new THREE.Mesh(
+    new THREE.RingGeometry(0.75, 0.82, 30),
+    new THREE.MeshBasicMaterial({
+      color: initialBeliefColor,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  beliefHalo.rotation.x = -Math.PI / 2;
+  beliefHalo.position.y = 0.07;
+  beliefHalo.renderOrder = 7;
+  root.add(beliefHalo);
+
   const healthBack = makeSolidSprite(0x15211d);
   healthBack.position.set(-0.77, 1.94, 0);
   healthBack.center.set(0, 0.5);
@@ -1257,6 +1398,7 @@ function makeAgent(agent: VisualAgent, profile: TerrainProfile): AgentVisual {
 
   setShadows(actor, true, false);
   selection.castShadow = false;
+  beliefHalo.castShadow = false;
   direction.castShadow = false;
   label.castShadow = false;
   healthBack.castShadow = false;
@@ -1271,6 +1413,7 @@ function makeAgent(agent: VisualAgent, profile: TerrainProfile): AgentVisual {
     head,
     direction,
     selection,
+    beliefHalo,
     healthBack,
     healthFill,
     label,
@@ -1286,6 +1429,9 @@ function makeAgent(agent: VisualAgent, profile: TerrainProfile): AgentVisual {
     health: clamp(finite(agent.health, 100), 0, 100),
     power: Math.max(0, finite(agent.power)),
     color: agent.color,
+    beliefId: agent.beliefId ?? null,
+    beliefColor: agent.beliefColor ?? null,
+    conviction: clamp(finite(agent.conviction), 0, 1),
     name: agent.name,
     labelKey: initialLabelKey,
     phase: hashString(agent.id) * TAU,
@@ -1305,6 +1451,9 @@ function applyAgentState(visual: AgentVisual, agent: VisualAgent, profile: Terra
   visual.adult = agent.adult;
   visual.health = clamp(finite(agent.health, 100), 0, 100);
   visual.power = Math.max(0, finite(agent.power));
+  visual.beliefId = agent.beliefId ?? null;
+  visual.beliefColor = agent.beliefColor ?? null;
+  visual.conviction = clamp(finite(agent.conviction), 0, 1);
 
   const color = safeColor(agent.color);
   const healthRatio = visual.health / 100;
@@ -1316,6 +1465,11 @@ function applyAgentState(visual: AgentVisual, agent: VisualAgent, profile: Terra
   visual.direction.material.color.copy(color);
   visual.selection.material.color.copy(color);
   visual.trail.material.color.copy(color);
+  const beliefColor = agent.beliefColor ? safeColor(agent.beliefColor, 0xb89cff) : new THREE.Color(0xb89cff);
+  visual.beliefHalo.material.color.copy(beliefColor);
+  visual.beliefHalo.visible = visual.alive && Boolean(visual.beliefId && visual.beliefColor);
+  visual.beliefHalo.material.opacity = 0.2 + visual.conviction * 0.52;
+  visual.beliefHalo.scale.setScalar(0.88 + visual.conviction * 0.28);
   const healthColor = new THREE.Color(0xe1514f).lerp(new THREE.Color(0xf0b55a), smoothstep(0.15, 0.6, healthRatio));
   healthColor.lerp(new THREE.Color(0x79e17c), smoothstep(0.55, 1, healthRatio));
   visual.healthFill.material.color.copy(healthColor);
@@ -1475,6 +1629,181 @@ function makeResource(resource: VisualResource, profile: TerrainProfile): Resour
   };
 }
 
+function beliefInfluenceRadius(belief: VisualBelief) {
+  const influence = Math.max(0, finite(belief.influence));
+  const adherents = Math.max(0, finite(belief.adherents));
+  return clamp(2.8 + Math.sqrt(influence) * 0.34 + Math.sqrt(adherents) * 0.52, 3.2, 20);
+}
+
+function makeBelief(belief: VisualBelief, profile: TerrainProfile): BeliefVisual {
+  const color = safeColor(belief.color, 0xb89cff);
+  const root = new THREE.Group();
+  root.name = `belief:${belief.id}`;
+
+  const influenceRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.965, 1, 72),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.26,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  influenceRing.rotation.x = -Math.PI / 2;
+  influenceRing.position.y = 0.1;
+  influenceRing.renderOrder = 5;
+  root.add(influenceRing);
+
+  const selectionRing = new THREE.Mesh(
+    new THREE.RingGeometry(1.1, 1.2, 72),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.82,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  selectionRing.rotation.x = -Math.PI / 2;
+  selectionRing.position.y = 0.135;
+  selectionRing.renderOrder = 8;
+  root.add(selectionRing);
+
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.9, 1.12, 0.26, 7),
+    new THREE.MeshStandardMaterial({ color: 0x505953, roughness: 0.86, metalness: 0.14 }),
+  );
+  base.position.y = 0.13;
+  root.add(base);
+
+  const crown = new THREE.Group();
+  for (let index = 0; index < 3; index += 1) {
+    const angle = index / 3 * TAU + Math.PI / 6;
+    const pillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.07, 0.105, 1.7, 5),
+      new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.68), roughness: 0.6, metalness: 0.22 }),
+    );
+    pillar.position.set(Math.cos(angle) * 0.58, 1.05, Math.sin(angle) * 0.58);
+    pillar.rotation.z = Math.cos(angle) * -0.1;
+    pillar.rotation.x = Math.sin(angle) * 0.1;
+    crown.add(pillar);
+  }
+  root.add(crown);
+
+  const orbit = new THREE.Mesh(
+    new THREE.TorusGeometry(0.65, 0.035, 5, 32),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.58 }),
+  );
+  orbit.rotation.x = Math.PI / 2.7;
+  orbit.position.y = 1.93;
+  root.add(orbit);
+
+  const beacon = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.42, 0),
+    new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 1,
+      roughness: 0.25,
+      metalness: 0.22,
+    }),
+  );
+  beacon.position.y = 2.08;
+  root.add(beacon);
+
+  const hitTarget = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.45, 1.45, 3.4, 10),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+  );
+  hitTarget.position.y = 1.7;
+  hitTarget.userData.beliefId = belief.id;
+  root.add(hitTarget);
+
+  const labelKey = `${belief.name}|${belief.color}|${Math.round(Math.max(0, finite(belief.adherents)))}`;
+  const labelMaterial = new THREE.SpriteMaterial({
+    map: makeLabelTexture(
+      belief.name,
+      `BELIEF  ·  ${Math.round(Math.max(0, finite(belief.adherents)))} ADHERENTS`,
+      belief.color,
+      560,
+      144,
+    ),
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const label = new THREE.Sprite(labelMaterial);
+  label.position.y = 3.45;
+  label.scale.set(5.7, 1.47, 1);
+  label.renderOrder = 31;
+  root.add(label);
+
+  setShadows(root, true, false);
+  influenceRing.castShadow = false;
+  selectionRing.castShadow = false;
+  hitTarget.castShadow = false;
+  label.castShadow = false;
+
+  const targetX = sceneCoordinate(belief.sacredSite.x, profile.halfSize);
+  const targetZ = sceneCoordinate(belief.sacredSite.z, profile.halfSize);
+  const radius = beliefInfluenceRadius(belief);
+  return {
+    root,
+    hitTarget,
+    influenceRing,
+    selectionRing,
+    beacon,
+    label,
+    labelMaterial,
+    labelKey,
+    target: new THREE.Vector2(targetX, targetZ),
+    influenceTarget: radius,
+    influenceCurrent: radius,
+    adherents: Math.max(0, finite(belief.adherents)),
+    active: belief.active,
+    color: belief.color,
+    phase: hashString(belief.id) * TAU,
+  };
+}
+
+function applyBeliefState(visual: BeliefVisual, belief: VisualBelief, profile: TerrainProfile) {
+  visual.target.set(
+    sceneCoordinate(belief.sacredSite.x, profile.halfSize),
+    sceneCoordinate(belief.sacredSite.z, profile.halfSize),
+  );
+  visual.influenceTarget = beliefInfluenceRadius(belief);
+  visual.adherents = Math.max(0, finite(belief.adherents));
+  visual.active = belief.active;
+  visual.color = belief.color;
+  const color = safeColor(belief.color, 0xb89cff);
+  visual.influenceRing.material.color.copy(color);
+  visual.selectionRing.material.color.copy(color);
+  visual.beacon.material.color.copy(color);
+  visual.beacon.material.emissive.copy(color);
+  visual.root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) || object === visual.hitTarget || object === visual.influenceRing || object === visual.selectionRing) return;
+    const material = object.material;
+    if (material instanceof THREE.MeshStandardMaterial && object !== visual.beacon && material.metalness > 0.18) {
+      material.color.copy(color).multiplyScalar(0.68);
+    }
+  });
+
+  const labelKey = `${belief.name}|${belief.color}|${Math.round(visual.adherents)}`;
+  if (labelKey !== visual.labelKey) {
+    visual.labelMaterial.map?.dispose();
+    visual.labelMaterial.map = makeLabelTexture(
+      belief.name,
+      `BELIEF  ·  ${Math.round(visual.adherents)} ADHERENTS`,
+      belief.color,
+      560,
+      144,
+    );
+    visual.labelMaterial.needsUpdate = true;
+    visual.labelKey = labelKey;
+  }
+}
+
 function diplomacyColor(relation: DiplomaticRelation) {
   if (relation === "alliance") return 0x69d8bd;
   if (relation === "trade") return 0xf1c66d;
@@ -1587,6 +1916,7 @@ export function createCivilizationScene(
   let activeCameraMode: CameraMode = "overview";
   let selectedAgentId: VisualId | null = null;
   let selectedCampId: VisualId | null = null;
+  let selectedBeliefId: VisualId | null = initialWorld.selectedBeliefId ?? null;
   let worldClockTarget = finite(initialWorld.elapsed);
   let worldClockVisual = worldClockTarget;
   let animationTime = 0;
@@ -1643,6 +1973,7 @@ export function createCivilizationScene(
   const agentVisuals = new Map<VisualId, AgentVisual>();
   const resourceVisuals = new Map<VisualId, ResourceVisual>();
   const campVisuals = new Map<VisualId, CampVisual>();
+  const beliefVisuals = new Map<VisualId, BeliefVisual>();
   const linkVisuals = new Map<VisualId, LinkVisual>();
   const warVisuals = new Map<VisualId, WarVisual>();
 
@@ -1772,6 +2103,35 @@ export function createCivilizationScene(
     });
   };
 
+  const syncBeliefs = (beliefs: VisualBelief[], immediate: boolean) => {
+    const incoming = new Set(beliefs.map((belief) => belief.id));
+    beliefVisuals.forEach((visual, id) => {
+      if (incoming.has(id)) return;
+      scene.remove(visual.root);
+      disposeObject(visual.root);
+      beliefVisuals.delete(id);
+    });
+    beliefs.forEach((belief) => {
+      let visual = beliefVisuals.get(belief.id);
+      let created = false;
+      if (!visual) {
+        visual = makeBelief(belief, activeProfile);
+        beliefVisuals.set(belief.id, visual);
+        scene.add(visual.root);
+        created = true;
+      }
+      applyBeliefState(visual, belief, activeProfile);
+      if (immediate || created) {
+        visual.root.position.set(
+          visual.target.x,
+          terrainHeight(visual.target.x, visual.target.y, activeProfile),
+          visual.target.y,
+        );
+        visual.influenceCurrent = visual.influenceTarget;
+      }
+    });
+  };
+
   const syncDiplomacy = (links: VisualDiplomaticLink[]) => {
     const incoming = new Set(links.map((link) => link.id));
     linkVisuals.forEach((visual, id) => {
@@ -1836,18 +2196,20 @@ export function createCivilizationScene(
     delta: number,
     immediate = false,
   ) => {
-    const requestedHalf = clamp(finite(world.halfSize, DEFAULT_HALF_SIZE), 38, 130);
+    const requestedHalf = clamp(finite(world.halfSize, DEFAULT_HALF_SIZE), 38, 220);
     if (finite(world.seed) !== activeProfile.seed || Math.abs(requestedHalf - activeProfile.halfSize) > 0.01) {
       rebuildStaticWorld(world.seed, requestedHalf);
       immediate = true;
     }
     selectedAgentId = nextSelectedAgentId;
     selectedCampId = nextSelectedCampId;
+    selectedBeliefId = world.selectedBeliefId ?? null;
     worldClockTarget = finite(world.elapsed) + clamp(finite(delta), 0, 0.25);
     if (immediate) worldClockVisual = finite(world.elapsed);
     syncCamps(world.camps ?? [], immediate);
     syncResources(world.resources ?? [], immediate);
     syncAgents(world.agents ?? [], immediate);
+    syncBeliefs(world.beliefs ?? [], immediate);
     syncDiplomacy(world.diplomaticLinks ?? []);
     syncWars(world.wars ?? []);
     setCameraMode(cameraMode);
@@ -1958,6 +2320,14 @@ export function createCivilizationScene(
       visual.direction.visible = visual.alive && speed > 0.03 && (isSelected || speed > 0.16);
       visual.trail.visible = visual.alive && speed > 0.03;
       visual.trail.material.opacity = isSelected ? 0.3 : 0.075;
+      const followsSelectedBelief = Boolean(selectedBeliefId && visual.beliefId === selectedBeliefId);
+      if (visual.beliefHalo.visible) {
+        const beliefPulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 2.7 + visual.phase) * 0.055;
+        visual.beliefHalo.scale.setScalar((0.88 + visual.conviction * 0.28) * beliefPulse);
+        visual.beliefHalo.material.opacity = followsSelectedBelief
+          ? 0.76
+          : 0.18 + visual.conviction * 0.42;
+      }
 
       const positionAttribute = visual.trail.geometry.getAttribute("position") as THREE.BufferAttribute;
       for (let index = 0; index < positionAttribute.count; index += 1) {
@@ -2003,10 +2373,18 @@ export function createCivilizationScene(
       visual.territory.scale.setScalar(visual.territoryCurrent);
       visual.territoryFill.scale.setScalar(visual.territoryCurrent);
       const isSelected = id === selectedCampId;
+      const followsSelectedBelief = Boolean(selectedBeliefId && visual.dominantBeliefId === selectedBeliefId);
       visual.territory.material.opacity = isSelected ? 0.82 : 0.42;
       visual.territoryFill.material.opacity = isSelected ? 0.075 : 0.038;
       visual.label.scale.set(isSelected ? 8 : 7.3, isSelected ? 1.93 : 1.76, 1);
       visual.attackRing.visible = visual.underAttack;
+      if (visual.beliefRing.visible) {
+        const beliefPulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 2.15 + visual.phase) * 0.025;
+        visual.beliefRing.scale.setScalar(beliefPulse);
+        visual.beliefRing.material.opacity = followsSelectedBelief
+          ? 0.88
+          : clamp(0.48 - visual.beliefDiversity * 0.25, 0.2, 0.48);
+      }
       if (visual.underAttack) {
         const attackPulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 5.8 + visual.phase) * 0.11;
         visual.attackRing.scale.setScalar(visual.territoryCurrent * attackPulse);
@@ -2023,11 +2401,41 @@ export function createCivilizationScene(
       if (!reducedMotion) {
         visual.banner.rotation.z = Math.sin(animationTime * 1.7 + visual.phase) * 0.035;
         visual.beacon.rotation.y += delta * 0.82;
+        if (visual.shrine.visible) {
+          visual.shrineBeacon.rotation.y += delta * (0.55 + visual.shrineLevel * 0.08);
+          visual.shrineBeacon.position.y = 1.1 + Math.sin(animationTime * 1.9 + visual.phase) * 0.06;
+        }
         visual.tiers[3].traverse((object) => {
           if (object.userData.techRingIndex !== undefined) {
             object.rotation.z += delta * (0.17 + Number(object.userData.techRingIndex) * 0.06);
           }
         });
+      }
+    });
+  };
+
+  const updateBeliefs = (delta: number) => {
+    beliefVisuals.forEach((visual, id) => {
+      visual.root.position.x = damp(visual.root.position.x, visual.target.x, 7, delta);
+      visual.root.position.z = damp(visual.root.position.z, visual.target.y, 7, delta);
+      visual.root.position.y = terrainHeight(visual.root.position.x, visual.root.position.z, activeProfile);
+      visual.influenceCurrent = damp(visual.influenceCurrent, visual.influenceTarget, 3.2, delta);
+      visual.influenceRing.scale.setScalar(visual.influenceCurrent);
+      const isSelected = id === selectedBeliefId;
+      const pulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 2.4 + visual.phase) * 0.07;
+      visual.selectionRing.visible = isSelected;
+      visual.selectionRing.scale.setScalar(1.42 * pulse);
+      visual.label.visible = isSelected;
+      visual.influenceRing.material.opacity = visual.active
+        ? isSelected ? 0.52 : 0.2
+        : isSelected ? 0.24 : 0.08;
+      visual.beacon.material.emissiveIntensity = visual.active
+        ? isSelected ? 1.65 : 0.8
+        : 0.18;
+      visual.root.scale.y = visual.active ? 1 : 0.78;
+      if (!reducedMotion) {
+        visual.beacon.rotation.y += delta * (isSelected ? 1.25 : 0.66);
+        visual.beacon.position.y = 2.08 + Math.sin(animationTime * 1.75 + visual.phase) * 0.1;
       }
     });
   };
@@ -2133,10 +2541,10 @@ export function createCivilizationScene(
       );
     } else {
       overviewFocus(desiredTarget);
-      const distance = activeProfile.halfSize * 1.28;
+      const distance = activeProfile.halfSize * 1.42;
       desiredCamera.set(
         desiredTarget.x + distance * 0.62,
-        Math.max(50, activeProfile.halfSize * 0.92),
+        Math.max(52, activeProfile.halfSize * 1.02),
         desiredTarget.z + distance * 0.76,
       );
     }
@@ -2174,17 +2582,23 @@ export function createCivilizationScene(
   };
 
   const objectAtPointer = (event: PointerEvent) => {
-    if (!setRayFromPointer(event)) return { agentId: null, campId: null };
+    if (!setRayFromPointer(event)) return { agentId: null, campId: null, beliefId: null };
     const agentTargets = Array.from(agentVisuals.values()).flatMap((visual) => [visual.body, visual.head]);
     const agentHit = raycaster.intersectObjects(agentTargets, false)[0];
     if (agentHit) {
-      return { agentId: agentHit.object.userData.agentId as VisualId, campId: null };
+      return { agentId: agentHit.object.userData.agentId as VisualId, campId: null, beliefId: null };
+    }
+    const beliefTargets = Array.from(beliefVisuals.values()).map((visual) => visual.hitTarget);
+    const beliefHit = raycaster.intersectObjects(beliefTargets, false)[0];
+    if (beliefHit) {
+      return { agentId: null, campId: null, beliefId: beliefHit.object.userData.beliefId as VisualId };
     }
     const campTargets = Array.from(campVisuals.values()).map((visual) => visual.hitTarget);
     const campHit = raycaster.intersectObjects(campTargets, false)[0];
     return {
       agentId: null,
       campId: campHit ? campHit.object.userData.campId as VisualId : null,
+      beliefId: null,
     };
   };
 
@@ -2210,7 +2624,7 @@ export function createCivilizationScene(
       }
     }
     const hit = objectAtPointer(event);
-    renderer.domElement.style.cursor = hit.agentId || hit.campId
+    renderer.domElement.style.cursor = hit.agentId || hit.campId || hit.beliefId
       ? "pointer"
       : activeCameraMode === "free"
         ? pointerDown ? "grabbing" : "grab"
@@ -2224,6 +2638,7 @@ export function createCivilizationScene(
       const hit = objectAtPointer(event);
       if (hit.agentId) options.onAgentSelect(hit.agentId);
       else if (hit.campId) options.onCampSelect(hit.campId);
+      else if (hit.beliefId) options.onBeliefSelect?.(hit.beliefId);
     }
     pointerDragged = false;
   };
@@ -2256,6 +2671,7 @@ export function createCivilizationScene(
     updateResources(safeDelta);
     updateAgents(safeDelta);
     updateCamps(safeDelta);
+    updateBeliefs(safeDelta);
     updateDiplomacy();
     updateCamera(safeDelta);
     renderer.render(scene, camera);
@@ -2265,12 +2681,13 @@ export function createCivilizationScene(
   let lastSyncedWorld: VisualWorld | null = initialWorld;
   let lastSyncedAgentId: VisualId | null = null;
   let lastSyncedCampId: VisualId | null = null;
+  let lastSyncedBeliefId: VisualId | null = initialWorld.selectedBeliefId ?? null;
   let lastSyncedCameraMode: CameraMode = "overview";
   overviewFocus(cameraTarget);
-  const initialDistance = activeProfile.halfSize * 1.28;
+  const initialDistance = activeProfile.halfSize * 1.42;
   camera.position.set(
     cameraTarget.x + initialDistance * 0.62,
-    Math.max(50, activeProfile.halfSize * 0.92),
+    Math.max(52, activeProfile.halfSize * 1.02),
     cameraTarget.z + initialDistance * 0.76,
   );
   camera.lookAt(cameraTarget);
@@ -2284,12 +2701,14 @@ export function createCivilizationScene(
         world !== lastSyncedWorld ||
         nextSelectedAgentId !== lastSyncedAgentId ||
         nextSelectedCampId !== lastSyncedCampId ||
+        (world.selectedBeliefId ?? null) !== lastSyncedBeliefId ||
         cameraMode !== lastSyncedCameraMode
       ) {
         syncWorld(world, nextSelectedAgentId, nextSelectedCampId, cameraMode, delta);
         lastSyncedWorld = world;
         lastSyncedAgentId = nextSelectedAgentId;
         lastSyncedCampId = nextSelectedCampId;
+        lastSyncedBeliefId = world.selectedBeliefId ?? null;
         lastSyncedCameraMode = cameraMode;
       }
       renderFrame(delta);
@@ -2311,6 +2730,7 @@ export function createCivilizationScene(
       agentVisuals.clear();
       resourceVisuals.clear();
       campVisuals.clear();
+      beliefVisuals.clear();
       linkVisuals.clear();
       warVisuals.clear();
       renderer.renderLists.dispose();

@@ -1500,7 +1500,7 @@ button:focus-visible {
 .sov-tabs {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
   margin: 0 13px 11px;
   padding: 3px;
@@ -1539,7 +1539,8 @@ button:focus-visible {
 }
 
 .sov-power-card,
-.sov-agent-card {
+.sov-agent-card,
+.sov-belief-card {
   --card-color: #c7f36a;
   position: relative;
   width: 100%;
@@ -1559,7 +1560,8 @@ button:focus-visible {
 }
 
 .sov-power-card::after,
-.sov-agent-card::after {
+.sov-agent-card::after,
+.sov-belief-card::after {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -1570,12 +1572,14 @@ button:focus-visible {
 }
 
 .sov-power-card:hover,
-.sov-agent-card:hover {
+.sov-agent-card:hover,
+.sov-belief-card:hover {
   background: rgba(255, 255, 255, 0.035);
 }
 
 .sov-power-card.active,
-.sov-agent-card.active {
+.sov-agent-card.active,
+.sov-belief-card.active {
   border-color: color-mix(in srgb, var(--card-color), transparent 68%);
   background: color-mix(in srgb, var(--card-color), transparent 93%);
 }
@@ -1644,6 +1648,65 @@ button:focus-visible {
 .sov-agent-card.inactive {
   filter: grayscale(0.8);
   opacity: 0.52;
+}
+
+.sov-belief-token {
+  --belief-color: var(--card-color);
+  border-radius: 50%;
+}
+
+.sov-belief-glyph {
+  --belief-color: var(--sov-accent, #cf9df2);
+  position: relative;
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--belief-color), transparent 18%);
+  border-radius: 50%;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--belief-color), transparent 54%);
+}
+
+.sov-belief-glyph::before,
+.sov-belief-glyph::after,
+.sov-belief-glyph i {
+  position: absolute;
+  border-radius: 50%;
+  content: "";
+}
+
+.sov-belief-glyph::before {
+  width: 11px;
+  height: 11px;
+  border: 1px solid color-mix(in srgb, var(--belief-color), transparent 35%);
+}
+
+.sov-belief-glyph::after {
+  width: 3px;
+  height: 3px;
+  background: var(--belief-color);
+  box-shadow: 0 0 8px var(--belief-color);
+}
+
+.sov-belief-glyph i {
+  width: 1px;
+  height: 24px;
+  background: linear-gradient(transparent, var(--belief-color), transparent);
+  transform: rotate(42deg);
+}
+
+.sov-belief-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 110px;
+}
+
+.sov-belief-empty svg {
+  flex: 0 0 auto;
+  color: #cf9df2;
 }
 
 .sov-principle {
@@ -1887,6 +1950,84 @@ button:focus-visible {
 .sov-section-head b {
   color: #9ba69d;
   font: 600 8px/1 var(--font-geist-mono), monospace;
+}
+
+.sov-belief-section {
+  --belief-color: #cf9df2;
+  background: linear-gradient(115deg, color-mix(in srgb, var(--belief-color), transparent 97%), transparent 62%);
+}
+
+.sov-belief-section .sov-section-head svg {
+  color: var(--belief-color);
+}
+
+.sov-belief-summary {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.sov-belief-summary .sov-belief-glyph {
+  --belief-color: inherit;
+  width: 26px;
+  height: 26px;
+}
+
+.sov-belief-summary b {
+  display: block;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--belief-color), #ffffff 28%);
+  font-size: 10px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sov-belief-summary p,
+.sov-section-note {
+  margin: 5px 0 0;
+  color: #7c8880;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.sov-tenet-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.sov-tenet-list span {
+  padding: 5px 6px;
+  border: 1px solid color-mix(in srgb, var(--belief-color), transparent 82%);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--belief-color), #cbd2ca 35%);
+  background: color-mix(in srgb, var(--belief-color), transparent 95%);
+  font: 610 6px/1 var(--font-geist-mono), monospace;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.sov-tenet-list.prominent {
+  margin-top: 0;
+}
+
+.sov-tenet-list.prominent span {
+  padding: 7px 8px;
+  border-radius: 6px;
+}
+
+.sov-identity-belief {
+  --belief-color: var(--sov-accent);
+  border-radius: 50%;
+  color: var(--sov-accent);
+  background: color-mix(in srgb, var(--sov-accent), #07100d 76%);
+}
+
+.sov-identity-belief .sov-belief-glyph {
+  --belief-color: var(--sov-accent);
 }
 
 .sov-data-grid {
@@ -2199,6 +2340,13 @@ button:focus-visible {
   box-shadow: 0 0 7px var(--key-color);
 }
 
+.sov-map-key i.belief {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--key-color);
+  background: transparent;
+}
+
 .sov-screen-reader-status {
   position: absolute !important;
   width: 1px !important;
@@ -2247,10 +2395,11 @@ button:focus-visible {
   }
   .sov-panel-head,
   .sov-principle { display: none; }
-  .sov-tabs { position: absolute; z-index: 2; top: 6px; left: 6px; width: 150px; margin: 0; }
+  .sov-tabs { position: absolute; z-index: 2; top: 6px; left: 6px; width: 218px; margin: 0; }
   .sov-roster { flex-direction: row; gap: 5px; padding: 42px 7px 7px; overflow-x: auto; overflow-y: hidden; }
   .sov-power-card,
-  .sov-agent-card { min-width: 154px; min-height: 51px; height: 51px; padding: 7px; }
+  .sov-agent-card,
+  .sov-belief-card { min-width: 154px; min-height: 51px; height: 51px; padding: 7px; }
   .sov-inspector {
     top: auto;
     right: 10px;
@@ -2293,7 +2442,8 @@ button:focus-visible {
   .sov-left { top: 72px; height: 96px; }
   .sov-roster { padding-top: 39px; }
   .sov-power-card,
-  .sov-agent-card { min-width: 138px; }
+  .sov-agent-card,
+  .sov-belief-card { min-width: 138px; }
   .sov-card-meta { max-width: 82px; }
   .sov-inspector { height: 245px; }
   .sov-chronicle { bottom: 265px; }
@@ -2319,5 +2469,6 @@ button:focus-visible {
   .sov-chronicle { bottom: 14px; height: 112px; }
   .sov-principle { display: none; }
   .sov-power-card,
-  .sov-agent-card { min-height: 58px; }
+  .sov-agent-card,
+  .sov-belief-card { min-height: 58px; }
 }

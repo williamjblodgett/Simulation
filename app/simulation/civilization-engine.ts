@@ -6,24 +6,36 @@
  * stored in the world, which makes a seed plus a sequence of deltas replayable.
  */
 
-export const CIVILIZATION_SCHEMA_VERSION = 1 as const;
+export const CIVILIZATION_SCHEMA_VERSION = 2 as const;
 export const DEFAULT_CIVILIZATION_SEED = 0x53_4f_56_45;
 export const FIXED_STEP = 0.25;
-export const WORLD_HALF_SIZE = 70;
+export const WORLD_HALF_SIZE = 100;
 export const DAY_LENGTH = 90;
-export const MAX_POPULATION = 80;
-export const MAX_ACTIVE_CAMPS = 24;
+export const MAX_POPULATION = 160;
+export const MAX_ACTIVE_CAMPS = 48;
 
 const TAU = Math.PI * 2;
 const EPSILON = 0.000_001;
 const MAX_FOREGROUND_DELTA = 90;
-const MAX_CATCH_UP_STEPS = 4_000;
+const MAX_CATCH_UP_STEPS = 360;
+export const EXACT_CATCH_UP_LIMIT_SECONDS = MAX_CATCH_UP_STEPS * FIXED_STEP;
+const MAX_LONG_GAP_STEPS = 48;
 const MAX_MAJOR_EVENTS = 1_000;
+const MAX_BELIEF_SYSTEMS = 36;
 const STRATEGY_INTERVAL = 5;
 const CAMP_STORAGE_LIMIT = 600;
 
 export type SeedInput = number | string;
 export type ResourceKind = "food" | "water" | "wood" | "ore";
+export type BeliefTenetId =
+  | "reciprocal_aid"
+  | "land_stewardship"
+  | "ancestor_memory"
+  | "martial_merit"
+  | "knowledge_seeking"
+  | "ordered_duty"
+  | "free_conscience"
+  | "shared_prosperity";
 export type TechnologyId =
   | "basic_tools"
   | "agriculture"
@@ -102,7 +114,14 @@ export type MajorEventType =
   | "peace"
   | "tech_unlocked"
   | "leadership_change"
-  | "power_lead_change";
+  | "power_lead_change"
+  | "belief_founded"
+  | "belief_conversion_wave"
+  | "belief_schism"
+  | "belief_reformed"
+  | "belief_rejected"
+  | "belief_faded"
+  | "shrine_built";
 export type AgentTargetKind = "resource" | "agent" | "camp" | "point";
 
 export interface Vec2 {
@@ -176,6 +195,11 @@ export interface CivilizationAgent {
   harvested: number;
   buildContribution: number;
   researchContribution: number;
+  /** A null value is a valid autonomous choice: agents can remain secular. */
+  beliefId: string | null;
+  conviction: number;
+  spiritualInfluence: number;
+  lastBeliefChangeDay: number;
 }
 
 export interface StructureLevels {
@@ -219,6 +243,28 @@ export interface CivilizationCamp {
   destroyedDay: number | null;
   victories: number;
   losses: number;
+  dominantBeliefId: string | null;
+  beliefDiversity: number;
+  shrineLevel: number;
+}
+
+export interface CivilizationBeliefSystem {
+  id: string;
+  name: string;
+  color: string;
+  foundedDay: number;
+  founderAgentId: string;
+  originCampId: string | null;
+  parentBeliefId: string | null;
+  tenets: BeliefTenetId[];
+  sacredSite: Vec2;
+  adherentIds: string[];
+  campIds: string[];
+  influence: number;
+  unity: number;
+  active: boolean;
+  reformationCount: number;
+  schismCount: number;
 }
 
 export interface CivilizationResource {
@@ -256,6 +302,7 @@ export interface MajorEvent {
   message: string;
   agentIds: string[];
   campIds: string[];
+  beliefIds: string[];
 }
 
 export interface CivilizationStatistics {
@@ -271,6 +318,13 @@ export interface CivilizationStatistics {
   campsCaptured: number;
   campsDestroyed: number;
   peakPopulation: number;
+  beliefsFounded: number;
+  conversions: number;
+  schisms: number;
+  reformations: number;
+  beliefRejections: number;
+  beliefsFaded: number;
+  shrinesBuilt: number;
   resourcesHarvested: Inventory;
 }
 
@@ -293,11 +347,13 @@ export interface CivilizationWorldState {
   agents: CivilizationAgent[];
   resources: CivilizationResource[];
   camps: CivilizationCamp[];
+  beliefs: CivilizationBeliefSystem[];
   relations: DiplomaticRelation[];
   majorEvents: MajorEvent[];
   nextAgentId: number;
   nextCampId: number;
   nextEventId: number;
+  nextBeliefId: number;
   nextWorldStrategyAt: number;
   powerLeaderCampId: string | null;
   powerLeaderSince: number;
@@ -316,6 +372,8 @@ export interface CivilizationSummary {
   alliances: number;
   unaffiliated: number;
   technologiesUnlocked: number;
+  activeBeliefs: number;
+  secularPopulation: number;
   mostPowerfulCampId: string | null;
   mostPowerfulCampName: string | null;
   mostPowerfulCampPower: number;
@@ -367,6 +425,17 @@ export const TECHNOLOGY_LABELS: Readonly<Record<TechnologyId, string>> = {
   writing: "Writing",
   logistics: "Logistics",
   governance: "Governance",
+};
+
+export const BELIEF_TENET_LABELS: Readonly<Record<BeliefTenetId, string>> = {
+  reciprocal_aid: "Reciprocal aid",
+  land_stewardship: "Land stewardship",
+  ancestor_memory: "Ancestor memory",
+  martial_merit: "Martial merit",
+  knowledge_seeking: "Knowledge seeking",
+  ordered_duty: "Ordered duty",
+  free_conscience: "Free conscience",
+  shared_prosperity: "Shared prosperity",
 };
 
 export const TECHNOLOGY_TREE: Readonly<Record<TechnologyId, TechnologyDefinition>> = {
@@ -448,6 +517,47 @@ export const CAMP_COLORS = [
   "#d37ee8",
   "#74c3ff",
   "#ffc971",
+] as const;
+
+export const BELIEF_COLORS = [
+  "#e6ca70",
+  "#9ddc8b",
+  "#8ecdf0",
+  "#cf9df2",
+  "#f59d83",
+  "#74ddd2",
+  "#d9a6c9",
+  "#bacb72",
+] as const;
+
+const BELIEF_NAME_PREFIXES = [
+  "Open",
+  "Living",
+  "Common",
+  "Steadfast",
+  "Far",
+  "Quiet",
+  "Bright",
+  "Rooted",
+  "Many",
+  "Rising",
+  "Boundless",
+  "Kindled",
+] as const;
+
+const BELIEF_NAME_NOUNS = [
+  "Accord",
+  "Path",
+  "Ember",
+  "Circle",
+  "Covenant",
+  "Horizon",
+  "Current",
+  "Memory",
+  "Lantern",
+  "Concord",
+  "Way",
+  "Promise",
 ] as const;
 
 const RESOURCE_LABELS: Readonly<Record<ResourceKind, string>> = {
@@ -598,7 +708,7 @@ function blankStructures(): StructureLevels {
 
 function campPosition(index: number, cursor: RandomCursor): Vec2 {
   const angle = -Math.PI / 2 + (index / 10) * TAU + randomRange(cursor, -0.045, 0.045);
-  const radius = 42 + randomRange(cursor, -2.2, 2.2);
+  const radius = 58 + randomRange(cursor, -3.2, 3.2);
   return boundedPosition({ x: Math.cos(angle) * radius, z: Math.sin(angle) * radius }, 7);
 }
 
@@ -639,6 +749,9 @@ function createCamp(
     destroyedDay: null,
     victories: 0,
     losses: 0,
+    dominantBeliefId: null,
+    beliefDiversity: 0,
+    shrineLevel: 0,
   };
 }
 
@@ -687,6 +800,10 @@ function createFounder(index: number, position: Vec2): CivilizationAgent {
     harvested: 0,
     buildContribution: 0,
     researchContribution: 0,
+    beliefId: null,
+    conviction: 0,
+    spiritualInfluence: 0,
+    lastBeliefChangeDay: -100,
   };
 }
 
@@ -713,13 +830,13 @@ function resourceSpecification(kind: ResourceKind): {
 } {
   switch (kind) {
     case "food":
-      return { count: 52, maximum: [16, 30], regeneration: [0.013, 0.025] };
+      return { count: 72, maximum: [16, 30], regeneration: [0.013, 0.025] };
     case "water":
-      return { count: 44, maximum: [22, 38], regeneration: [0.019, 0.034] };
+      return { count: 60, maximum: [22, 38], regeneration: [0.019, 0.034] };
     case "wood":
-      return { count: 52, maximum: [22, 42], regeneration: [0.009, 0.018] };
+      return { count: 72, maximum: [22, 42], regeneration: [0.009, 0.018] };
     case "ore":
-      return { count: 32, maximum: [14, 28], regeneration: [0.0025, 0.006] };
+      return { count: 44, maximum: [14, 28], regeneration: [0.0025, 0.006] };
   }
 }
 
@@ -818,6 +935,7 @@ function pushMajorEvent(
   message: string,
   agentIds: string[] = [],
   campIds: string[] = [],
+  beliefIds: string[] = [],
 ): void {
   world.majorEvents.push({
     id: `event-${String(world.nextEventId).padStart(8, "0")}`,
@@ -829,6 +947,7 @@ function pushMajorEvent(
     message,
     agentIds: [...new Set(agentIds)],
     campIds: [...new Set(campIds)],
+    beliefIds: [...new Set(beliefIds)],
   });
   world.nextEventId += 1;
   if (world.majorEvents.length > MAX_MAJOR_EVENTS) {
@@ -858,11 +977,13 @@ export function createCivilizationWorld(
     agents,
     resources,
     camps,
+    beliefs: [],
     relations,
     majorEvents: [],
     nextAgentId: 11,
     nextCampId: 11,
     nextEventId: 1,
+    nextBeliefId: 1,
     nextWorldStrategyAt: STRATEGY_INTERVAL,
     powerLeaderCampId: null,
     powerLeaderSince: 0,
@@ -879,6 +1000,13 @@ export function createCivilizationWorld(
       campsCaptured: 0,
       campsDestroyed: 0,
       peakPopulation: 10,
+      beliefsFounded: 0,
+      conversions: 0,
+      schisms: 0,
+      reformations: 0,
+      beliefRejections: 0,
+      beliefsFaded: 0,
+      shrinesBuilt: 0,
       resourcesHarvested: emptyInventory(),
     },
   };
@@ -938,6 +1066,14 @@ export function cloneCivilizationWorld(state: CivilizationWorldState): Civilizat
       ...event,
       agentIds: [...event.agentIds],
       campIds: [...event.campIds],
+      beliefIds: [...event.beliefIds],
+    })),
+    beliefs: state.beliefs.map((belief) => ({
+      ...belief,
+      tenets: [...belief.tenets],
+      sacredSite: copyVec(belief.sacredSite),
+      adherentIds: [...belief.adherentIds],
+      campIds: [...belief.campIds],
     })),
     stats: {
       ...state.stats,
@@ -974,7 +1110,8 @@ export function stepCivilization(state: CivilizationWorldState): CivilizationWor
 }
 
 /**
- * Offline time is compressed into at most 4,000 deterministic coarse updates.
+ * Ordinary offline time (up to 90 seconds) retains exact fixed-step replay.
+ * Longer gaps are compressed into at most 48 deterministic strategic updates.
  * Biology and travel use a capped local delta inside each update, while
  * production, chronology, diplomacy rates, and resource renewal cover the full
  * elapsed duration. This keeps arbitrary absences finite without NaN cascades.
@@ -996,8 +1133,12 @@ export function catchUpCivilization(
     // call, then distribute that duration across a bounded number of updates.
     const remainder = normalizedRemainder(total % FIXED_STEP);
     const wholeDuration = total - remainder;
-    const coarseStep = wholeDuration / MAX_CATCH_UP_STEPS;
-    for (let index = 0; index < MAX_CATCH_UP_STEPS; index += 1) {
+    const coarseSteps = Math.min(
+      MAX_LONG_GAP_STEPS,
+      Math.max(12, Math.ceil(wholeDuration / 180)),
+    );
+    const coarseStep = wholeDuration / coarseSteps;
+    for (let index = 0; index < coarseSteps; index += 1) {
       advanceWorld(next, coarseStep);
     }
     next.accumulator = remainder;
@@ -1064,18 +1205,21 @@ function produceCampResources(world: CivilizationWorldState, dt: number): void {
   for (const camp of world.camps) {
     if (!camp.active) continue;
     const population = livingCampMembers(world, camp).length;
+    const prosperity = campBeliefHasTenet(world, camp, "shared_prosperity") ? 1.06 : 1;
+    const stewardship = campBeliefHasTenet(world, camp, "land_stewardship") ? 1.05 : 1;
+    const beliefProduction = prosperity * stewardship;
     const agricultureMultiplier = hasTechnology(camp, "agriculture") ? 1.45 : 0;
     const wellMultiplier = hasTechnology(camp, "wells") ? 1.5 : 0;
     if (camp.structures.farm > 0 && agricultureMultiplier > 0) {
       camp.storage.food = clamp(
-        camp.storage.food + camp.structures.farm * 0.028 * agricultureMultiplier * dt,
+        camp.storage.food + camp.structures.farm * 0.028 * agricultureMultiplier * beliefProduction * dt,
         0,
         CAMP_STORAGE_LIMIT,
       );
     }
     if (camp.structures.well > 0 && wellMultiplier > 0) {
       camp.storage.water = clamp(
-        camp.storage.water + camp.structures.well * 0.034 * wellMultiplier * dt,
+        camp.storage.water + camp.structures.well * 0.034 * wellMultiplier * beliefProduction * dt,
         0,
         CAMP_STORAGE_LIMIT,
       );
@@ -1722,7 +1866,8 @@ function executeResearch(world: CivilizationWorldState, agent: CivilizationAgent
   const definition = TECHNOLOGY_TREE[technology];
   const writing = hasTechnology(camp, "writing") ? 1.3 : 1;
   const archives = 1 + camp.structures.archive * 0.14;
-  const progress = 0.42 * writing * archives * dt;
+  const inquiry = campBeliefHasTenet(world, camp, "knowledge_seeking") ? 1.07 : 1;
+  const progress = 0.42 * writing * archives * inquiry * dt;
   camp.researchProgress += progress;
   agent.knowledge += progress * 0.032;
   agent.researchContribution += progress;
@@ -1753,7 +1898,8 @@ function canReproduce(
   if (world.agents.filter((candidate) => candidate.alive).length >= MAX_POPULATION) return false;
   if (agent.age < 16 || world.day - agent.lastReproductionDay < 3.1) return false;
   const population = livingCampMembers(world, camp).length;
-  const softCapacity = 2 + camp.structures.shelter * 3 + camp.structures.farm * 2 + camp.structures.well * 2;
+  const lineageSupport = campBeliefHasTenet(world, camp, "ancestor_memory") ? 1 : 0;
+  const softCapacity = 2 + camp.structures.shelter * 3 + camp.structures.farm * 2 + camp.structures.well * 2 + lineageSupport;
   if (population >= Math.max(3, softCapacity)) return false;
   return camp.storage.food >= 9 + population * 1.2 && camp.storage.water >= 9 + population * 1.2;
 }
@@ -1820,6 +1966,10 @@ function executeReproduce(world: CivilizationWorldState, agent: CivilizationAgen
     harvested: 0,
     buildContribution: 0,
     researchContribution: 0,
+    beliefId: agent.beliefId,
+    conviction: agent.beliefId ? clamp(agent.conviction * 0.45, 0.08, 0.42) : 0,
+    spiritualInfluence: 0,
+    lastBeliefChangeDay: world.day,
   };
   agent.childrenIds.push(child.id);
   agent.lastReproductionDay = world.day;
@@ -1934,11 +2084,13 @@ function resolveCombatRound(
   const defenderCamp = getActiveCamp(world, defender.campId);
   const attackTech = attackerCamp && hasTechnology(attackerCamp, "bronze_working") ? 1.22 : 1;
   const defenseTech = defenderCamp && hasTechnology(defenderCamp, "masonry") ? 1.12 : 1;
+  const attackBelief = campBeliefHasTenet(world, attackerCamp, "martial_merit") ? 1.055 : 1;
+  const defenseBelief = campBeliefHasTenet(world, defenderCamp, "ordered_duty") ? 1.035 : 1;
   const walls = defenderCamp && isNear(defender.position, defenderCamp.position, defenderCamp.radius * 1.6)
     ? 1 + defenderCamp.structures.walls * 0.1
     : 1;
-  const attackCondition = (0.48 + attacker.health / 210 + attacker.energy / 420) * attackTech;
-  const defenseCondition = (0.48 + defender.health / 220 + defender.energy / 440) * defenseTech * walls;
+  const attackCondition = (0.48 + attacker.health / 210 + attacker.energy / 420) * attackTech * attackBelief;
+  const defenseCondition = (0.48 + defender.health / 220 + defender.energy / 440) * defenseTech * defenseBelief * walls;
   const damageToDefender = (5.2 + worldRandom(world) * 5.8 + attacker.experience * 0.12) * attackCondition / defenseCondition;
   const damageToAttacker = (3.1 + worldRandom(world) * 4.5 + defender.experience * 0.08) * defenseCondition / attackCondition;
   defender.health -= damageToDefender;
@@ -2054,6 +2206,465 @@ function discoverResources(world: CivilizationWorldState, agent: CivilizationAge
   }
 }
 
+function getActiveBelief(
+  world: CivilizationWorldState,
+  beliefId: string | null,
+): CivilizationBeliefSystem | null {
+  if (!beliefId) return null;
+  return world.beliefs.find((belief) => belief.id === beliefId && belief.active) ?? null;
+}
+
+function campBeliefHasTenet(
+  world: CivilizationWorldState,
+  camp: CivilizationCamp | null,
+  tenet: BeliefTenetId,
+): boolean {
+  const belief = camp ? getActiveBelief(world, camp.dominantBeliefId) : null;
+  return Boolean(belief?.tenets.includes(tenet));
+}
+
+function beliefTenetUtility(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+  camp: CivilizationCamp | null,
+  tenet: BeliefTenetId,
+): number {
+  const population = camp ? Math.max(1, livingCampMembers(world, camp).length) : 1;
+  const foodSecurity = camp ? clamp(camp.storage.food / (population * 10), 0, 1) : agent.hunger / 100;
+  const waterSecurity = camp ? clamp(camp.storage.water / (population * 11), 0, 1) : agent.hydration / 100;
+  const scarcity = 1 - (foodSecurity + waterSecurity) / 2;
+  const warPressure = camp ? clamp(enemyCamps(world, camp).length * 0.45, 0, 1) : 0.15;
+  const family = clamp(agent.childrenIds.length * 0.18 + agent.parentIds.length * 0.08, 0, 1);
+  const learning = clamp(agent.knowledge / 14 + (camp?.technologies.length ?? 1) / 12, 0, 1);
+  const disorder = camp ? 1 - camp.cohesion : 0.45;
+  const wealth = camp
+    ? clamp(totalInventory(camp.storage) / Math.max(35, population * 34), 0, 1)
+    : clamp(totalInventory(agent.inventory) / Math.max(1, agent.capacity), 0, 1);
+  switch (tenet) {
+    case "reciprocal_aid":
+      return clamp(0.28 + scarcity * 0.38 + (camp ? allianceCount(world, camp.id) * 0.08 : 0) + family * 0.15, 0, 1);
+    case "land_stewardship":
+      return clamp(0.3 + scarcity * 0.32 + agent.harvested / 90, 0, 1);
+    case "ancestor_memory":
+      return clamp(0.28 + family * 0.46 + Math.min(0.22, agent.age / 160), 0, 1);
+    case "martial_merit":
+      return clamp(0.18 + warPressure * 0.52 + agent.kills * 0.12 + agent.experience / 28, 0, 1);
+    case "knowledge_seeking":
+      return clamp(0.24 + learning * 0.58 + agent.researchContribution / 120, 0, 1);
+    case "ordered_duty":
+      return clamp(0.25 + disorder * 0.46 + (camp && hasTechnology(camp, "governance") ? 0.15 : 0), 0, 1);
+    case "free_conscience":
+      return clamp(0.24 + (1 - agent.loyalty) * 0.34 + (1 - agent.satisfaction) * 0.22 + agent.influence / 60, 0, 1);
+    case "shared_prosperity":
+      return clamp(0.25 + wealth * 0.46 + Math.max(0, 0.65 - agent.satisfaction) * 0.24, 0, 1);
+  }
+}
+
+function beliefFit(
+  world: CivilizationWorldState,
+  agent: CivilizationAgent,
+  belief: CivilizationBeliefSystem,
+): number {
+  const camp = getActiveCamp(world, agent.campId);
+  const tenetFit = belief.tenets.reduce(
+    (sum, tenet) => sum + beliefTenetUtility(world, agent, camp, tenet),
+    0,
+  ) / Math.max(1, belief.tenets.length);
+  const localAdherents = camp
+    ? livingCampMembers(world, camp).filter((member) => member.beliefId === belief.id).length
+    : 0;
+  const localExposure = camp ? localAdherents / Math.max(1, livingCampMembers(world, camp).length) : 0;
+  const familyExposure = agent.parentIds.concat(agent.childrenIds)
+    .filter((id) => world.agents.some((candidate) => candidate.id === id && candidate.alive && candidate.beliefId === belief.id))
+    .length;
+  const founderBond = agent.relationships[belief.founderAgentId];
+  const founderTrust = founderBond
+    ? founderBond.trust * 0.12 + founderBond.respect * 0.1 - founderBond.grievance * 0.12
+    : 0;
+  const distanceReach = clamp(1 - distanceBetween(agent.position, belief.sacredSite) / (WORLD_HALF_SIZE * 1.45), 0, 1);
+  const institutionalReach = camp && belief.campIds.includes(camp.id)
+    ? 0.12 + camp.shrineLevel * 0.025
+    : 0;
+  return clamp(
+    tenetFit * 0.58 + localExposure * 0.2 + Math.min(0.12, familyExposure * 0.06) + founderTrust + distanceReach * 0.07 + institutionalReach,
+    0,
+    1,
+  );
+}
+
+function chooseBeliefTenets(
+  world: CivilizationWorldState,
+  founder: CivilizationAgent,
+  excluded: readonly BeliefTenetId[] = [],
+): BeliefTenetId[] {
+  const camp = getActiveCamp(world, founder.campId);
+  const excludedSet = new Set(excluded);
+  const ranked = (Object.keys(BELIEF_TENET_LABELS) as BeliefTenetId[])
+    .filter((tenet) => !excludedSet.has(tenet))
+    .map((tenet) => ({
+      tenet,
+      score: beliefTenetUtility(world, founder, camp, tenet) + worldRandom(world) * 0.07,
+    }))
+    .sort((left, right) => right.score - left.score || left.tenet.localeCompare(right.tenet));
+  const count = camp && (hasTechnology(camp, "writing") || hasTechnology(camp, "governance")) ? 3 : 2;
+  return ranked.slice(0, count).map((entry) => entry.tenet);
+}
+
+function beliefName(world: CivilizationWorldState): string {
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const prefix = BELIEF_NAME_PREFIXES[Math.floor(worldRandom(world) * BELIEF_NAME_PREFIXES.length)];
+    const noun = BELIEF_NAME_NOUNS[Math.floor(worldRandom(world) * BELIEF_NAME_NOUNS.length)];
+    const candidate = `${prefix} ${noun}`;
+    if (!world.beliefs.some((belief) => belief.name === candidate)) return candidate;
+  }
+  return `Frontier Accord ${world.nextBeliefId}`;
+}
+
+function createBeliefSystem(
+  world: CivilizationWorldState,
+  founder: CivilizationAgent,
+  parent: CivilizationBeliefSystem | null,
+  initialAdherentIds: string[],
+): CivilizationBeliefSystem {
+  const camp = getActiveCamp(world, founder.campId);
+  const ordinal = world.nextBeliefId;
+  world.nextBeliefId += 1;
+  const id = `belief-${String(ordinal).padStart(3, "0")}`;
+  const inherited = parent ? [...parent.tenets] : [];
+  let tenets = chooseBeliefTenets(world, founder);
+  if (parent && inherited.length > 0) {
+    const replacement = chooseBeliefTenets(world, founder, inherited)[0];
+    const replaceAt = Math.floor(worldRandom(world) * inherited.length);
+    if (replacement) inherited[replaceAt] = replacement;
+    tenets = [...new Set(inherited)];
+  }
+  const angle = worldRandom(world) * TAU;
+  const base = camp?.position ?? founder.position;
+  const sacredSite = boundedPosition({
+    x: base.x + Math.cos(angle) * (1.4 + worldRandom(world) * 1.7),
+    z: base.z + Math.sin(angle) * (1.4 + worldRandom(world) * 1.7),
+  }, 4);
+  const belief: CivilizationBeliefSystem = {
+    id,
+    name: beliefName(world),
+    color: BELIEF_COLORS[(ordinal - 1) % BELIEF_COLORS.length],
+    foundedDay: world.day,
+    founderAgentId: founder.id,
+    originCampId: camp?.id ?? null,
+    parentBeliefId: parent?.id ?? null,
+    tenets,
+    sacredSite,
+    adherentIds: [...new Set(initialAdherentIds)],
+    campIds: camp ? [camp.id] : [],
+    influence: 0,
+    unity: 0.62,
+    active: true,
+    reformationCount: 0,
+    schismCount: 0,
+  };
+  world.beliefs.push(belief);
+  for (const idToJoin of belief.adherentIds) {
+    const adherent = world.agents.find((agent) => agent.id === idToJoin && agent.alive);
+    if (!adherent) continue;
+    if (adherent.beliefId !== belief.id) world.stats.conversions += 1;
+    adherent.beliefId = belief.id;
+    adherent.conviction = adherent.id === founder.id ? 0.68 : 0.46;
+    adherent.lastBeliefChangeDay = world.day;
+  }
+  founder.spiritualInfluence += parent ? 0.7 : 1;
+  founder.action = parent ? "negotiate" : "idle";
+  founder.currentPlan = parent ? "expand_influence" : "advance_knowledge";
+  founder.goal = parent ? `Establish ${belief.name} as an independent belief` : `Give ${belief.name} a durable foundation`;
+  founder.rationale = parent
+    ? "Current doctrine no longer fits lived conditions, so a coherent alternative may create greater unity and influence."
+    : "A shared account of survival, obligation, and power may coordinate voluntary adherents without assigning anyone a fixed identity.";
+  founder.decisionTimer = 3;
+  world.stats.beliefsFounded += 1;
+  if (parent) {
+    parent.schismCount += 1;
+    world.stats.schisms += 1;
+    pushMajorEvent(
+      world,
+      "belief_schism",
+      "warning",
+      `${belief.name} breaks from ${parent.name}`,
+      `${founder.name} and ${belief.adherentIds.length - 1} supporter${belief.adherentIds.length === 2 ? "" : "s"} reject part of ${parent.name}, forming a new belief around ${tenets.map(getBeliefTenetLabel).join(" and ")}.`,
+      belief.adherentIds,
+      [...new Set([camp?.id, parent.originCampId].filter((value): value is string => Boolean(value)))],
+      [parent.id, belief.id],
+    );
+  } else {
+    pushMajorEvent(
+      world,
+      "belief_founded",
+      "positive",
+      `${founder.name} founds ${belief.name}`,
+      `${founder.name} turns lived conditions into a voluntary belief system centered on ${tenets.map(getBeliefTenetLabel).join(" and ")}. Others remain free to join, leave, or stay secular.`,
+      [founder.id],
+      camp ? [camp.id] : [],
+      [belief.id],
+    );
+  }
+  return belief;
+}
+
+function reconcileBeliefs(world: CivilizationWorldState): void {
+  const validBeliefIds = new Set(world.beliefs.map((belief) => belief.id));
+  for (const agent of world.agents) {
+    if (agent.beliefId && (!agent.alive || !validBeliefIds.has(agent.beliefId))) {
+      agent.beliefId = null;
+      agent.conviction = 0;
+    }
+  }
+  for (const camp of world.camps) {
+    if (!camp.active) {
+      camp.dominantBeliefId = null;
+      camp.beliefDiversity = 0;
+      continue;
+    }
+    const members = livingCampMembers(world, camp);
+    const counts = new Map<string, number>();
+    let secular = 0;
+    for (const member of members) {
+      if (member.beliefId && validBeliefIds.has(member.beliefId)) {
+        counts.set(member.beliefId, (counts.get(member.beliefId) ?? 0) + 1);
+      } else {
+        secular += 1;
+      }
+    }
+    const ranked = [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+    const leading = ranked[0] ?? null;
+    camp.dominantBeliefId = leading && leading[1] / Math.max(1, members.length) >= 0.5 ? leading[0] : null;
+    const largestGroup = Math.max(secular, leading?.[1] ?? 0);
+    camp.beliefDiversity = members.length > 1 ? clamp(1 - largestGroup / members.length, 0, 1) : 0;
+  }
+  for (const belief of world.beliefs) {
+    const wasActive = belief.active;
+    const previousCampIds = [...belief.campIds];
+    const adherents = world.agents.filter((agent) => agent.alive && agent.beliefId === belief.id);
+    belief.adherentIds = adherents.map((agent) => agent.id);
+    belief.campIds = [...new Set(adherents.map((agent) => agent.campId).filter((id): id is string => Boolean(id)))];
+    belief.unity = adherents.length > 0
+      ? clamp(adherents.reduce((sum, agent) => sum + agent.conviction, 0) / adherents.length, 0, 1)
+      : 0;
+    belief.influence = adherents.reduce(
+      (sum, agent) => sum + 1 + agent.influence * 0.08 + agent.conviction * 1.8,
+      0,
+    ) + belief.campIds.reduce((sum, campId) => sum + (getActiveCamp(world, campId)?.shrineLevel ?? 0) * 2.2, 0);
+    belief.active = adherents.length > 0;
+    if (wasActive && !belief.active && world.day - belief.foundedDay > 0.2) {
+      world.stats.beliefsFaded += 1;
+      pushMajorEvent(
+        world,
+        "belief_faded",
+        "neutral",
+        `${belief.name} loses its last adherent`,
+        `${belief.name} passes out of active practice, though its record remains in the world's history.`,
+        [],
+        previousCampIds,
+        [belief.id],
+      );
+    }
+  }
+}
+
+function lastBeliefEventDay(
+  world: CivilizationWorldState,
+  beliefId: string,
+  types: MajorEventType[],
+): number {
+  for (let index = world.majorEvents.length - 1; index >= 0; index -= 1) {
+    const event = world.majorEvents[index];
+    if (event.beliefIds.includes(beliefId) && types.includes(event.type)) return event.day;
+  }
+  return -100;
+}
+
+function runBeliefDynamics(world: CivilizationWorldState, elapsedSeconds: number): void {
+  const elapsedDays = elapsedSeconds / DAY_LENGTH;
+  reconcileBeliefs(world);
+  const living = world.agents.filter((agent) => agent.alive).sort((left, right) => left.id.localeCompare(right.id));
+  const activeBeliefs = world.beliefs.filter((belief) => belief.active);
+  const beliefCeiling = Math.min(MAX_BELIEF_SYSTEMS, Math.max(2, Math.ceil(living.length / 4)));
+
+  if (world.day >= 4 && activeBeliefs.length < beliefCeiling && world.beliefs.length < MAX_BELIEF_SYSTEMS) {
+    const prospectiveFounders = living
+      .filter((agent) => agent.age >= 16 && !agent.beliefId && world.day - agent.lastBeliefChangeDay > 1.5)
+      .map((agent) => {
+        const camp = getActiveCamp(world, agent.campId);
+        const circumstance =
+          agent.knowledge * 0.025 +
+          agent.influence * 0.014 +
+          agent.childrenIds.length * 0.07 +
+          Math.max(0, 0.7 - agent.satisfaction) * 0.55 +
+          (camp ? (1 - camp.cohesion) * 0.16 : 0.24);
+        return { agent, pressure: 0.28 + circumstance };
+      })
+      .sort((left, right) => right.pressure - left.pressure || left.agent.id.localeCompare(right.agent.id));
+    for (const prospective of prospectiveFounders) {
+      if (chanceForPeriod(world, 0.16 + prospective.pressure * 0.28, elapsedDays)) {
+        createBeliefSystem(world, prospective.agent, null, [prospective.agent.id]);
+        break;
+      }
+    }
+  }
+
+  const changedByBelief = new Map<string, string[]>();
+  for (const agent of living) {
+    const available = world.beliefs.filter((belief) => belief.active);
+    if (available.length === 0 || world.day - agent.lastBeliefChangeDay < 0.75) continue;
+    const ranked = available
+      .map((belief) => ({ belief, fit: beliefFit(world, agent, belief) }))
+      .sort((left, right) => right.fit - left.fit || left.belief.id.localeCompare(right.belief.id));
+    const best = ranked[0];
+    const current = getActiveBelief(world, agent.beliefId);
+    if (!current) {
+      if (best && best.fit > 0.58 && chanceForPeriod(world, 0.04 + (best.fit - 0.58) * 0.7, elapsedDays)) {
+        agent.beliefId = best.belief.id;
+        agent.conviction = clamp(0.3 + best.fit * 0.3, 0.35, 0.64);
+        agent.lastBeliefChangeDay = world.day;
+        world.stats.conversions += 1;
+        changedByBelief.set(best.belief.id, [...(changedByBelief.get(best.belief.id) ?? []), agent.id]);
+      }
+      continue;
+    }
+    const currentFit = beliefFit(world, agent, current);
+    const convictionTarget = clamp(0.14 + currentFit * 0.76, 0.08, 0.93);
+    agent.conviction += (convictionTarget - agent.conviction) * clamp(elapsedDays * 0.3, 0, 0.3);
+    if (best && best.belief.id !== current.id && best.fit > currentFit + 0.2 && agent.conviction < 0.66) {
+      if (chanceForPeriod(world, 0.04 + (best.fit - currentFit) * 0.42, elapsedDays)) {
+        agent.beliefId = best.belief.id;
+        agent.conviction = clamp(0.3 + best.fit * 0.26, 0.34, 0.62);
+        agent.lastBeliefChangeDay = world.day;
+        world.stats.conversions += 1;
+        changedByBelief.set(best.belief.id, [...(changedByBelief.get(best.belief.id) ?? []), agent.id]);
+        continue;
+      }
+    }
+    if (currentFit < 0.45 && agent.conviction < 0.55) {
+      const rejectionPressure = (0.45 - currentFit) + (0.55 - agent.conviction);
+      if (chanceForPeriod(world, 0.11 + rejectionPressure * 0.62, elapsedDays)) {
+        const rejected = current;
+        agent.beliefId = null;
+        agent.conviction = 0;
+        agent.lastBeliefChangeDay = world.day;
+        world.stats.beliefRejections += 1;
+        pushMajorEvent(
+          world,
+          "belief_rejected",
+          "neutral",
+          `${agent.name} leaves ${rejected.name}`,
+          `${agent.name} judges that ${rejected.name} no longer fits current experience and returns to a secular position.`,
+          [agent.id],
+          agent.campId ? [agent.campId] : [],
+          [rejected.id],
+        );
+      }
+    }
+  }
+  reconcileBeliefs(world);
+
+  for (const [beliefId, agentIds] of changedByBelief) {
+    const belief = getActiveBelief(world, beliefId);
+    if (!belief || agentIds.length < Math.max(2, Math.ceil(living.length / 12))) continue;
+    if (world.day - lastBeliefEventDay(world, belief.id, ["belief_conversion_wave"]) < 1) continue;
+    const campIds = [...new Set(agentIds.map((id) => world.agents.find((agent) => agent.id === id)?.campId).filter((id): id is string => Boolean(id)))];
+    pushMajorEvent(
+      world,
+      "belief_conversion_wave",
+      "positive",
+      `${belief.name} gains a wave of adherents`,
+      `${agentIds.length} agents independently judge ${belief.name}'s tenets useful to their circumstances and adopt it.`,
+      agentIds,
+      campIds,
+      [belief.id],
+    );
+  }
+
+  for (const belief of world.beliefs.filter((candidate) => candidate.active)) {
+    const adherents = belief.adherentIds
+      .map((id) => world.agents.find((agent) => agent.id === id && agent.alive))
+      .filter((agent): agent is CivilizationAgent => Boolean(agent));
+    if (adherents.length >= 3 && world.day - belief.foundedDay > 4 && world.day - lastBeliefEventDay(world, belief.id, ["belief_reformed", "belief_schism"]) > 2) {
+      const reformPressure = Math.max(0, 0.82 - belief.unity) + belief.campIds.length * 0.025;
+      if (reformPressure > 0.08 && chanceForPeriod(world, 0.035 + reformPressure * 0.16, elapsedDays)) {
+        const reformer = [...adherents].sort((left, right) => {
+          const leftFit = beliefFit(world, left, belief);
+          const rightFit = beliefFit(world, right, belief);
+          return leftFit - rightFit || right.influence - left.influence || left.id.localeCompare(right.id);
+        })[0];
+        const replacement = chooseBeliefTenets(world, reformer, belief.tenets)[0];
+        if (replacement) {
+          const oldIndex = Math.floor(worldRandom(world) * belief.tenets.length);
+          const oldTenet = belief.tenets[oldIndex];
+          belief.tenets[oldIndex] = replacement;
+          belief.tenets = [...new Set(belief.tenets)];
+          belief.reformationCount += 1;
+          reformer.spiritualInfluence += 0.55;
+          world.stats.reformations += 1;
+          pushMajorEvent(
+            world,
+            "belief_reformed",
+            "neutral",
+            `${reformer.name} reforms ${belief.name}`,
+            `${belief.name} replaces ${getBeliefTenetLabel(oldTenet)} with ${getBeliefTenetLabel(replacement)} as adherents adapt doctrine to changed conditions.`,
+            [reformer.id],
+            belief.campIds,
+            [belief.id],
+          );
+        }
+      }
+    }
+
+    if (
+      adherents.length >= 6 &&
+      belief.campIds.length >= 2 &&
+      belief.unity < 0.78 &&
+      world.beliefs.filter((candidate) => candidate.active).length < beliefCeiling &&
+      world.beliefs.length < MAX_BELIEF_SYSTEMS &&
+      world.day - belief.foundedDay > 5 &&
+      world.day - lastBeliefEventDay(world, belief.id, ["belief_schism", "belief_reformed"]) > 2
+    ) {
+      const dissenter = [...adherents]
+        .filter((agent) => agent.id !== belief.founderAgentId && agent.conviction < 0.75)
+        .sort((left, right) => beliefFit(world, left, belief) - beliefFit(world, right, belief) || right.influence - left.influence || left.id.localeCompare(right.id))[0];
+      const schismPressure = dissenter ? Math.max(0, 0.78 - dissenter.conviction) + (0.78 - belief.unity) : 0;
+      if (dissenter && chanceForPeriod(world, 0.018 + schismPressure * 0.12, elapsedDays)) {
+        const supporters = adherents
+          .filter((agent) => agent.id !== dissenter.id && agent.campId === dissenter.campId && agent.conviction < 0.55)
+          .sort((left, right) => left.conviction - right.conviction || left.id.localeCompare(right.id))
+          .slice(0, 2);
+        createBeliefSystem(world, dissenter, belief, [dissenter.id, ...supporters.map((agent) => agent.id)]);
+      }
+    }
+  }
+
+  for (const camp of world.camps.filter((candidate) => candidate.active && candidate.dominantBeliefId)) {
+    if (camp.shrineLevel >= 4 || camp.storage.wood < 8 + camp.shrineLevel * 3 || camp.storage.ore < 2 + camp.shrineLevel) continue;
+    const members = livingCampMembers(world, camp);
+    const belief = getActiveBelief(world, camp.dominantBeliefId);
+    if (!belief || members.length < 2) continue;
+    const institutionalPressure = belief.unity * 0.12 + members.length * 0.015 + (hasTechnology(camp, "masonry") ? 0.06 : 0);
+    if (chanceForPeriod(world, 0.025 + institutionalPressure, elapsedDays)) {
+      camp.storage.wood -= 8 + camp.shrineLevel * 3;
+      camp.storage.ore -= 2 + camp.shrineLevel;
+      camp.shrineLevel += 1;
+      world.stats.shrinesBuilt += 1;
+      pushMajorEvent(
+        world,
+        "shrine_built",
+        "positive",
+        `${camp.name} raises a shrine to ${belief.name}`,
+        `${camp.name} invests resources in a level ${camp.shrineLevel} gathering place, increasing the belief's local reach without compelling dissenters.`,
+        members.filter((agent) => agent.beliefId === belief.id).map((agent) => agent.id),
+        [camp.id],
+        [belief.id],
+      );
+    }
+  }
+  reconcileBeliefs(world);
+}
+
 function runWorldStrategy(world: CivilizationWorldState, elapsedSeconds: number): void {
   reconcileCamps(world);
   recomputePower(world);
@@ -2066,6 +2677,7 @@ function runWorldStrategy(world: CivilizationWorldState, elapsedSeconds: number)
     updateLeadership(world, camp);
   }
   attemptSocialChange(world, elapsedSeconds);
+  runBeliefDynamics(world, elapsedSeconds);
   updateDiplomacy(world, elapsedSeconds);
   reconcileCamps(world);
   recomputePower(world);
@@ -2184,6 +2796,12 @@ function updateCampCohesion(
   const governance = hasTechnology(camp, "governance")
     ? 0.08 + camp.structures.council * 0.025
     : 0;
+  const sharedDuty = campBeliefHasTenet(world, camp, "ordered_duty")
+    ? Math.min(0.055, 0.02 + camp.shrineLevel * 0.009)
+    : 0;
+  const conscienceTolerance = campBeliefHasTenet(world, camp, "free_conscience")
+    ? camp.beliefDiversity * 0.045
+    : 0;
   const leader = members.find((member) => member.id === camp.leaderId) ?? null;
   const response = 1 - Math.exp(-elapsedSeconds / (DAY_LENGTH * 0.75));
   for (const member of members) {
@@ -2194,7 +2812,7 @@ function updateCampCohesion(
       ? leaderRelationship.trust * 0.11 + leaderRelationship.respect * 0.08 - leaderRelationship.grievance * 0.13
       : 0.08;
     const targetSatisfaction = clamp(
-      0.22 + foodSecurity * 0.21 + waterSecurity * 0.23 + member.health / 500 + governance + relationshipValue - warPenalty - crowdPenalty,
+      0.22 + foodSecurity * 0.21 + waterSecurity * 0.23 + member.health / 500 + governance + sharedDuty + conscienceTolerance + relationshipValue - warPenalty - crowdPenalty,
       0.05,
       0.96,
     );
@@ -2219,7 +2837,7 @@ function updateCampCohesion(
       .filter((id) => members.some((candidate) => candidate.id === id)).length;
     const tenure = clamp((world.day - member.joinedCampDay) / 6, 0, 0.12);
     const targetLoyalty = clamp(
-      member.satisfaction * 0.62 + relationshipValue + familyInCamp * 0.035 + tenure + governance,
+      member.satisfaction * 0.62 + relationshipValue + familyInCamp * 0.035 + tenure + governance + sharedDuty + conscienceTolerance,
       0.03,
       0.98,
     );
@@ -2228,7 +2846,7 @@ function updateCampCohesion(
   const averageLoyalty = members.reduce((sum, member) => sum + member.loyalty, 0) / population;
   const averageSatisfaction = members.reduce((sum, member) => sum + member.satisfaction, 0) / population;
   camp.cohesion = clamp(
-    averageLoyalty * 0.58 + averageSatisfaction * 0.32 + governance - Math.max(0, population - 8) * 0.008,
+    averageLoyalty * 0.58 + averageSatisfaction * 0.32 + governance + sharedDuty + conscienceTolerance - Math.max(0, population - 8) * 0.008,
     0.05,
     1,
   );
@@ -2310,6 +2928,35 @@ function attemptSocialChange(world: CivilizationWorldState, elapsedSeconds: numb
     if (chanceForPeriod(world, 0.8, elapsedDays)) {
       foundIndependentCamp(world, agent);
       return;
+    }
+  }
+
+  if (world.day >= 8 && activeCampCount(world) < MAX_ACTIVE_CAMPS) {
+    const expansionCandidates = world.camps
+      .filter((camp) => camp.active)
+      .map((camp) => {
+        const members = livingCampMembers(world, camp);
+        const surplus = Math.min(
+          camp.storage.food / Math.max(1, members.length * 10),
+          camp.storage.water / Math.max(1, members.length * 11),
+        );
+        const crowded = members.length - (3 + camp.structures.shelter * 2);
+        return { camp, members, surplus, pressure: Math.max(0, crowded) * 0.1 + surplus * 0.16 + (hasTechnology(camp, "logistics") ? 0.12 : 0) };
+      })
+      .filter(({ camp, members, surplus }) =>
+        members.length >= 6 &&
+        surplus >= 0.62 &&
+        world.day - lastCampEventDay(world, camp.id, ["camp_founded", "breakaway"]) > 1.4)
+      .sort((left, right) => right.pressure - left.pressure || left.camp.id.localeCompare(right.camp.id));
+    for (const candidate of expansionCandidates) {
+      const founder = candidate.members
+        .filter((member) => member.id !== candidate.camp.leaderId && member.age >= 16 && member.satisfaction >= 0.5)
+        .sort((left, right) => right.influence - left.influence || right.knowledge - left.knowledge || left.id.localeCompare(right.id))[0];
+      if (!founder) continue;
+      if (chanceForPeriod(world, 0.055 + candidate.pressure * 0.22, elapsedDays)) {
+        foundExpansionCamp(world, founder, candidate.camp);
+        return;
+      }
     }
   }
 
@@ -2486,6 +3133,43 @@ function foundIndependentCamp(world: CivilizationWorldState, founder: Civilizati
   );
 }
 
+function foundExpansionCamp(
+  world: CivilizationWorldState,
+  founder: CivilizationAgent,
+  parent: CivilizationCamp,
+): void {
+  const newCamp = createNewCampFromAgent(world, founder, parent);
+  const remaining = livingCampMembers(world, parent)
+    .filter((member) => member.id !== parent.leaderId && member.id !== founder.id && member.age >= 12)
+    .sort((left, right) => {
+      const leftBond = left.relationships[founder.id];
+      const rightBond = right.relationships[founder.id];
+      const leftSupport = left.parentIds.includes(founder.id) || founder.parentIds.includes(left.id)
+        ? 1
+        : leftBond ? leftBond.trust + leftBond.respect - leftBond.grievance : 0;
+      const rightSupport = right.parentIds.includes(founder.id) || founder.parentIds.includes(right.id)
+        ? 1
+        : rightBond ? rightBond.trust + rightBond.respect - rightBond.grievance : 0;
+      return rightSupport - leftSupport || left.id.localeCompare(right.id);
+    });
+  const follower = remaining[0];
+  if (follower) transferAgentToCamp(world, follower, newCamp, "join");
+  founder.action = "recruit";
+  founder.currentPlan = "expand_influence";
+  founder.goal = `Establish ${newCamp.name} as a durable frontier camp`;
+  founder.rationale = "A prosperous parent camp can extend access to land and resources by founding another autonomous settlement.";
+  founder.decisionTimer = 3;
+  pushMajorEvent(
+    world,
+    "camp_founded",
+    "positive",
+    `${parent.name} seeds ${newCamp.name}`,
+    `${founder.name}${follower ? ` and ${follower.name}` : ""} establish a new frontier camp after judging expansion more valuable than crowding the original settlement.`,
+    [founder.id, ...(follower ? [follower.id] : [])],
+    [parent.id, newCamp.id],
+  );
+}
+
 function foundBreakawayCamp(
   world: CivilizationWorldState,
   founder: CivilizationAgent,
@@ -2538,9 +3222,12 @@ function createNewCampFromAgent(
   if (parent) parent.memberIds = parent.memberIds.filter((memberId) => memberId !== founder.id);
   const angle = worldRandom(world) * TAU;
   const origin = parent?.position ?? founder.position;
+  const expansionDistance = parent
+    ? 13 + worldRandom(world) * 9 + Math.min(8, activeCampCount(world) * 0.12)
+    : 7 + worldRandom(world) * 7;
   const location = boundedPosition({
-    x: origin.x + Math.cos(angle) * (parent ? 11 : 5),
-    z: origin.z + Math.sin(angle) * (parent ? 11 : 5),
+    x: origin.x + Math.cos(angle) * expansionDistance,
+    z: origin.z + Math.sin(angle) * expansionDistance,
   }, 5);
   const camp = createCamp(id, ordinal, founder, location, world.day, parent?.id ?? null);
   camp.color = CAMP_COLORS[(ordinal - 1) % CAMP_COLORS.length];
@@ -2636,7 +3323,8 @@ function applyAllianceBenefits(world: CivilizationWorldState, elapsedSeconds: nu
       const protectedReserve = donorPopulation * 8;
       const surplus = Math.max(0, donor.storage[kind] - protectedReserve);
       const equalizingAmount = Math.max(0, donorPerMember - receiverPerMember) * receiverPopulation * 0.06;
-      const transfer = Math.min(surplus, equalizingAmount, elapsedSeconds * 0.028);
+      const reciprocalAid = campBeliefHasTenet(world, donor, "reciprocal_aid") ? 1.1 : 1;
+      const transfer = Math.min(surplus, equalizingAmount, elapsedSeconds * 0.028 * reciprocalAid);
       if (transfer <= EPSILON) continue;
       donor.storage[kind] -= transfer;
       receiver.storage[kind] = clamp(receiver.storage[kind] + transfer, 0, CAMP_STORAGE_LIMIT);
@@ -2881,11 +3569,20 @@ function recomputePower(world: CivilizationWorldState): void {
         livingChildren * 1.5 +
         earnedRespect,
     );
+    const practicedBelief = getActiveBelief(world, agent.beliefId);
+    agent.spiritualInfluence = practicedBelief
+      ? Math.max(
+        0,
+        agent.conviction * 1.5 +
+          (practicedBelief.founderAgentId === agent.id ? practicedBelief.adherentIds.length * 0.32 + 1.5 : 0) +
+          practicedBelief.reformationCount * 0.16,
+      )
+      : 0;
     const survival = agent.health * 0.075 + agent.hunger * 0.018 + agent.hydration * 0.022 + agent.energy * 0.012;
     const possessions = agent.inventory.food * 0.45 + agent.inventory.water * 0.5 + agent.inventory.wood * 0.3 + agent.inventory.ore * 0.75;
     agent.personalPower = Math.max(
       0,
-      survival + possessions + agent.experience * 1.15 + agent.knowledge * 1.28 + agent.influence * 1.12,
+      survival + possessions + agent.experience * 1.15 + agent.knowledge * 1.28 + agent.influence * 1.12 + agent.spiritualInfluence * 0.42,
     );
   }
 
@@ -2900,7 +3597,8 @@ function recomputePower(world: CivilizationWorldState): void {
     const members = livingCampMembers(world, camp);
     const storageValue = camp.storage.food * 0.32 + camp.storage.water * 0.36 + camp.storage.wood * 0.26 + camp.storage.ore * 0.68;
     const production = camp.structures.farm * 5 + camp.structures.well * 5.5 + camp.structures.workshop * 4 + camp.structures.roads * 3.5;
-    camp.economicPower = storageValue + production + members.length * 2.4;
+    const prosperityPower = campBeliefHasTenet(world, camp, "shared_prosperity") ? members.length * 0.55 : 0;
+    camp.economicPower = storageValue + production + members.length * 2.4 + prosperityPower;
     const fightingCapacity = members.reduce(
       (sum, member) => sum + member.health * 0.075 + member.energy * 0.028 + member.experience * 0.95,
       0,
@@ -2909,7 +3607,8 @@ function recomputePower(world: CivilizationWorldState): void {
     const defense = camp.structures.walls * 8 + camp.structures.shelter * 1.4 + (hasTechnology(camp, "masonry") ? 5 : 0);
     camp.militaryPower = fightingCapacity * weaponMultiplier + defense + camp.victories * 2.5;
     const memberKnowledge = members.reduce((sum, member) => sum + member.knowledge, 0);
-    camp.knowledgePower = camp.technologies.length * 7 + memberKnowledge * 0.85 + camp.structures.archive * 6 + camp.structures.council * 3;
+    const beliefKnowledge = campBeliefHasTenet(world, camp, "knowledge_seeking") ? members.length * 0.45 : 0;
+    camp.knowledgePower = camp.technologies.length * 7 + memberKnowledge * 0.85 + camp.structures.archive * 6 + camp.structures.council * 3 + beliefKnowledge;
     camp.territoryRadius = clamp(
       8 + Math.sqrt(Math.max(1, members.length)) * 2.2 + camp.structures.roads * 1.8 + (hasTechnology(camp, "logistics") ? 3 : 0),
       8,
@@ -3069,16 +3768,16 @@ export function validateCivilizationWorld(input: unknown): input is Civilization
     if (!input || typeof input !== "object" || Array.isArray(input)) return false;
     const world = input as Record<string, unknown>;
     if (world.version !== CIVILIZATION_SCHEMA_VERSION) return false;
-    for (const key of ["seed", "randomState", "time", "day", "timeOfDay", "tick", "accumulator", "nextAgentId", "nextCampId", "nextEventId", "nextWorldStrategyAt", "powerLeaderSince"] as const) {
+    for (const key of ["seed", "randomState", "time", "day", "timeOfDay", "tick", "accumulator", "nextAgentId", "nextCampId", "nextEventId", "nextBeliefId", "nextWorldStrategyAt", "powerLeaderSince"] as const) {
       if (typeof world[key] !== "number" || !Number.isFinite(world[key])) return false;
     }
     if (world.lastSavedAt !== null && (typeof world.lastSavedAt !== "number" || !Number.isFinite(world.lastSavedAt))) return false;
     if (!world.map || typeof world.map !== "object" || Array.isArray(world.map)) return false;
     const map = world.map as Record<string, unknown>;
     if (typeof map.halfSize !== "number" || !Number.isFinite(map.halfSize) || typeof map.biome !== "string") return false;
-    if (!Array.isArray(world.agents) || !Array.isArray(world.resources) || !Array.isArray(world.camps) || !Array.isArray(world.relations) || !Array.isArray(world.majorEvents)) return false;
-    if (!uniqueStringIds(world.agents) || !uniqueStringIds(world.resources) || !uniqueStringIds(world.camps) || !uniqueStringIds(world.relations) || !uniqueStringIds(world.majorEvents)) return false;
-    if (world.agents.length > 320 || world.camps.length > 64 || world.resources.length > 260 || world.majorEvents.length > MAX_MAJOR_EVENTS) return false;
+    if (!Array.isArray(world.agents) || !Array.isArray(world.resources) || !Array.isArray(world.camps) || !Array.isArray(world.beliefs) || !Array.isArray(world.relations) || !Array.isArray(world.majorEvents)) return false;
+    if (!uniqueStringIds(world.agents) || !uniqueStringIds(world.resources) || !uniqueStringIds(world.camps) || !uniqueStringIds(world.beliefs) || !uniqueStringIds(world.relations) || !uniqueStringIds(world.majorEvents)) return false;
+    if (world.agents.length > 360 || world.camps.length > 96 || world.resources.length > 320 || world.beliefs.length > MAX_BELIEF_SYSTEMS || world.majorEvents.length > MAX_MAJOR_EVENTS) return false;
 
     for (const item of world.agents) {
       if (!item || typeof item !== "object" || Array.isArray(item)) return false;
@@ -3103,6 +3802,10 @@ export function validateCivilizationWorld(input: unknown): input is Civilization
         if (typeof agentTarget.kind !== "string" || typeof agentTarget.id !== "string" || typeof agentTarget.label !== "string" || !validPosition(agentTarget.position)) return false;
       }
       for (const key of ["heading", "speed", "capacity", "age", "generation", "bornAtDay", "health", "hunger", "hydration", "energy", "actionProgress", "decisionTimer", "personalPower", "influence", "knowledge", "experience", "loyalty", "satisfaction", "lastReproductionDay", "joinedCampDay", "kills", "harvested", "buildContribution", "researchContribution"] as const) {
+        if (typeof agent[key] !== "number" || !Number.isFinite(agent[key])) return false;
+      }
+      if (agent.beliefId !== null && typeof agent.beliefId !== "string") return false;
+      for (const key of ["conviction", "spiritualInfluence", "lastBeliefChangeDay"] as const) {
         if (typeof agent[key] !== "number" || !Number.isFinite(agent[key])) return false;
       }
     }
@@ -3135,6 +3838,25 @@ export function validateCivilizationWorld(input: unknown): input is Civilization
       for (const key of ["radius", "foundedDay", "researchProgress", "constructionProgress", "territoryRadius", "cohesion", "power", "economicPower", "militaryPower", "knowledgePower", "victories", "losses"] as const) {
         if (typeof camp[key] !== "number" || !Number.isFinite(camp[key])) return false;
       }
+      if (camp.dominantBeliefId !== null && typeof camp.dominantBeliefId !== "string") return false;
+      for (const key of ["beliefDiversity", "shrineLevel"] as const) {
+        if (typeof camp[key] !== "number" || !Number.isFinite(camp[key])) return false;
+      }
+    }
+
+    for (const item of world.beliefs) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      const belief = item as Record<string, unknown>;
+      if (typeof belief.id !== "string" || typeof belief.name !== "string" || typeof belief.color !== "string") return false;
+      if (typeof belief.founderAgentId !== "string" || typeof belief.active !== "boolean" || !validPosition(belief.sacredSite)) return false;
+      if (belief.originCampId !== null && typeof belief.originCampId !== "string") return false;
+      if (belief.parentBeliefId !== null && typeof belief.parentBeliefId !== "string") return false;
+      if (!Array.isArray(belief.tenets) || belief.tenets.length < 1 || belief.tenets.length > 4 || !belief.tenets.every((tenet) => typeof tenet === "string" && tenet in BELIEF_TENET_LABELS)) return false;
+      if (!Array.isArray(belief.adherentIds) || !belief.adherentIds.every((id) => typeof id === "string")) return false;
+      if (!Array.isArray(belief.campIds) || !belief.campIds.every((id) => typeof id === "string")) return false;
+      for (const key of ["foundedDay", "influence", "unity", "reformationCount", "schismCount"] as const) {
+        if (typeof belief[key] !== "number" || !Number.isFinite(belief[key]) || (belief[key] as number) < 0) return false;
+      }
     }
 
     for (const item of world.relations) {
@@ -3156,11 +3878,12 @@ export function validateCivilizationWorld(input: unknown): input is Civilization
       if (typeof event.time !== "number" || !Number.isFinite(event.time) || typeof event.day !== "number" || !Number.isFinite(event.day)) return false;
       if (!Array.isArray(event.agentIds) || !event.agentIds.every((id) => typeof id === "string")) return false;
       if (!Array.isArray(event.campIds) || !event.campIds.every((id) => typeof id === "string")) return false;
+      if (!Array.isArray(event.beliefIds) || !event.beliefIds.every((id) => typeof id === "string")) return false;
     }
     if (!world.stats || typeof world.stats !== "object" || Array.isArray(world.stats)) return false;
     const stats = world.stats as Record<string, unknown>;
     if (!validInventory(stats.resourcesHarvested)) return false;
-    for (const key of ["births", "deaths", "wars", "peaceTreaties", "defections", "breakaways", "coups", "technologiesUnlocked", "campsFounded", "campsCaptured", "campsDestroyed", "peakPopulation"] as const) {
+    for (const key of ["births", "deaths", "wars", "peaceTreaties", "defections", "breakaways", "coups", "technologiesUnlocked", "campsFounded", "campsCaptured", "campsDestroyed", "peakPopulation", "beliefsFounded", "conversions", "schisms", "reformations", "beliefRejections", "beliefsFaded", "shrinesBuilt"] as const) {
       if (typeof stats[key] !== "number" || !Number.isFinite(stats[key]) || (stats[key] as number) < 0) return false;
     }
     return typeof world.powerLeaderCampId === "string" || world.powerLeaderCampId === null;
@@ -3170,8 +3893,108 @@ export function validateCivilizationWorld(input: unknown): input is Civilization
 }
 
 /**
- * Normalization never throws. Recognized schema-1 states are cloned, bounded,
- * and de-duplicated; corrupt or unknown versions restart from a deterministic
+ * Upgrades a structurally sound schema-1 snapshot without erasing history.
+ * Outer-frontier resources use a separate migration cursor, so the live PRNG
+ * stream and every pre-existing entity/timestamp remain untouched.
+ */
+function upgradeSchemaOneWorld(input: unknown): CivilizationWorldState | null {
+  try {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+    const source = input as Record<string, unknown>;
+    if (source.version !== 1) return null;
+    if (!Array.isArray(source.agents) || !Array.isArray(source.camps) || !Array.isArray(source.resources) || !Array.isArray(source.relations) || !Array.isArray(source.majorEvents)) return null;
+    const migrated = JSON.parse(JSON.stringify(source)) as Record<string, unknown>;
+    const agents = migrated.agents as Array<Record<string, unknown>>;
+    const camps = migrated.camps as Array<Record<string, unknown>>;
+    const resources = migrated.resources as Array<Record<string, unknown>>;
+    const events = migrated.majorEvents as Array<Record<string, unknown>>;
+    const stats = migrated.stats as Record<string, unknown>;
+    if (!stats || typeof stats !== "object" || Array.isArray(stats)) return null;
+
+    migrated.version = CIVILIZATION_SCHEMA_VERSION;
+    migrated.beliefs = [];
+    migrated.nextBeliefId = 1;
+    if (!migrated.map || typeof migrated.map !== "object" || Array.isArray(migrated.map)) return null;
+    (migrated.map as Record<string, unknown>).halfSize = WORLD_HALF_SIZE;
+    (migrated.map as Record<string, unknown>).biome = "Expanded sovereign frontier";
+
+    for (const agent of agents) {
+      agent.beliefId = null;
+      agent.conviction = 0;
+      agent.spiritualInfluence = 0;
+      agent.lastBeliefChangeDay = -100;
+    }
+    for (const camp of camps) {
+      camp.dominantBeliefId = null;
+      camp.beliefDiversity = 0;
+      camp.shrineLevel = 0;
+    }
+    for (const event of events) event.beliefIds = [];
+    for (const key of ["beliefsFounded", "conversions", "schisms", "reformations", "beliefRejections", "beliefsFaded", "shrinesBuilt"] as const) {
+      stats[key] = 0;
+    }
+
+    const seed = normalizeCivilizationSeed(
+      typeof migrated.seed === "number" || typeof migrated.seed === "string"
+        ? migrated.seed
+        : DEFAULT_CIVILIZATION_SEED,
+    );
+    const tick = typeof migrated.tick === "number" && Number.isFinite(migrated.tick)
+      ? Math.floor(migrated.tick)
+      : 0;
+    const cursor: RandomCursor = { state: (seed ^ 0xa7_19_4d_3b ^ tick) >>> 0 };
+    const resourceIds = new Set(resources.map((resource) => String(resource.id ?? "")));
+    const kinds: readonly ResourceKind[] = ["food", "water", "wood", "ore"];
+    for (const kind of kinds) {
+      const specification = resourceSpecification(kind);
+      let existing = resources.filter((resource) => resource.kind === kind).length;
+      let ordinal = existing + 1;
+      while (existing < specification.count) {
+        while (resourceIds.has(`${kind}-${String(ordinal).padStart(3, "0")}`)) ordinal += 1;
+        const id = `${kind}-${String(ordinal).padStart(3, "0")}`;
+        resourceIds.add(id);
+        let position: Vec2 | null = null;
+        for (let attempt = 0; attempt < 80; attempt += 1) {
+          const angle = cursorRandom(cursor) * TAU;
+          const radius = randomRange(cursor, 72, WORLD_HALF_SIZE - 2.5);
+          const candidate = { x: Math.cos(angle) * radius, z: Math.sin(angle) * radius };
+          if (resources.every((resource) => validPosition(resource.position) && distanceBetween(resource.position, candidate) > 1.2)) {
+            position = candidate;
+            break;
+          }
+        }
+        if (!position) {
+          const angle = ordinal * 2.399963229728653;
+          const radius = 74 + ((ordinal * 7.31) % 23);
+          position = boundedPosition({ x: Math.cos(angle) * radius, z: Math.sin(angle) * radius }, 2);
+        }
+        const maximum = randomRange(cursor, specification.maximum[0], specification.maximum[1]);
+        resources.push({
+          id,
+          kind,
+          position,
+          amount: round(maximum * randomRange(cursor, 0.62, 1)),
+          maxAmount: round(maximum),
+          regenRate: randomRange(cursor, specification.regeneration[0], specification.regeneration[1]),
+          richness: round(randomRange(cursor, 0.82, 1.18), 3),
+          discoveredByCampIds: [],
+        });
+        existing += 1;
+        ordinal += 1;
+      }
+    }
+
+    return validateCivilizationWorld(migrated)
+      ? migrated
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Normalization never throws. Schema-1 snapshots are upgraded in place and
+ * schema-2 states are cloned, bounded, and de-duplicated. Corrupt or unknown versions restart from a deterministic
  * fallback seed rather than allowing damaged state into the live simulation.
  */
 export function normalizeCivilizationWorld(
@@ -3185,6 +4008,9 @@ export function normalizeCivilizationWorld(
     } catch {
       return createCivilizationWorld(fallbackSeed);
     }
+  }
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate) && (candidate as { version?: unknown }).version === 1) {
+    candidate = upgradeSchemaOneWorld(candidate);
   }
   if (!validateCivilizationWorld(candidate)) {
     const seed = candidate && typeof candidate === "object" && !Array.isArray(candidate)
@@ -3212,6 +4038,7 @@ function stabilizeWorld(world: CivilizationWorldState): void {
   world.nextAgentId = Math.max(1, Math.floor(finite(world.nextAgentId, 1)));
   world.nextCampId = Math.max(1, Math.floor(finite(world.nextCampId, 1)));
   world.nextEventId = Math.max(1, Math.floor(finite(world.nextEventId, 1)));
+  world.nextBeliefId = Math.max(1, Math.floor(finite(world.nextBeliefId, 1)));
   world.nextWorldStrategyAt = Math.max(world.time, finite(world.nextWorldStrategyAt, world.time));
   world.powerLeaderSince = Math.max(0, finite(world.powerLeaderSince, 0));
   world.map.halfSize = WORLD_HALF_SIZE;
@@ -3240,6 +4067,9 @@ function stabilizeWorld(world: CivilizationWorldState): void {
     agent.harvested = Math.max(0, finite(agent.harvested, 0));
     agent.buildContribution = Math.max(0, finite(agent.buildContribution, 0));
     agent.researchContribution = Math.max(0, finite(agent.researchContribution, 0));
+    agent.conviction = clamp(finite(agent.conviction, 0), 0, 1);
+    agent.spiritualInfluence = Math.max(0, finite(agent.spiritualInfluence, 0));
+    agent.lastBeliefChangeDay = finite(agent.lastBeliefChangeDay, -100);
     for (const kind of ["food", "water", "wood", "ore"] as const) {
       agent.inventory[kind] = clamp(finite(agent.inventory[kind], 0), 0, Math.max(0, agent.capacity));
     }
@@ -3279,6 +4109,8 @@ function stabilizeWorld(world: CivilizationWorldState): void {
     camp.constructionProgress = clamp(finite(camp.constructionProgress, 0), 0, 1);
     camp.victories = Math.max(0, Math.floor(finite(camp.victories, 0)));
     camp.losses = Math.max(0, Math.floor(finite(camp.losses, 0)));
+    camp.beliefDiversity = clamp(finite(camp.beliefDiversity, 0), 0, 1);
+    camp.shrineLevel = clamp(Math.floor(finite(camp.shrineLevel, 0)), 0, 4);
     camp.memberIds = [...new Set(camp.memberIds)];
     camp.technologies = [...new Set(camp.technologies)].filter(
       (technology): technology is TechnologyId => technology in TECHNOLOGY_TREE,
@@ -3298,7 +4130,34 @@ function stabilizeWorld(world: CivilizationWorldState): void {
     relation.warScoreB = finite(relation.warScoreB, 0);
     relation.sinceDay = Math.max(0, finite(relation.sinceDay, world.day));
   }
-  for (const key of ["births", "deaths", "wars", "peaceTreaties", "defections", "breakaways", "coups", "technologiesUnlocked", "campsFounded", "campsCaptured", "campsDestroyed", "peakPopulation"] as const) {
+  const beliefIds = new Set(world.beliefs.map((belief) => belief.id));
+  for (const agent of world.agents) {
+    if (agent.beliefId && !beliefIds.has(agent.beliefId)) {
+      agent.beliefId = null;
+      agent.conviction = 0;
+    }
+  }
+  for (const camp of world.camps) {
+    if (camp.dominantBeliefId && !beliefIds.has(camp.dominantBeliefId)) camp.dominantBeliefId = null;
+  }
+  for (const belief of world.beliefs) {
+    belief.sacredSite = boundedPosition(belief.sacredSite, 4);
+    belief.tenets = [...new Set(belief.tenets)].filter((tenet): tenet is BeliefTenetId => tenet in BELIEF_TENET_LABELS).slice(0, 4);
+    if (belief.tenets.length === 0) belief.tenets = ["reciprocal_aid"];
+    belief.adherentIds = [...new Set(belief.adherentIds)];
+    belief.campIds = [...new Set(belief.campIds)];
+    belief.foundedDay = Math.max(0, finite(belief.foundedDay, world.day));
+    belief.influence = Math.max(0, finite(belief.influence, 0));
+    belief.unity = clamp(finite(belief.unity, 0), 0, 1);
+    belief.reformationCount = Math.max(0, Math.floor(finite(belief.reformationCount, 0)));
+    belief.schismCount = Math.max(0, Math.floor(finite(belief.schismCount, 0)));
+  }
+  for (const event of world.majorEvents) {
+    event.agentIds = [...new Set(event.agentIds)];
+    event.campIds = [...new Set(event.campIds)];
+    event.beliefIds = [...new Set(event.beliefIds)];
+  }
+  for (const key of ["births", "deaths", "wars", "peaceTreaties", "defections", "breakaways", "coups", "technologiesUnlocked", "campsFounded", "campsCaptured", "campsDestroyed", "peakPopulation", "beliefsFounded", "conversions", "schisms", "reformations", "beliefRejections", "beliefsFaded", "shrinesBuilt"] as const) {
     world.stats[key] = Math.max(0, Math.floor(finite(world.stats[key], 0)));
   }
   for (const kind of ["food", "water", "wood", "ore"] as const) {
@@ -3354,6 +4213,13 @@ export function getRankedAgents(world: CivilizationWorldState): CivilizationAgen
   });
 }
 
+export function getRankedBeliefs(world: CivilizationWorldState): CivilizationBeliefSystem[] {
+  return [...world.beliefs].sort((left, right) => {
+    if (left.active !== right.active) return left.active ? -1 : 1;
+    return right.influence - left.influence || right.adherentIds.length - left.adherentIds.length || left.id.localeCompare(right.id);
+  });
+}
+
 export function getCivilizationSummary(world: CivilizationWorldState): CivilizationSummary {
   const living = world.agents.filter((agent) => agent.alive);
   const camps = world.camps.filter((camp) => camp.active);
@@ -3370,6 +4236,8 @@ export function getCivilizationSummary(world: CivilizationWorldState): Civilizat
     alliances: world.relations.filter((relation) => relation.status === "alliance").length,
     unaffiliated: living.filter((agent) => !agent.campId).length,
     technologiesUnlocked: new Set(camps.flatMap((camp) => camp.technologies)).size,
+    activeBeliefs: world.beliefs.filter((belief) => belief.active).length,
+    secularPopulation: living.filter((agent) => !agent.beliefId).length,
     mostPowerfulCampId: leadingCamp?.id ?? null,
     mostPowerfulCampName: leadingCamp?.name ?? null,
     mostPowerfulCampPower: leadingCamp?.power ?? 0,
@@ -3398,6 +4266,10 @@ export function getTechnologyLabel(technology: TechnologyId): string {
   return TECHNOLOGY_LABELS[technology] ?? technology;
 }
 
+export function getBeliefTenetLabel(tenet: BeliefTenetId): string {
+  return BELIEF_TENET_LABELS[tenet] ?? tenet;
+}
+
 export function getAgentById(
   world: CivilizationWorldState,
   id: string,
@@ -3410,4 +4282,11 @@ export function getCampById(
   id: string,
 ): CivilizationCamp | undefined {
   return world.camps.find((camp) => camp.id === id);
+}
+
+export function getBeliefById(
+  world: CivilizationWorldState,
+  id: string,
+): CivilizationBeliefSystem | undefined {
+  return world.beliefs.find((belief) => belief.id === id);
 }

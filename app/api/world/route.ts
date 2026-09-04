@@ -1,6 +1,7 @@
 import { getD1 } from "@/db";
 import {
   CIVILIZATION_SCHEMA_VERSION,
+  EXACT_CATCH_UP_LIMIT_SECONDS,
   catchUpCivilization,
   createCivilizationWorld,
   normalizeCivilizationWorld,
@@ -11,10 +12,16 @@ import {
 
 const WORLD_ID = "canonical";
 const WORLD_SCHEMA_VERSION = CIVILIZATION_SCHEMA_VERSION;
+const LEGACY_WORLD_SCHEMA_VERSION = 1;
 const HISTORY_LIMIT = 200;
 const MAX_EVENTS_PER_COMMIT = 1_000;
 const MAX_STATE_JSON_BYTES = 4_000_000;
 const MIN_ADVANCE_MS = 1_000;
+const ENGINE_EXACT_REPLAY_LIMIT_MS = EXACT_CATCH_UP_LIMIT_SECONDS * 1_000;
+// One request checkpoints at most one real hour. This stays above the engine's
+// 1,000-second exact-replay threshold, so each slice uses 20 bounded strategic
+// updates instead of thousands of fixed steps while still making useful progress.
+const MAX_CATCH_UP_SLICE_MS = 60 * 60 * 1_000;
 const MAX_FUTURE_SKEW_MS = 60_000;
 const MAX_CAS_ATTEMPTS = 4;
 
@@ -92,6 +99,13 @@ interface EventRow {
 interface WorldSnapshot {
   world: CivilizationWorldState;
   revision: number;
+  simulatedAtMs: number;
+  processedMs: number;
+}
+
+interface ParsedWorld {
+  world: CivilizationWorldState;
+  needsMigration: boolean;
 }
 
 class InvalidWorldStateError extends Error {}
@@ -132,12 +146,32 @@ function serializeWorld(world: CivilizationWorldState) {
   return serialized;
 }
 
+function boundedCatchUpSliceMs(pendingMs: number): number {
+  const sliceMs = Math.min(pendingMs, MAX_CATCH_UP_SLICE_MS);
+  const remainingMs = pendingMs - sliceMs;
+
+  // Avoid manufacturing a final 1–1,000 second tail from a genuinely large
+  // absence. That tail would select the engine's thousands-of-steps exact path
+  // on the following request. Leave just over the threshold instead; both
+  // checkpoints then use bounded strategic updates and neither claims future time.
+  if (
+    remainingMs >= MIN_ADVANCE_MS &&
+    remainingMs <= ENGINE_EXACT_REPLAY_LIMIT_MS
+  ) {
+    return pendingMs - (ENGINE_EXACT_REPLAY_LIMIT_MS + 1);
+  }
+
+  return sliceMs;
+}
+
 function parseWorld(
   row: WorldRow,
   serverTime: number,
-): CivilizationWorldState | null {
+): ParsedWorld | null {
   if (
-    row.schemaVersion !== WORLD_SCHEMA_VERSION ||
+    !Number.isSafeInteger(row.schemaVersion) ||
+    (row.schemaVersion !== WORLD_SCHEMA_VERSION &&
+      row.schemaVersion !== LEGACY_WORLD_SCHEMA_VERSION) ||
     !Number.isSafeInteger(row.revision) ||
     row.revision < 0 ||
     !Number.isSafeInteger(row.simulatedAtMs) ||
@@ -154,25 +188,82 @@ function parseWorld(
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
-    if (
-      (parsed as { version?: unknown }).version !==
-      WORLD_SCHEMA_VERSION
-    ) {
+    const persisted = parsed as Record<string, unknown>;
+    if (persisted.version !== row.schemaVersion) {
       return null;
     }
-    if (!validateCivilizationWorld(parsed)) return null;
 
+    const needsMigration = row.schemaVersion !== WORLD_SCHEMA_VERSION;
+    if (!needsMigration && !validateCivilizationWorld(parsed)) return null;
     const normalized = normalizeCivilizationWorld(parsed);
-    return validateCivilizationWorld(normalized) ? normalized : null;
+    if (!validateCivilizationWorld(normalized)) return null;
+    if (needsMigration && !migrationPreservedWorld(persisted, normalized)) {
+      return null;
+    }
+
+    return { world: normalized, needsMigration };
   } catch {
     return null;
   }
+}
+
+function recordIds(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids: string[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const id = (item as Record<string, unknown>).id;
+    if (typeof id !== "string" || id.length === 0) return null;
+    ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Guard against normalizeCivilizationWorld's corruption fallback being mistaken
+ * for a migration. A legitimate schema migration keeps the timeline and every
+ * persisted entity identity, even when it adds new fields or frontier resources.
+ */
+function migrationPreservedWorld(
+  persisted: Record<string, unknown>,
+  migrated: CivilizationWorldState,
+): boolean {
+  for (const key of [
+    "seed",
+    "time",
+    "day",
+    "tick",
+    "nextAgentId",
+    "nextCampId",
+    "nextEventId",
+  ] as const) {
+    if (persisted[key] !== migrated[key]) return false;
+  }
+  if (persisted.lastSavedAt !== migrated.lastSavedAt) return false;
+
+  const migratedCollections = migrated as unknown as Record<string, unknown>;
+  for (const key of [
+    "agents",
+    "resources",
+    "camps",
+    "relations",
+    "majorEvents",
+  ] as const) {
+    const priorIds = recordIds(persisted[key]);
+    const nextIds = recordIds(migratedCollections[key]);
+    if (!priorIds || !nextIds) return false;
+    const nextIdSet = new Set(nextIds);
+    if (!priorIds.every((id) => nextIdSet.has(id))) return false;
+  }
+
+  return true;
 }
 
 function parseMajorEvent(value: unknown): MajorEvent | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 
   const event = value as Record<string, unknown>;
+  const beliefIds = event.beliefIds ?? [];
   if (
     typeof event.id !== "string" ||
     typeof event.time !== "number" ||
@@ -186,12 +277,16 @@ function parseMajorEvent(value: unknown): MajorEvent | null {
     !Array.isArray(event.agentIds) ||
     !event.agentIds.every((id) => typeof id === "string") ||
     !Array.isArray(event.campIds) ||
-    !event.campIds.every((id) => typeof id === "string")
+    !event.campIds.every((id) => typeof id === "string") ||
+    !Array.isArray(beliefIds) ||
+    !beliefIds.every((id) => typeof id === "string")
   ) {
     return null;
   }
 
-  return value as MajorEvent;
+  // Schema-1 history rows predate beliefIds. Normalize them at the API edge so
+  // the v2 client can safely filter the unbroken, append-only chronicle.
+  return { ...event, beliefIds } as unknown as MajorEvent;
 }
 
 async function loadWorldRow(
@@ -271,7 +366,49 @@ async function createWorldIfMissing(
   ]);
 }
 
-async function resetIncompatibleWorld(
+async function persistMigratedWorld(
+  database: ReturnType<typeof getD1>,
+  row: WorldRow,
+  world: CivilizationWorldState,
+): Promise<boolean> {
+  const stateJson = serializeWorld(world);
+  const revision = row.revision + 1;
+  const results = await database.batch([
+    database
+      .prepare(`
+        UPDATE civilization_world
+        SET
+          schema_version = ?,
+          revision = revision + 1,
+          state_json = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+          AND revision = ?
+          AND schema_version = ?
+          AND simulated_at_ms = ?
+      `)
+      .bind(
+        WORLD_SCHEMA_VERSION,
+        stateJson,
+        WORLD_ID,
+        row.revision,
+        row.schemaVersion,
+        row.simulatedAtMs,
+      ),
+    // Existing rows are ignored. This also backfills any event that was present
+    // in the persisted v1 tail but had not yet reached the history table.
+    ...eventStatements(
+      database,
+      world.majorEvents,
+      revision,
+      row.simulatedAtMs,
+    ),
+  ]);
+
+  return (results[0]?.meta.changes ?? 0) > 0;
+}
+
+async function recoverIncompatibleWorld(
   database: ReturnType<typeof getD1>,
   row: WorldRow,
   now: number,
@@ -301,26 +438,8 @@ async function resetIncompatibleWorld(
         WORLD_ID,
         row.revision,
       ),
-    database
-      .prepare(`
-        DELETE FROM civilization_events
-        WHERE world_id = ?
-          AND EXISTS (
-            SELECT 1
-            FROM civilization_world
-            WHERE id = ?
-              AND revision = ?
-              AND schema_version = ?
-              AND simulated_at_ms = ?
-          )
-      `)
-      .bind(
-        WORLD_ID,
-        WORLD_ID,
-        revision,
-        WORLD_SCHEMA_VERSION,
-        now,
-      ),
+    // Historical events remain append-only even if the current JSON is damaged.
+    // This prevents a recovery from erasing the world's public chronicle.
     ...eventStatements(database, world.majorEvents, revision, now),
   ]);
 
@@ -328,7 +447,7 @@ async function resetIncompatibleWorld(
     return null;
   }
 
-  return { world, revision };
+  return { world, revision, simulatedAtMs: now, processedMs: 0 };
 }
 
 async function advanceWorld(
@@ -337,20 +456,28 @@ async function advanceWorld(
   world: CivilizationWorldState,
   targetMs: number,
 ): Promise<WorldSnapshot | null> {
-  const elapsedMs = targetMs - row.simulatedAtMs;
-  if (elapsedMs < MIN_ADVANCE_MS) {
-    return { world, revision: row.revision };
+  const pendingMs = targetMs - row.simulatedAtMs;
+  if (pendingMs < MIN_ADVANCE_MS) {
+    return {
+      world,
+      revision: row.revision,
+      simulatedAtMs: row.simulatedAtMs,
+      processedMs: 0,
+    };
   }
+
+  const processedMs = boundedCatchUpSliceMs(pendingMs);
+  const checkpointMs = row.simulatedAtMs + processedMs;
 
   const knownEventIds = new Set(world.majorEvents.map((event) => event.id));
   let advanced: CivilizationWorldState;
   let stateJson: string;
 
   try {
-    const caughtUp = catchUpCivilization(world, elapsedMs / 1_000);
+    const caughtUp = catchUpCivilization(world, processedMs / 1_000);
     advanced = normalizeCivilizationWorld({
       ...caughtUp,
-      lastSavedAt: targetMs,
+      lastSavedAt: checkpointMs,
     });
     if (!validateCivilizationWorld(advanced)) {
       throw new Error("Invalid caught-up state");
@@ -381,19 +508,24 @@ async function advanceWorld(
       .bind(
         WORLD_SCHEMA_VERSION,
         stateJson,
-        targetMs,
+        checkpointMs,
         WORLD_ID,
         row.revision,
         WORLD_SCHEMA_VERSION,
       ),
-    ...eventStatements(database, newEvents, revision, targetMs),
+    ...eventStatements(database, newEvents, revision, checkpointMs),
   ]);
 
   if ((results[0]?.meta.changes ?? 0) === 0) {
     return null;
   }
 
-  return { world: advanced, revision };
+  return {
+    world: advanced,
+    revision,
+    simulatedAtMs: checkpointMs,
+    processedMs,
+  };
 }
 
 async function authoritativeSnapshot(
@@ -407,30 +539,55 @@ async function authoritativeSnapshot(
       continue;
     }
 
-    const world = parseWorld(row, serverTime);
-    if (!world) {
-      const reset = await resetIncompatibleWorld(database, row, serverTime);
-      if (reset) return reset;
+    const parsed = parseWorld(row, serverTime);
+    if (!parsed) {
+      const recovered = await recoverIncompatibleWorld(
+        database,
+        row,
+        serverTime,
+      );
+      if (recovered) return recovered;
+      continue;
+    }
+
+    if (parsed.needsMigration) {
+      await persistMigratedWorld(database, row, parsed.world);
+      // Reload after either a successful migration or a lost CAS race. The
+      // winning row is then caught up using the ordinary schema-current path.
       continue;
     }
 
     try {
-      const advanced = await advanceWorld(database, row, world, serverTime);
+      const advanced = await advanceWorld(
+        database,
+        row,
+        parsed.world,
+        serverTime,
+      );
       if (advanced) return advanced;
     } catch (error) {
       if (!(error instanceof InvalidWorldStateError)) throw error;
-      const reset = await resetIncompatibleWorld(database, row, serverTime);
-      if (reset) return reset;
+      const recovered = await recoverIncompatibleWorld(
+        database,
+        row,
+        serverTime,
+      );
+      if (recovered) return recovered;
     }
   }
 
   const latestRow = await loadWorldRow(database);
-  const latestWorld = latestRow ? parseWorld(latestRow, serverTime) : null;
-  if (!latestRow || !latestWorld) {
+  const latestParsed = latestRow ? parseWorld(latestRow, serverTime) : null;
+  if (!latestRow || !latestParsed || latestParsed.needsMigration) {
     throw new Error("Canonical civilization state is unavailable.");
   }
 
-  return { world: latestWorld, revision: latestRow.revision };
+  return {
+    world: latestParsed.world,
+    revision: latestRow.revision,
+    simulatedAtMs: latestRow.simulatedAtMs,
+    processedMs: 0,
+  };
 }
 
 async function loadHistory(
@@ -472,12 +629,20 @@ export async function GET() {
     await ensureSchema(database);
     const snapshot = await authoritativeSnapshot(database, serverTime);
     const history = await loadHistory(database, snapshot.revision);
+    const catchUpPendingMs = Math.max(
+      0,
+      serverTime - snapshot.simulatedAtMs,
+    );
 
     return Response.json(
       {
         world: snapshot.world,
         revision: snapshot.revision,
         serverTime,
+        simulatedAtMs: snapshot.simulatedAtMs,
+        catchUpProcessedSeconds: snapshot.processedMs / 1_000,
+        catchUpPendingSeconds: catchUpPendingMs / 1_000,
+        caughtUp: catchUpPendingMs === 0,
         persistent: true,
         history,
       },
