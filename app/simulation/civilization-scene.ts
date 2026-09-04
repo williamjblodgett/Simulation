@@ -5,6 +5,7 @@ export type VisualId = string;
 export type VisualResourceKind = "food" | "water" | "wood" | "ore";
 export type DiplomaticRelation = "alliance" | "trade" | "hostile";
 export type CameraMode = "overview" | "followAgent" | "followCamp" | "free";
+export type MapOverlayMode = "world" | "alliances" | "wars" | "beliefs" | "territories" | "resources";
 
 export interface VisualPoint {
   x: number;
@@ -91,6 +92,7 @@ export interface VisualWorld {
   seed: number;
   elapsed: number;
   halfSize: number;
+  overlayMode?: MapOverlayMode;
   agents: VisualAgent[];
   resources: VisualResource[];
   camps: VisualCamp[];
@@ -170,6 +172,7 @@ interface ResourceVisual {
   root: THREE.Group;
   kind: VisualResourceKind;
   accent: THREE.Object3D;
+  abundanceRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   target: THREE.Vector2;
   targetRatio: number;
   currentRatio: number;
@@ -213,6 +216,7 @@ interface CampVisual {
 interface BeliefVisual {
   root: THREE.Group;
   hitTarget: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>;
+  influenceFill: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
   influenceRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   selectionRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   beacon: THREE.Mesh<THREE.DodecahedronGeometry, THREE.MeshStandardMaterial>;
@@ -252,6 +256,19 @@ const DEFAULT_HALF_SIZE = 70;
 const EDGE_INSET = 1.4;
 const DAY_LENGTH_SECONDS = 300;
 const TAU = Math.PI * 2;
+
+const MAP_OVERLAY_MODES: readonly MapOverlayMode[] = [
+  "world",
+  "alliances",
+  "wars",
+  "beliefs",
+  "territories",
+  "resources",
+];
+
+function resolveOverlayMode(mode: MapOverlayMode | null | undefined): MapOverlayMode {
+  return mode && MAP_OVERLAY_MODES.includes(mode) ? mode : "world";
+}
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
@@ -459,6 +476,7 @@ function makeSolidSprite(color: number) {
 
 interface StaticWorldVisual {
   root: THREE.Group;
+  scenery: THREE.Group;
   waterSurfaces: THREE.Mesh<THREE.CircleGeometry, THREE.MeshPhysicalMaterial>[];
   starsMaterial: THREE.PointsMaterial;
   skyMaterial: THREE.ShaderMaterial;
@@ -833,7 +851,8 @@ function makeStaticWorld(profile: TerrainProfile): StaticWorldVisual {
     }),
   );
   terrain.receiveShadow = true;
-  root.add(terrain, makeMapGrid(profile), makeBoundary(profile), makeScenery(profile));
+  const scenery = makeScenery(profile);
+  root.add(terrain, makeMapGrid(profile), makeBoundary(profile), scenery);
 
   const waterSurfaces: THREE.Mesh<THREE.CircleGeometry, THREE.MeshPhysicalMaterial>[] = [];
   profile.water.forEach((feature) => {
@@ -846,7 +865,7 @@ function makeStaticWorld(profile: TerrainProfile): StaticWorldVisual {
   root.add(sky.mesh);
   const stars = makeStars(profile);
   root.add(stars.stars);
-  return { root, waterSurfaces, starsMaterial: stars.material, skyMaterial: sky.material };
+  return { root, scenery, waterSurfaces, starsMaterial: stars.material, skyMaterial: sky.material };
 }
 
 function makeTent(color: THREE.Color, x: number, z: number, rotation: number) {
@@ -1604,6 +1623,13 @@ function makeOreResource(id: VisualId) {
   return { root, accent: crystals };
 }
 
+function resourceOverlayColor(kind: VisualResourceKind) {
+  if (kind === "food") return 0xf17778;
+  if (kind === "water") return 0x64e2f0;
+  if (kind === "wood") return 0x8dd277;
+  return 0xd1dbe4;
+}
+
 function makeResource(resource: VisualResource, profile: TerrainProfile): ResourceVisual {
   const constructed = resource.kind === "food"
     ? makeFoodResource(resource.id)
@@ -1613,12 +1639,33 @@ function makeResource(resource: VisualResource, profile: TerrainProfile): Resour
         ? makeWoodResource(resource.id)
         : makeOreResource(resource.id);
   constructed.root.name = `resource:${resource.id}`;
+  const abundanceRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.82, 1.02, 28),
+    new THREE.MeshBasicMaterial({
+      color: resourceOverlayColor(resource.kind),
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  abundanceRing.rotation.x = -Math.PI / 2;
+  abundanceRing.position.y = 0.14;
+  abundanceRing.renderOrder = 10;
+  abundanceRing.visible = false;
+  abundanceRing.castShadow = false;
+  abundanceRing.receiveShadow = false;
+  constructed.root.add(abundanceRing);
   setShadows(constructed.root, resource.kind !== "water", true);
+  abundanceRing.castShadow = false;
+  abundanceRing.receiveShadow = false;
   const ratio = clamp(finite(resource.amount) / Math.max(0.0001, finite(resource.max, 1)), 0, 1);
   return {
     root: constructed.root,
     kind: resource.kind,
     accent: constructed.accent,
+    abundanceRing,
     target: new THREE.Vector2(
       sceneCoordinate(resource.position.x, profile.halfSize),
       sceneCoordinate(resource.position.z, profile.halfSize),
@@ -1639,6 +1686,23 @@ function makeBelief(belief: VisualBelief, profile: TerrainProfile): BeliefVisual
   const color = safeColor(belief.color, 0xb89cff);
   const root = new THREE.Group();
   root.name = `belief:${belief.id}`;
+
+  const influenceFill = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 56),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  influenceFill.rotation.x = -Math.PI / 2;
+  influenceFill.position.y = 0.075;
+  influenceFill.renderOrder = 3;
+  influenceFill.visible = false;
+  root.add(influenceFill);
 
   const influenceRing = new THREE.Mesh(
     new THREE.RingGeometry(0.965, 1, 72),
@@ -1740,6 +1804,7 @@ function makeBelief(belief: VisualBelief, profile: TerrainProfile): BeliefVisual
   root.add(label);
 
   setShadows(root, true, false);
+  influenceFill.castShadow = false;
   influenceRing.castShadow = false;
   selectionRing.castShadow = false;
   hitTarget.castShadow = false;
@@ -1751,6 +1816,7 @@ function makeBelief(belief: VisualBelief, profile: TerrainProfile): BeliefVisual
   return {
     root,
     hitTarget,
+    influenceFill,
     influenceRing,
     selectionRing,
     beacon,
@@ -1777,12 +1843,19 @@ function applyBeliefState(visual: BeliefVisual, belief: VisualBelief, profile: T
   visual.active = belief.active;
   visual.color = belief.color;
   const color = safeColor(belief.color, 0xb89cff);
+  visual.influenceFill.material.color.copy(color);
   visual.influenceRing.material.color.copy(color);
   visual.selectionRing.material.color.copy(color);
   visual.beacon.material.color.copy(color);
   visual.beacon.material.emissive.copy(color);
   visual.root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh) || object === visual.hitTarget || object === visual.influenceRing || object === visual.selectionRing) return;
+    if (
+      !(object instanceof THREE.Mesh) ||
+      object === visual.hitTarget ||
+      object === visual.influenceFill ||
+      object === visual.influenceRing ||
+      object === visual.selectionRing
+    ) return;
     const material = object.material;
     if (material instanceof THREE.MeshStandardMaterial && object !== visual.beacon && material.metalness > 0.18) {
       material.color.copy(color).multiplyScalar(0.68);
@@ -1917,6 +1990,7 @@ export function createCivilizationScene(
   let selectedAgentId: VisualId | null = null;
   let selectedCampId: VisualId | null = null;
   let selectedBeliefId: VisualId | null = initialWorld.selectedBeliefId ?? null;
+  let activeOverlayMode: MapOverlayMode = resolveOverlayMode(initialWorld.overlayMode);
   let worldClockTarget = finite(initialWorld.elapsed);
   let worldClockVisual = worldClockTarget;
   let animationTime = 0;
@@ -2204,6 +2278,7 @@ export function createCivilizationScene(
     selectedAgentId = nextSelectedAgentId;
     selectedCampId = nextSelectedCampId;
     selectedBeliefId = world.selectedBeliefId ?? null;
+    activeOverlayMode = resolveOverlayMode(world.overlayMode);
     worldClockTarget = finite(world.elapsed) + clamp(finite(delta), 0, 0.25);
     if (immediate) worldClockVisual = finite(world.elapsed);
     syncCamps(world.camps ?? [], immediate);
@@ -2231,6 +2306,7 @@ export function createCivilizationScene(
   const temporaryColor = new THREE.Color();
 
   const updateEnvironment = (delta: number) => {
+    staticWorld.scenery.visible = activeOverlayMode === "world";
     worldClockVisual = damp(worldClockVisual, worldClockTarget, reducedMotion ? 20 : 4.8, delta);
     const phase = ((0.26 + worldClockVisual / DAY_LENGTH_SECONDS) % 1 + 1) % 1;
     const solarAngle = (phase - 0.25) * TAU;
@@ -2280,24 +2356,40 @@ export function createCivilizationScene(
       visual.root.position.y = terrainHeight(visual.root.position.x, visual.root.position.z, activeProfile);
       visual.currentRatio = damp(visual.currentRatio, visual.targetRatio, 4.2, delta);
       const abundance = 0.22 + Math.sqrt(visual.currentRatio) * 0.78;
+      const overlayScale = activeOverlayMode === "resources" ? 1.34 : 1;
       if (visual.kind === "wood") {
-        visual.root.scale.set(0.58 + abundance * 0.42, 0.42 + abundance * 0.58, 0.58 + abundance * 0.42);
+        visual.root.scale.set(
+          (0.58 + abundance * 0.42) * overlayScale,
+          (0.42 + abundance * 0.58) * overlayScale,
+          (0.58 + abundance * 0.42) * overlayScale,
+        );
         if (!reducedMotion) visual.accent.rotation.y = Math.sin(animationTime * 0.36 + visual.phase) * 0.035;
       } else if (visual.kind === "water") {
         const ripple = reducedMotion ? 1 : 1 + Math.sin(animationTime * 2 + visual.phase) * 0.035;
-        visual.root.scale.set(abundance * ripple, 0.72 + abundance * 0.28, abundance * ripple);
+        visual.root.scale.set(
+          abundance * ripple * overlayScale,
+          (0.72 + abundance * 0.28) * overlayScale,
+          abundance * ripple * overlayScale,
+        );
         if (!reducedMotion) {
           visual.accent.rotation.y += delta * 0.65;
           visual.accent.position.y = 0.48 + Math.sin(animationTime * 2.2 + visual.phase) * 0.04;
         }
       } else if (visual.kind === "ore") {
-        visual.root.scale.setScalar(0.42 + abundance * 0.58);
+        visual.root.scale.setScalar((0.42 + abundance * 0.58) * overlayScale);
         if (!reducedMotion) visual.accent.rotation.y += delta * 0.12;
       } else {
-        visual.root.scale.setScalar(0.4 + abundance * 0.6);
+        visual.root.scale.setScalar((0.4 + abundance * 0.6) * overlayScale);
         if (!reducedMotion) visual.accent.rotation.y = Math.sin(animationTime * 0.72 + visual.phase) * 0.08;
       }
-      visual.root.visible = visual.currentRatio > 0.002;
+      const showResources = activeOverlayMode === "world" || activeOverlayMode === "resources";
+      visual.root.visible = showResources && visual.currentRatio > 0.002;
+      visual.abundanceRing.visible = activeOverlayMode === "resources" && visual.currentRatio > 0.002;
+      if (visual.abundanceRing.visible) {
+        const ringPulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 2.1 + visual.phase) * 0.045;
+        visual.abundanceRing.scale.setScalar((1.1 + visual.currentRatio * 0.82) * ringPulse);
+        visual.abundanceRing.material.opacity = 0.32 + visual.currentRatio * 0.58;
+      }
     });
   };
 
@@ -2313,20 +2405,37 @@ export function createCivilizationScene(
       visual.actor.rotation.y = visual.facing;
 
       const isSelected = id === selectedAgentId;
+      const isWorldOverlay = activeOverlayMode === "world";
+      const isBeliefOverlay = activeOverlayMode === "beliefs";
+      const agentOverlayOpacity = isSelected
+        ? 1
+        : isWorldOverlay
+          ? 1
+          : isBeliefOverlay
+            ? visual.beliefId ? 0.82 : 0.3
+            : activeOverlayMode === "wars" ? 0.62 : 0.44;
+      visual.body.material.opacity = (visual.alive ? 1 : 0.23) * agentOverlayOpacity;
+      visual.head.material.opacity = (visual.alive ? 1 : 0.2) * agentOverlayOpacity;
       visual.selection.visible = isSelected;
       visual.label.visible = isSelected;
-      visual.healthBack.visible = isSelected || (visual.alive && visual.health < 52);
+      visual.healthBack.visible = isSelected || (
+        (isWorldOverlay || activeOverlayMode === "wars") && visual.alive && visual.health < 52
+      );
       visual.healthFill.visible = visual.healthBack.visible;
-      visual.direction.visible = visual.alive && speed > 0.03 && (isSelected || speed > 0.16);
-      visual.trail.visible = visual.alive && speed > 0.03;
+      visual.direction.visible = visual.alive && speed > 0.03 && (isSelected || (isWorldOverlay && speed > 0.16));
+      visual.trail.visible = isWorldOverlay && visual.alive && speed > 0.03;
       visual.trail.material.opacity = isSelected ? 0.3 : 0.075;
       const followsSelectedBelief = Boolean(selectedBeliefId && visual.beliefId === selectedBeliefId);
+      visual.beliefHalo.visible = visual.alive && Boolean(visual.beliefId && visual.beliefColor) && (
+        isWorldOverlay || isBeliefOverlay
+      );
       if (visual.beliefHalo.visible) {
         const beliefPulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 2.7 + visual.phase) * 0.055;
-        visual.beliefHalo.scale.setScalar((0.88 + visual.conviction * 0.28) * beliefPulse);
+        const overlayHaloScale = isBeliefOverlay ? 1.18 : 1;
+        visual.beliefHalo.scale.setScalar((0.88 + visual.conviction * 0.28) * beliefPulse * overlayHaloScale);
         visual.beliefHalo.material.opacity = followsSelectedBelief
-          ? 0.76
-          : 0.18 + visual.conviction * 0.42;
+          ? 0.86
+          : (isBeliefOverlay ? 0.42 : 0.18) + visual.conviction * (isBeliefOverlay ? 0.48 : 0.42);
       }
 
       const positionAttribute = visual.trail.geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -2374,21 +2483,58 @@ export function createCivilizationScene(
       visual.territoryFill.scale.setScalar(visual.territoryCurrent);
       const isSelected = id === selectedCampId;
       const followsSelectedBelief = Boolean(selectedBeliefId && visual.dominantBeliefId === selectedBeliefId);
-      visual.territory.material.opacity = isSelected ? 0.82 : 0.42;
-      visual.territoryFill.material.opacity = isSelected ? 0.075 : 0.038;
-      visual.label.scale.set(isSelected ? 8 : 7.3, isSelected ? 1.93 : 1.76, 1);
-      visual.attackRing.visible = visual.underAttack;
+      const isWorldOverlay = activeOverlayMode === "world";
+      const isWarOverlay = activeOverlayMode === "wars";
+      const isBeliefOverlay = activeOverlayMode === "beliefs";
+      const isTerritoryOverlay = activeOverlayMode === "territories";
+      const hasBelief = Boolean(visual.dominantBeliefId && visual.beliefColor);
+
+      visual.territory.visible = activeOverlayMode !== "resources" || isSelected;
+      visual.territoryFill.visible = activeOverlayMode !== "resources" || isSelected;
+      if (isTerritoryOverlay) {
+        visual.territory.material.opacity = isSelected ? 1 : 0.9;
+        visual.territoryFill.material.opacity = isSelected ? 0.24 : 0.16;
+      } else if (isWarOverlay) {
+        visual.territory.material.opacity = isSelected ? 0.82 : visual.underAttack ? 0.56 : 0.18;
+        visual.territoryFill.material.opacity = isSelected ? 0.075 : visual.underAttack ? 0.065 : 0.014;
+      } else if (isBeliefOverlay) {
+        visual.territory.material.opacity = isSelected ? 0.68 : 0.11;
+        visual.territoryFill.material.opacity = isSelected ? 0.06 : 0.008;
+      } else if (activeOverlayMode === "alliances") {
+        visual.territory.material.opacity = isSelected ? 0.78 : 0.25;
+        visual.territoryFill.material.opacity = isSelected ? 0.07 : 0.018;
+      } else if (activeOverlayMode === "resources") {
+        visual.territory.material.opacity = isSelected ? 0.72 : 0;
+        visual.territoryFill.material.opacity = isSelected ? 0.055 : 0;
+      } else {
+        visual.territory.material.opacity = isSelected ? 0.82 : 0.42;
+        visual.territoryFill.material.opacity = isSelected ? 0.075 : 0.038;
+      }
+
+      visual.label.visible = activeOverlayMode !== "resources" || isSelected;
+      const labelEmphasis = isTerritoryOverlay && !isSelected ? 1.06 : 1;
+      visual.label.scale.set(
+        (isSelected ? 8 : 7.3) * labelEmphasis,
+        (isSelected ? 1.93 : 1.76) * labelEmphasis,
+        1,
+      );
+      visual.attackRing.visible = visual.underAttack && (isWorldOverlay || isWarOverlay);
+      visual.beliefRing.visible = hasBelief && (isWorldOverlay || isBeliefOverlay);
+      visual.shrine.visible = hasBelief && visual.shrineLevel > 0.02 && (isWorldOverlay || isBeliefOverlay);
       if (visual.beliefRing.visible) {
         const beliefPulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 2.15 + visual.phase) * 0.025;
-        visual.beliefRing.scale.setScalar(beliefPulse);
+        visual.beliefRing.scale.setScalar(beliefPulse * (isBeliefOverlay ? 1.14 : 1));
         visual.beliefRing.material.opacity = followsSelectedBelief
-          ? 0.88
-          : clamp(0.48 - visual.beliefDiversity * 0.25, 0.2, 0.48);
+          ? 0.92
+          : clamp((isBeliefOverlay ? 0.75 : 0.48) - visual.beliefDiversity * 0.25, isBeliefOverlay ? 0.4 : 0.2, 0.75);
       }
-      if (visual.underAttack) {
+      if (visual.attackRing.visible) {
         const attackPulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 5.8 + visual.phase) * 0.11;
         visual.attackRing.scale.setScalar(visual.territoryCurrent * attackPulse);
-        visual.attackRing.material.opacity = reducedMotion ? 0.76 : 0.54 + Math.sin(animationTime * 5.8 + visual.phase) * 0.27;
+        const baseAttackOpacity = isWarOverlay ? 0.72 : 0.54;
+        visual.attackRing.material.opacity = reducedMotion
+          ? isWarOverlay ? 0.94 : 0.76
+          : baseAttackOpacity + Math.sin(animationTime * 5.8 + visual.phase) * (isWarOverlay ? 0.2 : 0.27);
       }
       visual.flames.forEach((flame, index) => {
         if (!reducedMotion) {
@@ -2397,7 +2543,10 @@ export function createCivilizationScene(
           flame.rotation.y += delta * (index === 0 ? 1.25 : -1.6);
         }
       });
-      visual.fireLight.intensity = (visual.underAttack ? 5.4 : 2.8) + Math.min(visual.level, 5) * 0.28;
+      const overlayLightMultiplier = activeOverlayMode === "resources"
+        ? 0.22
+        : isBeliefOverlay || isTerritoryOverlay ? 0.58 : 1;
+      visual.fireLight.intensity = ((visual.underAttack ? 5.4 : 2.8) + Math.min(visual.level, 5) * 0.28) * overlayLightMultiplier;
       if (!reducedMotion) {
         visual.banner.rotation.z = Math.sin(animationTime * 1.7 + visual.phase) * 0.035;
         visual.beacon.rotation.y += delta * 0.82;
@@ -2420,17 +2569,27 @@ export function createCivilizationScene(
       visual.root.position.z = damp(visual.root.position.z, visual.target.y, 7, delta);
       visual.root.position.y = terrainHeight(visual.root.position.x, visual.root.position.z, activeProfile);
       visual.influenceCurrent = damp(visual.influenceCurrent, visual.influenceTarget, 3.2, delta);
+      visual.influenceFill.scale.setScalar(visual.influenceCurrent);
       visual.influenceRing.scale.setScalar(visual.influenceCurrent);
       const isSelected = id === selectedBeliefId;
+      const isWorldOverlay = activeOverlayMode === "world";
+      const isBeliefOverlay = activeOverlayMode === "beliefs";
+      visual.root.visible = isWorldOverlay || isBeliefOverlay || isSelected;
       const pulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 2.4 + visual.phase) * 0.07;
       visual.selectionRing.visible = isSelected;
       visual.selectionRing.scale.setScalar(1.42 * pulse);
-      visual.label.visible = isSelected;
+      visual.label.visible = isSelected || (isBeliefOverlay && visual.active && visual.adherents > 0);
+      visual.label.scale.set(isSelected ? 6.2 : 4.75, isSelected ? 1.6 : 1.22, 1);
+      visual.influenceFill.visible = isBeliefOverlay && (visual.active || isSelected);
+      visual.influenceFill.material.opacity = visual.active
+        ? clamp(0.055 + Math.sqrt(visual.adherents) * 0.007, 0.055, 0.14)
+        : 0.028;
+      visual.influenceRing.visible = isWorldOverlay || isBeliefOverlay || isSelected;
       visual.influenceRing.material.opacity = visual.active
-        ? isSelected ? 0.52 : 0.2
-        : isSelected ? 0.24 : 0.08;
+        ? isSelected ? 0.68 : isBeliefOverlay ? 0.52 : 0.2
+        : isSelected ? 0.28 : isBeliefOverlay ? 0.14 : 0.08;
       visual.beacon.material.emissiveIntensity = visual.active
-        ? isSelected ? 1.65 : 0.8
+        ? isSelected ? 1.8 : isBeliefOverlay ? 1.35 : 0.8
         : 0.18;
       visual.root.scale.y = visual.active ? 1 : 0.78;
       if (!reducedMotion) {
@@ -2444,7 +2603,12 @@ export function createCivilizationScene(
     linkVisuals.forEach((visual) => {
       const fromCamp = campVisuals.get(visual.fromCampId);
       const toCamp = campVisuals.get(visual.toCampId);
-      visual.line.visible = Boolean(fromCamp && toCamp);
+      const relationMatchesOverlay = activeOverlayMode === "world" || (
+        activeOverlayMode === "alliances"
+          ? visual.relation === "alliance" || visual.relation === "trade"
+          : activeOverlayMode === "wars" && visual.relation === "hostile"
+      );
+      visual.line.visible = Boolean(fromCamp && toCamp && relationMatchesOverlay);
       if (!fromCamp || !toCamp) return;
       connectionFrom.copy(campConnectionPoint(fromCamp));
       connectionTo.copy(campConnectionPoint(toCamp));
@@ -2457,13 +2621,26 @@ export function createCivilizationScene(
       writeCurveGeometry(visual.line.geometry, curve);
       visual.line.computeLineDistances();
       const flowPulse = reducedMotion ? 0 : Math.sin(animationTime * (visual.relation === "trade" ? 2.5 : 1.4)) * 0.045;
-      visual.line.material.opacity = (visual.relation === "hostile" ? 0.4 : 0.28) + visual.strength * 0.24 + flowPulse;
+      const overlayBaseOpacity = activeOverlayMode === "alliances"
+        ? visual.relation === "alliance" ? 0.76 : 0.6
+        : activeOverlayMode === "wars"
+          ? 0.7
+          : visual.relation === "hostile" ? 0.4 : 0.28;
+      const overlayStrength = activeOverlayMode === "world" ? 0.24 : 0.28;
+      visual.line.material.opacity = clamp(overlayBaseOpacity + visual.strength * overlayStrength + flowPulse, 0, 1);
+      visual.line.material.dashSize = activeOverlayMode === "alliances"
+        ? visual.relation === "trade" ? 1.7 : 1.05
+        : visual.relation === "trade" ? 1.2 : 0.72;
+      visual.line.material.gapSize = activeOverlayMode === "alliances"
+        ? visual.relation === "trade" ? 0.48 : 0.4
+        : visual.relation === "hostile" ? 0.46 : 0.72;
     });
 
     warVisuals.forEach((visual) => {
       const attacker = campVisuals.get(visual.attackerCampId);
       const defender = campVisuals.get(visual.defenderCampId);
-      visual.root.visible = Boolean(attacker && defender);
+      const showWars = activeOverlayMode === "world" || activeOverlayMode === "wars";
+      visual.root.visible = Boolean(attacker && defender && showWars);
       if (!attacker || !defender) return;
       connectionFrom.copy(campConnectionPoint(attacker));
       connectionTo.copy(campConnectionPoint(defender));
@@ -2471,12 +2648,13 @@ export function createCivilizationScene(
       setQuadraticCurve(visual.curve, connectionFrom, connectionTo, 2.8 + distance * 0.09);
       writeCurveGeometry(visual.line.geometry, visual.curve);
       visual.line.computeLineDistances();
-      visual.line.material.opacity = 0.52 + visual.intensity * 0.42;
-      visual.line.material.dashSize = 0.8 + visual.intensity * 0.8;
+      const warOverlayBoost = activeOverlayMode === "wars" ? 0.23 : 0;
+      visual.line.material.opacity = clamp(0.52 + visual.intensity * 0.42 + warOverlayBoost, 0, 1);
+      visual.line.material.dashSize = (activeOverlayMode === "wars" ? 1.15 : 0.8) + visual.intensity * 0.8;
       visual.line.material.gapSize = 0.38 + Math.max(0, Math.sin(animationTime * 4.2 + visual.phase)) * 0.28;
       const progress = reducedMotion ? 0.56 : (animationTime * (0.14 + visual.intensity * 0.18) + visual.phase) % 1;
       visual.projectile.position.copy(visual.curve.getPoint(progress));
-      visual.projectile.scale.setScalar(0.72 + visual.intensity * 0.7);
+      visual.projectile.scale.setScalar((0.72 + visual.intensity * 0.7) * (activeOverlayMode === "wars" ? 1.32 : 1));
       const clashPosition = visual.curve.getPoint(0.58);
       visual.clash.position.copy(clashPosition);
       visual.clash.position.y = Math.max(
@@ -2484,8 +2662,16 @@ export function createCivilizationScene(
         clashPosition.y - 1.2,
       );
       const pulse = reducedMotion ? 1 : 1 + Math.sin(animationTime * 7.5 + visual.phase * TAU) * 0.28;
-      visual.clash.scale.setScalar((0.72 + visual.intensity * 0.75) * pulse);
-      visual.clash.material.opacity = reducedMotion ? 0.7 : 0.48 + Math.sin(animationTime * 7.5 + visual.phase) * 0.27;
+      visual.clash.scale.setScalar(
+        (0.72 + visual.intensity * 0.75) * pulse * (activeOverlayMode === "wars" ? 1.28 : 1),
+      );
+      visual.clash.material.opacity = reducedMotion
+        ? activeOverlayMode === "wars" ? 0.94 : 0.7
+        : clamp(
+            (activeOverlayMode === "wars" ? 0.7 : 0.48) + Math.sin(animationTime * 7.5 + visual.phase) * 0.27,
+            0,
+            1,
+          );
     });
   };
 
@@ -2682,6 +2868,7 @@ export function createCivilizationScene(
   let lastSyncedAgentId: VisualId | null = null;
   let lastSyncedCampId: VisualId | null = null;
   let lastSyncedBeliefId: VisualId | null = initialWorld.selectedBeliefId ?? null;
+  let lastSyncedOverlayMode: MapOverlayMode = resolveOverlayMode(initialWorld.overlayMode);
   let lastSyncedCameraMode: CameraMode = "overview";
   overviewFocus(cameraTarget);
   const initialDistance = activeProfile.halfSize * 1.42;
@@ -2702,6 +2889,7 @@ export function createCivilizationScene(
         nextSelectedAgentId !== lastSyncedAgentId ||
         nextSelectedCampId !== lastSyncedCampId ||
         (world.selectedBeliefId ?? null) !== lastSyncedBeliefId ||
+        resolveOverlayMode(world.overlayMode) !== lastSyncedOverlayMode ||
         cameraMode !== lastSyncedCameraMode
       ) {
         syncWorld(world, nextSelectedAgentId, nextSelectedCampId, cameraMode, delta);
@@ -2709,6 +2897,7 @@ export function createCivilizationScene(
         lastSyncedAgentId = nextSelectedAgentId;
         lastSyncedCampId = nextSelectedCampId;
         lastSyncedBeliefId = world.selectedBeliefId ?? null;
+        lastSyncedOverlayMode = resolveOverlayMode(world.overlayMode);
         lastSyncedCameraMode = cameraMode;
       }
       renderFrame(delta);

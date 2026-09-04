@@ -62,17 +62,43 @@ import {
   createCivilizationScene,
   type CameraMode,
   type DiplomaticRelation as VisualDiplomaticRelation,
+  type MapOverlayMode,
   type VisualWorld,
 } from "./simulation/civilization-scene";
 
 const INITIAL_SEED = 2_846_731;
 const POLL_INTERVAL = 4_000;
 const ROSTER_MODES = ["powers", "agents", "beliefs"] as const;
+const MAP_OVERLAY_OPTIONS: ReadonlyArray<{
+  mode: MapOverlayMode;
+  label: string;
+  shortcut: string;
+  description: string;
+}> = [
+  { mode: "world", label: "World", shortcut: "1", description: "Show the complete living world" },
+  { mode: "alliances", label: "Alliances", shortcut: "2", description: "Trace alliances, trade routes, and truces" },
+  { mode: "wars", label: "Wars", shortcut: "3", description: "Isolate active wars and belligerent camps" },
+  { mode: "beliefs", label: "Beliefs", shortcut: "4", description: "Map religions, belief systems, and secular populations" },
+  { mode: "territories", label: "Territories", shortcut: "5", description: "Compare every active camp's territorial reach" },
+  { mode: "resources", label: "Resources", shortcut: "6", description: "Reveal food, water, wood, and ore deposits" },
+];
 
 type RosterMode = "powers" | "agents" | "beliefs";
 type EventFilter = "all" | "power" | "war" | "lineage" | "technology" | "belief";
 type SyncState = "connecting" | "persistent" | "catching_up" | "reconnecting";
 type Selection = { kind: "agent" | "camp" | "belief"; id: string };
+type OverlayLegendKind = "dot" | "line" | "area";
+
+interface OverlayLegendItem {
+  label: string;
+  color: string;
+  kind?: OverlayLegendKind;
+}
+
+interface OverlayPresentation {
+  summary: string;
+  legend: OverlayLegendItem[];
+}
 
 interface WorldResponse {
   world: unknown;
@@ -246,7 +272,110 @@ function worldEra(world: CivilizationWorldState) {
   return "Founding age";
 }
 
-function toVisualWorld(world: CivilizationWorldState, selectedBeliefId: string | null = null): VisualWorld {
+function overlayIcon(mode: MapOverlayMode) {
+  if (mode === "alliances") return <Users size={12} />;
+  if (mode === "wars") return <Swords size={12} />;
+  if (mode === "beliefs") return <Sparkles size={12} />;
+  if (mode === "territories") return <Tent size={12} />;
+  if (mode === "resources") return <Package size={12} />;
+  return <MapIcon size={12} />;
+}
+
+function getOverlayPresentation(
+  mode: MapOverlayMode,
+  world: CivilizationWorldState,
+  camps: CivilizationCamp[],
+  beliefs: CivilizationBeliefSystem[],
+  relations: ReturnType<typeof relationView>[],
+): OverlayPresentation {
+  const activeCampIds = new Set(camps.map((camp) => camp.id));
+  const visibleRelations = relations.filter((relation) => activeCampIds.has(relation.fromCampId) && activeCampIds.has(relation.toCampId));
+  const alliances = visibleRelations.filter((relation) => relation.status === "alliance" || relation.status === "allied");
+  const tradeRoutes = visibleRelations.filter((relation) => relation.status === "trade" || relation.status === "truce");
+  const wars = visibleRelations.filter((relation) => relation.status === "war");
+  const belligerentCampIds = new Set(wars.flatMap((war) => [war.fromCampId, war.toCampId]));
+  const livingAgents = world.agents.filter((agent) => agent.alive);
+
+  if (mode === "alliances") {
+    return {
+      summary: `${alliances.length} alliance ${alliances.length === 1 ? "link" : "links"} · ${tradeRoutes.length} trade or truce ${tradeRoutes.length === 1 ? "route" : "routes"}`,
+      legend: [
+        { label: `Alliances · ${alliances.length}`, color: "#69d8bd", kind: "line" },
+        { label: `Trade / truce · ${tradeRoutes.length}`, color: "#f1c66d", kind: "line" },
+      ],
+    };
+  }
+
+  if (mode === "wars") {
+    return {
+      summary: `${wars.length} active ${wars.length === 1 ? "front" : "fronts"} · ${belligerentCampIds.size} camps committed to war`,
+      legend: [
+        { label: `War fronts · ${wars.length}`, color: "#f05b54", kind: "line" },
+        { label: `Belligerent camps · ${belligerentCampIds.size}`, color: "#ffb06b", kind: "area" },
+        { label: `Outside active wars · ${Math.max(0, camps.length - belligerentCampIds.size)}`, color: "#718078", kind: "dot" },
+      ],
+    };
+  }
+
+  if (mode === "beliefs") {
+    const topBeliefs = beliefs.slice(0, 5);
+    const secularAgents = livingAgents.filter((agent) => !agent.beliefId).length;
+    return {
+      summary: `${beliefs.length} living belief ${beliefs.length === 1 ? "system" : "systems"} · ${secularAgents} secular or unaffiliated agents`,
+      legend: [
+        ...topBeliefs.map((belief) => ({
+          label: `${belief.name} · ${belief.adherentIds.filter((id) => livingAgents.some((agent) => agent.id === id)).length}`,
+          color: belief.color,
+          kind: "area" as const,
+        })),
+        { label: `Secular / unaffiliated · ${secularAgents}`, color: "#8a938d", kind: "dot" },
+      ],
+    };
+  }
+
+  if (mode === "territories") {
+    return {
+      summary: `${camps.length} active camp ${camps.length === 1 ? "territory" : "territories"} · larger fields mark broader control`,
+      legend: [
+        ...camps.slice(0, 5).map((camp) => ({
+          label: `${camp.name} · ${Math.round(camp.territoryRadius)} radius`,
+          color: camp.color,
+          kind: "area" as const,
+        })),
+        ...(camps.length > 5 ? [{ label: `${camps.length - 5} more camps`, color: "#718078", kind: "area" as const }] : []),
+      ],
+    };
+  }
+
+  if (mode === "resources") {
+    const count = (kind: ResourceKind) => world.resources.filter((resource) => resource.kind === kind).length;
+    return {
+      summary: `${world.resources.length} renewable resource sites · brighter rings hold more stock`,
+      legend: [
+        { label: `Food · ${count("food")}`, color: "#f17778" },
+        { label: `Water · ${count("water")}`, color: "#64e2f0" },
+        { label: `Wood · ${count("wood")}`, color: "#8dd277" },
+        { label: `Ore · ${count("ore")}`, color: "#d1dbe4" },
+      ],
+    };
+  }
+
+  return {
+    summary: `${camps.length} camps · ${livingAgents.length} autonomous agents · ${world.resources.length} resource sites`,
+    legend: [
+      { label: `Camps · ${camps.length}`, color: "#c7f36a", kind: "area" },
+      { label: `Agents · ${livingAgents.length}`, color: "#f0f3ec" },
+      { label: `Beliefs · ${beliefs.length}`, color: "#cf9df2", kind: "area" },
+      { label: `Resources · ${world.resources.length}`, color: "#e7b95e" },
+    ],
+  };
+}
+
+function toVisualWorld(
+  world: CivilizationWorldState,
+  selectedBeliefId: string | null = null,
+  overlayMode: MapOverlayMode = "world",
+): VisualWorld {
   const activeCampIds = new Set(world.camps.filter((camp) => camp.active).map((camp) => camp.id));
   const relations = world.relations.map(relationView);
   const beliefById = new Map(world.beliefs.map((belief) => [belief.id, belief]));
@@ -254,6 +383,7 @@ function toVisualWorld(world: CivilizationWorldState, selectedBeliefId: string |
     seed: world.seed,
     elapsed: world.time,
     halfSize: world.map.halfSize || WORLD_HALF_SIZE,
+    overlayMode,
     agents: world.agents.filter((agent) => agent.alive || (agent.deathDay !== null && world.day - agent.deathDay < 1.5)).map((agent) => ({
       id: agent.id,
       name: agent.name,
@@ -347,6 +477,7 @@ function CivilizationCanvas({
   worldRef,
   selection,
   cameraMode,
+  overlayMode,
   onSnapshot,
   onAgentSelect,
   onCampSelect,
@@ -356,6 +487,7 @@ function CivilizationCanvas({
   worldRef: MutableRefObject<CivilizationWorldState>;
   selection: Selection;
   cameraMode: CameraMode;
+  overlayMode: MapOverlayMode;
   onSnapshot(world: CivilizationWorldState): void;
   onAgentSelect(id: string): void;
   onCampSelect(id: string): void;
@@ -365,16 +497,18 @@ function CivilizationCanvas({
   const mountRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef(selection);
   const cameraRef = useRef(cameraMode);
+  const overlayRef = useRef(overlayMode);
 
   useEffect(() => { selectionRef.current = selection; }, [selection]);
   useEffect(() => { cameraRef.current = cameraMode; }, [cameraMode]);
+  useEffect(() => { overlayRef.current = overlayMode; }, [overlayMode]);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
     let controller: ReturnType<typeof createCivilizationScene>;
     try {
-      controller = createCivilizationScene(mount, toVisualWorld(worldRef.current), {
+      controller = createCivilizationScene(mount, toVisualWorld(worldRef.current, null, overlayRef.current), {
         onAgentSelect,
         onCampSelect,
         onBeliefSelect,
@@ -391,7 +525,7 @@ function CivilizationCanvas({
     let publishClock = 0;
     let simulationClock = 0;
     let sourceWorld = worldRef.current;
-    let visualWorld = toVisualWorld(sourceWorld);
+    let visualWorld = toVisualWorld(sourceWorld, null, overlayRef.current);
     const frame = (now: number) => {
       const delta = Math.min(0.1, Math.max(0, (now - previous) / 1_000));
       previous = now;
@@ -402,10 +536,11 @@ function CivilizationCanvas({
       }
       if (sourceWorld !== worldRef.current) {
         sourceWorld = worldRef.current;
-        visualWorld = toVisualWorld(sourceWorld);
+        visualWorld = toVisualWorld(sourceWorld, null, overlayRef.current);
       }
       const active = selectionRef.current;
       visualWorld.selectedBeliefId = active.kind === "belief" ? active.id : null;
+      visualWorld.overlayMode = overlayRef.current;
       controller.update(
         visualWorld,
         active.kind === "agent" ? active.id : null,
@@ -660,6 +795,7 @@ export function SovereigntyExperience() {
   const [selection, setSelection] = useState<Selection>({ kind: "agent", id: initialWorld.agents[0]?.id ?? "" });
   const [rosterMode, setRosterMode] = useState<RosterMode>("powers");
   const [cameraMode, setCameraMode] = useState<CameraMode>("overview");
+  const [mapOverlayMode, setMapOverlayMode] = useState<MapOverlayMode>("world");
   const [eventFilter, setEventFilter] = useState<EventFilter>("all");
   const [chronicleExpanded, setChronicleExpanded] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>("connecting");
@@ -680,6 +816,11 @@ export function SovereigntyExperience() {
   const selectedCamp = selection.kind === "camp" ? hud.camps.find((camp) => camp.id === selection.id) : undefined;
   const selectedBelief = selection.kind === "belief" ? hud.beliefs.find((belief) => belief.id === selection.id) : undefined;
   const accent = selectedAgent?.color ?? selectedCamp?.color ?? selectedBelief?.color ?? topCamp?.color ?? "#c7f36a";
+  const overlayOption = MAP_OVERLAY_OPTIONS.find((option) => option.mode === mapOverlayMode) ?? MAP_OVERLAY_OPTIONS[0];
+  const overlayPresentation = useMemo(
+    () => getOverlayPresentation(mapOverlayMode, hud, rankedCamps, beliefRanking, relationViews),
+    [beliefRanking, hud, mapOverlayMode, rankedCamps, relationViews],
+  );
 
   const publishSnapshot = useCallback((world: CivilizationWorldState) => setHud(world), []);
   const selectAgent = useCallback((id: string) => {
@@ -693,6 +834,7 @@ export function SovereigntyExperience() {
   const selectBelief = useCallback((id: string) => {
     setSelection({ kind: "belief", id });
     setRosterMode("beliefs");
+    setMapOverlayMode("beliefs");
     setCameraMode("overview");
   }, []);
 
@@ -766,7 +908,15 @@ export function SovereigntyExperience() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
+      if (target?.isContentEditable || target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (!event.altKey && !event.ctrlKey && !event.metaKey) {
+        const overlay = MAP_OVERLAY_OPTIONS.find((option) => option.shortcut === event.key);
+        if (overlay) {
+          event.preventDefault();
+          setMapOverlayMode(overlay.mode);
+          return;
+        }
+      }
       if (event.key === "[") cycleSelection(-1, true);
       else if (event.key === "]") cycleSelection(1, true);
       else if (event.key.toLowerCase() === "f" && selection.kind === "agent") setCameraMode("followAgent");
@@ -804,7 +954,7 @@ export function SovereigntyExperience() {
 
   return (
     <main className="sov-shell" style={style}>
-      <CivilizationCanvas worldRef={worldRef} selection={selection} cameraMode={cameraMode} onSnapshot={publishSnapshot} onAgentSelect={selectAgent} onCampSelect={selectCamp} onBeliefSelect={selectBelief} onCameraModeChange={setCameraMode} />
+      <CivilizationCanvas worldRef={worldRef} selection={selection} cameraMode={cameraMode} overlayMode={mapOverlayMode} onSnapshot={publishSnapshot} onAgentSelect={selectAgent} onCampSelect={selectCamp} onBeliefSelect={selectBelief} onCameraModeChange={setCameraMode} />
       <div className="sov-atmosphere" aria-hidden="true" />
 
       <header className="sov-topbar">
@@ -831,6 +981,41 @@ export function SovereigntyExperience() {
       </header>
 
       {topCamp && <div className="sov-leader-ribbon"><Crown size={11} /> #1 {topCamp.name.toUpperCase()} <span>{Math.round(topCamp.power)} power · {topCamp.memberIds.length} citizens · {worldEra(hud)}</span></div>}
+
+      <section className="sov-map-overlays" aria-labelledby="sov-map-layers-title">
+        <div className="sov-map-overlay-head">
+          <span id="sov-map-layers-title"><MapIcon size={11} /> Map layers</span>
+          <strong>{overlayOption.label}</strong>
+        </div>
+        <div className="sov-map-overlay-buttons" role="toolbar" aria-label="Choose a map overlay">
+          {MAP_OVERLAY_OPTIONS.map((option) => {
+            const active = mapOverlayMode === option.mode;
+            return <button
+              key={option.mode}
+              className={active ? "active" : ""}
+              onClick={() => setMapOverlayMode(option.mode)}
+              aria-controls="sov-map-layer-detail"
+              aria-label={`${option.label} map layer. ${option.description}. Keyboard shortcut ${option.shortcut}.`}
+              aria-keyshortcuts={option.shortcut}
+              aria-pressed={active}
+              title={`${option.description} (${option.shortcut})`}
+            >
+              {overlayIcon(option.mode)}
+              <span>{option.label}</span>
+              <kbd aria-hidden="true">{option.shortcut}</kbd>
+            </button>;
+          })}
+        </div>
+        <div className="sov-map-overlay-detail" id="sov-map-layer-detail">
+          <p><strong>{overlayOption.label} layer</strong><span>{overlayPresentation.summary}</span></p>
+          <div className="sov-map-overlay-legend" aria-label={`${overlayOption.label} map legend`}>
+            {overlayPresentation.legend.map((item, index) => <span key={`${item.label}-${index}`}>
+              <i className={item.kind ?? "dot"} style={{ "--layer-color": item.color } as CSSProperties} aria-hidden="true" />
+              {item.label}
+            </span>)}
+          </div>
+        </div>
+      </section>
 
       <aside className="sov-left sov-panel" aria-label="Civilization roster">
         <div className="sov-panel-head"><div><span className="sov-kicker">Power, people & meaning</span><h2>World roster</h2></div><span className="sov-count-chip">{activeCamps}/{MAX_ACTIVE_CAMPS} CAMPS</span></div>
@@ -889,7 +1074,6 @@ export function SovereigntyExperience() {
         </div>
       </section>
 
-      <div className="sov-map-key" aria-hidden="true"><span><i style={{ "--key-color": "#e7b95e" } as CSSProperties} />Food</span><span><i style={{ "--key-color": "#66d7d1" } as CSSProperties} />Water</span><span><i style={{ "--key-color": "#94be75" } as CSSProperties} />Wood</span><span><i style={{ "--key-color": "#b9a8c8" } as CSSProperties} />Ore</span><span><i className="belief" style={{ "--key-color": "#cf9df2" } as CSSProperties} />Sacred site</span></div>
       <div className="sov-screen-reader-status" aria-live="polite">{latestMajor ? `${latestMajor.title}: ${latestMajor.message}` : "Ten founders are establishing independent camps."}</div>
     </main>
   );
