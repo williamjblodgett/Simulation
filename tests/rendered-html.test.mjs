@@ -228,3 +228,25 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
   await access(new URL("../public/og.png", import.meta.url));
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });
+
+test("ships a functional device-local GitHub Pages edition", async () => {
+  const [app, persistence, pageConfig, builtHtml, styles, notFound] = await Promise.all([
+    readFile(new URL("../github-pages/src/App.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../github-pages/src/persistence.ts", import.meta.url), "utf8"),
+    readFile(new URL("../github-pages/vite.config.ts", import.meta.url), "utf8"),
+    readFile(new URL("../github-pages/dist/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../github-pages/src/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../github-pages/public/404.html", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(pageConfig, /base:\s*["']\/Simulation\//);
+  assert.match(app, /createCivilizationScene|getRankedInfluentialAgents|Top influence/i);
+  assert.match(app, /#\/map|#\/archive|#\/history/);
+  assert.match(app, /Saved on this device|catches up when this browser returns/i);
+  assert.match(app, /200 days per chapter|Beliefs and religions|Core values/i);
+  assert.match(persistence, /indexedDB|catchUpCivilization|mergeHistory|saveWorld/i);
+  assert.match(builtHtml, /\/Simulation\/assets\/.+\.js/);
+  assert.match(styles, /min-height:\s*44px|\.overlay-switcher|\.ranking/i);
+  assert.match(notFound, /\/Simulation\//);
+  await access(new URL("../github-pages/dist/.nojekyll", import.meta.url));
+});
