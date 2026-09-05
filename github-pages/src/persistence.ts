@@ -1,6 +1,7 @@
 import {
   catchUpCivilization,
   createCivilizationWorld,
+  getGeneratedCivilizationEvents,
   normalizeCivilizationWorld,
   type CivilizationWorldState,
   type MajorEvent,
@@ -89,10 +90,17 @@ function normalizeRecord(value: unknown, persistence: LoadedWorld["persistence"]
   let world = normalizeCivilizationWorld(raw.world, INITIAL_SEED);
   const elapsedRealSeconds = Math.max(0, (Date.now() - savedAt) / 1_000);
   const caughtUpSeconds = speed > 0 ? elapsedRealSeconds * speed : 0;
-  if (caughtUpSeconds > 0) world = catchUpCivilization(world, caughtUpSeconds);
+  let generatedEvents: readonly MajorEvent[] = [];
+  if (caughtUpSeconds > 0) {
+    world = catchUpCivilization(world, caughtUpSeconds);
+    generatedEvents = getGeneratedCivilizationEvents(world);
+  }
   return {
     world,
-    history: mergeHistory(Array.isArray(raw.history) ? raw.history : [], world.majorEvents),
+    history: mergeHistory(
+      Array.isArray(raw.history) ? raw.history : [],
+      generatedEvents.length > 0 ? generatedEvents : world.majorEvents,
+    ),
     savedAt: Date.now(),
     speed,
     caughtUpSeconds,

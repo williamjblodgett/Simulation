@@ -30,6 +30,7 @@ import {
   Maximize2,
   Minimize2,
   Package,
+  Search,
   ScrollText,
   Shield,
   Sparkles,
@@ -75,6 +76,7 @@ import {
 
 const INITIAL_SEED = 2_846_731;
 const POLL_INTERVAL = 4_000;
+const AGENT_ROSTER_PAGE_SIZE = 50;
 const ROSTER_MODES = ["powers", "agents", "influence", "beliefs"] as const;
 const MAP_OVERLAY_OPTIONS: ReadonlyArray<{
   mode: MapOverlayMode;
@@ -192,6 +194,60 @@ function compactDuration(seconds: number) {
   if (seconds >= 3_600) return `${Math.ceil(seconds / 3_600)}H`;
   if (seconds >= 60) return `${Math.ceil(seconds / 60)}M`;
   return `${Math.ceil(seconds)}S`;
+}
+
+function livingPopulation(world: CivilizationWorldState) {
+  let living = 0;
+  for (const agent of world.agents) {
+    if (agent.alive) living += 1;
+  }
+  return living;
+}
+
+function foregroundSimulationBatch(world: CivilizationWorldState) {
+  const living = livingPopulation(world);
+  if (living >= 700) return FIXED_STEP * 4;
+  if (living >= 300) return FIXED_STEP * 2;
+  return FIXED_STEP;
+}
+
+function authoritativePollInterval(world: CivilizationWorldState) {
+  const living = livingPopulation(world);
+  if (living >= 700) return 12_000;
+  if (living >= 400) return 8_000;
+  return POLL_INTERVAL;
+}
+
+function AgentRosterCard({
+  agent,
+  rank,
+  world,
+  topPower,
+  active,
+  pinned = false,
+  onSelect,
+}: {
+  agent: CivilizationAgent;
+  rank?: number;
+  world: CivilizationWorldState;
+  topPower: number;
+  active: boolean;
+  pinned?: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const rankLabel = rank ? `#${rank}` : "ARCHIVED";
+  const stateLabel = agent.alive ? getActionLabel(agent.action) : "fallen";
+  return <button
+    className={`sov-agent-card ${active ? "active" : ""} ${agent.alive ? "" : "inactive"} ${pinned ? "pinned" : ""}`}
+    style={{ "--card-color": agent.color, "--power-width": `${clamp((agent.personalPower / topPower) * 100)}%` } as CSSProperties}
+    onClick={() => onSelect(agent.id)}
+    aria-pressed={active}
+    aria-label={`${pinned ? "Currently selected agent, outside this result page. " : ""}${rank ? `Power rank ${rank}. ` : "Archived agent. "}${agent.name}, ${getCampName(world, agent.campId)}, ${stateLabel}. Power ${Math.round(agent.personalPower)}.`}
+  >
+    <span className="sov-agent-token">{initials(agent.name)}</span>
+    <span className="sov-card-copy"><span className="sov-card-title">{agent.name}</span><span className="sov-card-meta">{rankLabel} · {getCampName(world, agent.campId)} · {stateLabel}</span></span>
+    <span className="sov-card-value">{compactNumber(agent.personalPower)}<small>POWER</small></span>
+  </button>;
 }
 
 function getCampName(world: CivilizationWorldState, campId: string | null) {
@@ -693,17 +749,23 @@ function CivilizationCanvas({
     let simulationClock = 0;
     let sourceWorld = worldRef.current;
     let visualWorld = toVisualWorld(sourceWorld, null, overlayRef.current);
+    let simulationBatch = foregroundSimulationBatch(sourceWorld);
     const frame = (now: number) => {
       const delta = Math.min(0.1, Math.max(0, (now - previous) / 1_000));
       previous = now;
       simulationClock += delta;
-      if (simulationClock >= FIXED_STEP) {
-        worldRef.current = simulateCivilization(worldRef.current, simulationClock);
-        simulationClock = 0;
-      }
       if (sourceWorld !== worldRef.current) {
         sourceWorld = worldRef.current;
         visualWorld = toVisualWorld(sourceWorld, null, overlayRef.current);
+        simulationBatch = foregroundSimulationBatch(sourceWorld);
+      }
+      if (simulationClock >= simulationBatch) {
+        const elapsed = Math.floor((simulationClock + Number.EPSILON) / FIXED_STEP) * FIXED_STEP;
+        worldRef.current = simulateCivilization(worldRef.current, elapsed);
+        simulationClock = Math.max(0, simulationClock - elapsed);
+        sourceWorld = worldRef.current;
+        visualWorld = toVisualWorld(sourceWorld, null, overlayRef.current);
+        simulationBatch = foregroundSimulationBatch(sourceWorld);
       }
       const active = selectionRef.current;
       visualWorld.selectedBeliefId = active.kind === "belief" ? active.id : null;
@@ -998,6 +1060,8 @@ export function SovereigntyExperience() {
   const [hud, setHud] = useState(initialWorld);
   const [selection, setSelection] = useState<Selection>({ kind: "agent", id: initialWorld.agents[0]?.id ?? "" });
   const [rosterMode, setRosterMode] = useState<RosterMode>("powers");
+  const [agentRosterQuery, setAgentRosterQuery] = useState("");
+  const [agentRosterPage, setAgentRosterPage] = useState(0);
   const [cameraMode, setCameraMode] = useState<CameraMode>("overview");
   const [mapOverlayMode, setMapOverlayMode] = useState<MapOverlayMode>("world");
   const [mapFocus, setMapFocus] = useState(false);
@@ -1024,7 +1088,31 @@ export function SovereigntyExperience() {
   const rankedAgents = useMemo(() => getRankedAgents(hud), [hud]);
   const influentialAgents = useMemo(() => getRankedInfluentialAgents(hud).filter((agent) => agent.alive).slice(0, 10), [hud]);
   const beliefRanking = useMemo(() => getRankedBeliefs(hud).filter((belief) => belief.active), [hud]);
-  const aliveAgents = rankedAgents.filter((agent) => agent.alive);
+  const aliveAgents = useMemo(() => rankedAgents.filter((agent) => agent.alive), [rankedAgents]);
+  const aliveAgentRankById = useMemo(() => new Map(aliveAgents.map((agent, index) => [agent.id, index + 1])), [aliveAgents]);
+  const agentRosterResults = useMemo(() => {
+    const terms = agentRosterQuery.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return aliveAgents;
+    const campNames = new Map(hud.camps.map((camp) => [camp.id, camp.name]));
+    const beliefNames = new Map(hud.beliefs.map((belief) => [belief.id, belief.name]));
+    return aliveAgents.filter((agent) => {
+      const searchable = [
+        agent.name,
+        agent.id,
+        campNames.get(agent.campId ?? "") ?? "unaffiliated",
+        beliefNames.get(agent.beliefId ?? "") ?? "secular",
+        getActionLabel(agent.action),
+        agent.goal,
+        `generation ${agent.generation}`,
+        `gen ${agent.generation}`,
+      ].join(" ").toLocaleLowerCase();
+      return terms.every((term) => searchable.includes(term));
+    });
+  }, [agentRosterQuery, aliveAgents, hud.beliefs, hud.camps]);
+  const agentRosterPageCount = Math.max(1, Math.ceil(agentRosterResults.length / AGENT_ROSTER_PAGE_SIZE));
+  const safeAgentRosterPage = Math.min(agentRosterPage, agentRosterPageCount - 1);
+  const agentRosterPageStart = safeAgentRosterPage * AGENT_ROSTER_PAGE_SIZE;
+  const agentRosterPageAgents = agentRosterResults.slice(agentRosterPageStart, agentRosterPageStart + AGENT_ROSTER_PAGE_SIZE);
   const activeCamps = rankedCamps.length;
   const activeBeliefs = beliefRanking.length;
   const relationViews = useMemo(() => hud.relations.map(relationView), [hud.relations]);
@@ -1048,6 +1136,9 @@ export function SovereigntyExperience() {
   const selectedCamp = selection.kind === "camp" ? hud.camps.find((camp) => camp.id === selection.id) : undefined;
   const selectedBelief = selection.kind === "belief" ? hud.beliefs.find((belief) => belief.id === selection.id) : undefined;
   const familyTreeAgent = familyTreeAgentId ? hud.agents.find((agent) => agent.id === familyTreeAgentId) : undefined;
+  const pinnedRosterAgent = selectedAgent && !agentRosterPageAgents.some((agent) => agent.id === selectedAgent.id)
+    ? selectedAgent
+    : undefined;
   const selectedName = selectedAgent?.name ?? selectedCamp?.name ?? selectedBelief?.name ?? "World observer";
   const selectedContext = selectedAgent
     ? `${getActionLabel(selectedAgent.action)} · ${getCampName(hud, selectedAgent.campId)}`
@@ -1227,15 +1318,18 @@ export function SovereigntyExperience() {
   useEffect(() => {
     let disposed = false;
     let controller: AbortController | undefined;
+    let pollTimer: number | undefined;
     const sync = async () => {
       controller?.abort();
       controller = new AbortController();
+      let nextPollInterval = authoritativePollInterval(worldRef.current);
       try {
         const response = await fetch("/api/world", { cache: "no-store", signal: controller.signal });
         if (!response.ok) throw new Error("World feed unavailable");
         const payload = await response.json() as WorldResponse;
         const world = normalizeCivilizationWorld(payload.world, INITIAL_SEED);
         if (disposed) return;
+        nextPollInterval = authoritativePollInterval(world);
         worldRef.current = world;
         setHud(world);
         setHistory(payload.history?.length ? payload.history : world.majorEvents);
@@ -1279,14 +1373,15 @@ export function SovereigntyExperience() {
         if (!disposed && !(error instanceof DOMException && error.name === "AbortError")) {
           setSyncState("reconnecting");
         }
+      } finally {
+        if (!disposed) pollTimer = window.setTimeout(() => void sync(), nextPollInterval);
       }
     };
     void sync();
-    const interval = window.setInterval(() => void sync(), POLL_INTERVAL);
     return () => {
       disposed = true;
       controller?.abort();
-      window.clearInterval(interval);
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
     };
   }, []);
 
@@ -1574,15 +1669,60 @@ export function SovereigntyExperience() {
               <span className="sov-card-copy"><span className="sov-card-title">{camp.name}</span><span className="sov-card-meta">{camp.memberIds.length} citizens · {camp.technologies.length} tech · {atWar ? "at war" : `${Math.round(percent(camp.cohesion))}% cohesion`}</span></span>
               <span className="sov-card-value">{compactNumber(camp.power)}<small>POWER</small></span>
             </button>;
-          }) : rosterMode === "agents" ? aliveAgents.map((agent, index) => {
-            const active = selection.kind === "agent" && selection.id === agent.id;
-            const topAgentPower = Math.max(1, aliveAgents[0]?.personalPower ?? 1);
-            return <button key={agent.id} className={`sov-agent-card ${active ? "active" : ""} ${agent.alive ? "" : "inactive"}`} style={{ "--card-color": agent.color, "--power-width": `${clamp((agent.personalPower / topAgentPower) * 100)}%` } as CSSProperties} onClick={() => selectAgent(agent.id)} aria-pressed={active}>
-              <span className="sov-agent-token">{initials(agent.name)}</span>
-              <span className="sov-card-copy"><span className="sov-card-title">{agent.name}</span><span className="sov-card-meta">#{index + 1} · {getCampName(hud, agent.campId)} · {agent.alive ? getActionLabel(agent.action) : "fallen"}</span></span>
-              <span className="sov-card-value">{compactNumber(agent.personalPower)}<small>POWER</small></span>
-            </button>;
-          }) : rosterMode === "influence" ? influentialAgents.map((agent, index) => {
+          }) : rosterMode === "agents" ? <div className="sov-agent-browser">
+            <div className="sov-agent-tools">
+              <div className="sov-agent-search">
+                <label className="sr-only" htmlFor="sov-agent-search">Search living agents by name, camp, belief, action, or generation</label>
+                <Search size={14} aria-hidden="true" />
+                <input
+                  id="sov-agent-search"
+                  type="search"
+                  value={agentRosterQuery}
+                  onChange={(event) => {
+                    setAgentRosterQuery(event.target.value);
+                    setAgentRosterPage(0);
+                  }}
+                  placeholder="Search 1,000 agents"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {agentRosterQuery && <button type="button" onClick={() => { setAgentRosterQuery(""); setAgentRosterPage(0); }} aria-label="Clear agent search"><X size={13} /></button>}
+              </div>
+              <div className="sov-agent-result-count" role="status" aria-live="polite">
+                <span>{agentRosterResults.length === 0 ? "0 matches" : `${agentRosterPageStart + 1}–${Math.min(agentRosterPageStart + AGENT_ROSTER_PAGE_SIZE, agentRosterResults.length)} of ${agentRosterResults.length}`}</span>
+                <span>{aliveAgents.length} living · page {safeAgentRosterPage + 1}/{agentRosterPageCount}</span>
+              </div>
+              <nav className="sov-agent-pagination" aria-label="Agent roster pages">
+                <button type="button" onClick={() => setAgentRosterPage(Math.max(0, safeAgentRosterPage - 1))} disabled={safeAgentRosterPage === 0} aria-label="Previous agent page"><ChevronLeft size={14} /><span>Previous</span></button>
+                <span aria-hidden="true">{safeAgentRosterPage + 1} / {agentRosterPageCount}</span>
+                <button type="button" onClick={() => setAgentRosterPage(Math.min(agentRosterPageCount - 1, safeAgentRosterPage + 1))} disabled={safeAgentRosterPage >= agentRosterPageCount - 1} aria-label="Next agent page"><span>Next</span><ChevronRight size={14} /></button>
+              </nav>
+            </div>
+            {pinnedRosterAgent && <div className="sov-agent-pinned">
+              <span><Eye size={10} /> Selected {pinnedRosterAgent.alive ? "outside this page" : "from the archive"}</span>
+              <AgentRosterCard
+                agent={pinnedRosterAgent}
+                rank={aliveAgentRankById.get(pinnedRosterAgent.id)}
+                world={hud}
+                topPower={Math.max(1, aliveAgents[0]?.personalPower ?? 1)}
+                active
+                pinned
+                onSelect={selectAgent}
+              />
+            </div>}
+            <div className="sov-agent-page" aria-label={`Agent results page ${safeAgentRosterPage + 1} of ${agentRosterPageCount}`}>
+              {agentRosterPageAgents.map((agent) => <AgentRosterCard
+                key={agent.id}
+                agent={agent}
+                rank={aliveAgentRankById.get(agent.id)}
+                world={hud}
+                topPower={Math.max(1, aliveAgents[0]?.personalPower ?? 1)}
+                active={selection.kind === "agent" && selection.id === agent.id}
+                onSelect={selectAgent}
+              />)}
+              {agentRosterPageAgents.length === 0 && <div className="sov-empty sov-agent-empty"><Search size={15} /><span>No living agents match “{agentRosterQuery.trim()}”. The selected agent remains pinned above when available.</span></div>}
+            </div>
+          </div> : rosterMode === "influence" ? influentialAgents.map((agent, index) => {
             const active = selection.kind === "agent" && selection.id === agent.id;
             const influenceScore = agent.influence + agent.spiritualInfluence;
             const topInfluence = Math.max(1, (influentialAgents[0]?.influence ?? 0) + (influentialAgents[0]?.spiritualInfluence ?? 0));

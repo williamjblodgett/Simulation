@@ -192,6 +192,37 @@ function eventLabel(type: string) {
   return labels[type] ?? type.replaceAll("_", " ");
 }
 
+function eraChanges(chapter: HistoryChapter, previous: HistoryChapter) {
+  const categoryWeight: Record<string, number> = {
+    camp_founded: 5, camp_destroyed: 5, camp_captured: 5, defection: 5, join: 5,
+    breakaway: 5, coup: 5, alliance: 5, truce: 5, war: 5, peace: 5,
+    leadership_change: 5, power_lead_change: 5, tech_unlocked: 4.5,
+    belief_founded: 4, belief_conversion_wave: 4, belief_schism: 4,
+    belief_reformed: 4, belief_rejected: 4, belief_faded: 4, shrine_built: 4,
+    agent_renamed: 2.5, camp_renamed: 2.5, birth: 1, death: 1,
+  };
+  const types = new Set([
+    ...Object.keys(chapter.typeCounts),
+    ...Object.keys(previous.typeCounts),
+  ]);
+  return [...types]
+    .map((type) => {
+      const current = chapter.typeCounts[type] ?? 0;
+      const prior = previous.typeCounts[type] ?? 0;
+      return { type, current, previous: prior, delta: current - prior };
+    })
+    .filter(({ delta }) => delta !== 0)
+    .sort((left, right) => {
+      const leftScore = (categoryWeight[left.type] ?? 1.5) * Math.abs(left.delta) / Math.max(1, left.current, left.previous);
+      const rightScore = (categoryWeight[right.type] ?? 1.5) * Math.abs(right.delta) / Math.max(1, right.current, right.previous);
+      return rightScore - leftScore
+      || Math.abs(right.delta) - Math.abs(left.delta)
+      || right.delta - left.delta
+      || left.type.localeCompare(right.type);
+    })
+    .slice(0, 4);
+}
+
 function readHistoryParam(name: string, fallback = "") {
   if (typeof window === "undefined") return fallback;
   return new URLSearchParams(window.location.search).get(name) ?? fallback;
@@ -369,8 +400,9 @@ function NotablePeople({ chapter, historyIndex, query }: { chapter: HistoryChapt
   </div>;
 }
 
-function ChapterArticle({ chapter, historyIndex, query, category, focusDay }: {
+function ChapterArticle({ chapter, previous, historyIndex, query, category, focusDay }: {
   chapter: HistoryChapter;
+  previous?: HistoryChapter;
   historyIndex: HistoryIndex;
   query: string;
   category: HistoryCategoryFilter;
@@ -397,6 +429,19 @@ function ChapterArticle({ chapter, historyIndex, query, category, focusDay }: {
   const beliefRecords = filterRecords(chapter.beliefHighlights);
   const identityRecords = filterRecords(chapter.identityHighlights);
   const show = (target: HistoryCategoryFilter) => category === "all" || category === target;
+  const changes = previous ? eraChanges(chapter, previous) : [];
+  const advancementEmpty = chapter.categoryCounts.advancement > 0 && chapter.advancementHighlights.length === 0
+    ? "The era's advancement record is already represented among its defining moments."
+    : "No advancement was completed during these days.";
+  const geopoliticalEmpty = chapter.categoryCounts.geopolitical > 0 && chapter.geopoliticalHighlights.length === 0
+    ? "The era's geopolitical record is already represented among its defining moments."
+    : "No territorial or diplomatic upheaval was recorded.";
+  const beliefEmpty = chapter.categoryCounts.belief > 0 && chapter.beliefHighlights.length === 0
+    ? "The era's belief record is already represented among its defining moments."
+    : "No major religious or belief-system change was recorded.";
+  const identityEmpty = chapter.categoryCounts.identity > 0 && chapter.identityHighlights.length === 0
+    ? "The era's naming record is already represented among its defining moments."
+    : "No agent or territory chose a new name during these days.";
 
   return <article className="history-chapter" aria-labelledby="history-chapter-title">
     <header className="history-chapter-cover">
@@ -422,13 +467,24 @@ function ChapterArticle({ chapter, historyIndex, query, category, focusDay }: {
       <ChapterStat icon={<Sparkles />} label="Belief change" value={faithChanges} note={`${chapter.categoryCounts.belief} belief records`} />
     </section>
 
-    {show("defining") && <HistoryDetails className="history-defining" icon={<Crown />} eyebrow="Ranked by consequence" title="The defining record" count={definingRecords.length}>
+    {previous && <section className="history-ledger-notes" aria-labelledby="history-comparison-title">
+      <SectionHeading id="history-comparison-title" icon={<GitBranch />} eyebrow={`Against Chapter ${roman(previous.index)}`} title="How this era changed" />
+      {changes.length > 0 ? <dl>
+        {changes.map((change) => <div key={change.type}>
+          <dt>{eventLabel(change.type)}</dt>
+          <dd title={`${change.current} records in this chapter; ${change.previous} in Chapter ${previous.index}`}>{change.delta > 0 ? "+" : "−"}{Math.abs(change.delta)}</dd>
+        </div>)}
+      </dl> : <p>No event-type total differs from the preceding chapter.</p>}
+      <p>{chapter.complete ? "Each figure is" : "Because this chapter is still being written, each figure is currently"} the number of records above or below Days {previous.startDay}–{previous.endDay}. Exact totals remain in the ledger below.</p>
+    </section>}
+
+    {show("defining") && <HistoryDetails className="history-defining" icon={<Crown />} eyebrow="Ranked by consequence and distinctiveness" title="Defining moments" count={definingRecords.length}>
       <RecordList events={definingRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No defining moment matches this search." : "No major moment has been written into this chapter yet."} />
     </HistoryDetails>}
 
     {(show("advancement") || show("geopolitical")) && <div className="history-columns">
       {show("advancement") && <HistoryDetails className="history-column" icon={<Wrench />} eyebrow="Knowledge & works" title="Advancements" count={advancementRecords.length}>
-        <RecordList compact events={advancementRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No advancement matches this search." : "No advancement was completed during these days."} />
+        <RecordList compact events={advancementRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No advancement matches this search." : advancementEmpty} />
       </HistoryDetails>}
       {show("geopolitical") && <HistoryDetails className="history-column" icon={<Landmark />} eyebrow="Territory & diplomacy" title="Powers in motion" count={geopoliticalRecords.length}>
         <div className="history-ledger" aria-label="Geopolitical totals">
@@ -437,20 +493,20 @@ function ChapterArticle({ chapter, historyIndex, query, category, focusDay }: {
           <span><small>Wars declared</small><b>{wars}</b></span>
           <span><small>Accords made</small><b>{accords}</b></span>
         </div>
-        <RecordList compact events={geopoliticalRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No geopolitical record matches this search." : "No territorial or diplomatic upheaval was recorded."} />
+        <RecordList compact events={geopoliticalRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No geopolitical record matches this search." : geopoliticalEmpty} />
       </HistoryDetails>}
     </div>}
 
     {(show("belief") || show("identity")) && <div className="history-columns history-secondary-columns">
       {show("belief") && <HistoryDetails className="history-column" icon={<Sparkles />} eyebrow="Ideas & conviction" title="Belief and public life" count={beliefRecords.length}>
-        <RecordList compact events={beliefRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No belief record matches this search." : "No major religious or belief-system change was recorded."} />
+        <RecordList compact events={beliefRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No belief record matches this search." : beliefEmpty} />
       </HistoryDetails>}
       {show("identity") && <HistoryDetails className="history-column history-identity" icon={<Feather />} eyebrow="Chosen identities" title="The changing names" count={identityRecords.length}>
         <div className="history-name-totals">
           <span><b>{chapter.humanImpact.agentRenamings}</b> agent self-{chapter.humanImpact.agentRenamings === 1 ? "naming" : "namings"}</span>
           <span><b>{territoryRenamings}</b> territory {territoryRenamings === 1 ? "renamed" : "renamings"}</span>
         </div>
-        <RecordList compact events={identityRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No identity record matches this search." : "No agent or territory chose a new name during these days."} />
+        <RecordList compact events={identityRecords} historyIndex={historyIndex} focusDay={focusDay} empty={query ? "No identity record matches this search." : identityEmpty} />
       </HistoryDetails>}
     </div>}
 
@@ -697,7 +753,7 @@ export function HistoryBook() {
       </nav>
 
       <p className="sr-only" role="status" aria-live="polite">Reading chapter {chapter.index}: {chapter.title}, days {chapter.startDay} through {chapter.endDay}.</p>
-      <ChapterArticle chapter={chapter} historyIndex={historyIndex} query={historyQuery} category={category} focusDay={focusDay} />
+      <ChapterArticle chapter={chapter} previous={previous} historyIndex={historyIndex} query={historyQuery} category={category} focusDay={focusDay} />
 
       <nav className="history-end-pager" aria-label="Continue reading">
         {previous ? <button type="button" onClick={() => chooseChapter(previous.index)}><ArrowLeft /><span><small>Previous</small><b>{previous.title}</b></span></button> : <span />}

@@ -184,6 +184,16 @@ interface AgentVisual {
   phase: number;
 }
 
+interface InstancedPopulationVisual {
+  root: THREE.Group;
+  body: THREE.InstancedMesh<THREE.CapsuleGeometry, THREE.MeshStandardMaterial>;
+  head: THREE.InstancedMesh<THREE.IcosahedronGeometry, THREE.MeshStandardMaterial>;
+  beliefHalo: THREE.InstancedMesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  agentIds: VisualId[];
+  beliefAgentIds: VisualId[];
+  capacity: number;
+}
+
 interface ResourceVisual {
   root: THREE.Group;
   kind: VisualResourceKind;
@@ -278,6 +288,11 @@ const DEFAULT_HALF_SIZE = 70;
 const EDGE_INSET = 1.4;
 const DAY_LENGTH_SECONDS = 300;
 const TAU = Math.PI * 2;
+// Rich actors use several independently animated meshes and a canvas label. Keep
+// that cost fixed while the remainder of a 1,000-person world shares three draws.
+const MAX_DETAILED_AGENTS = 32;
+const INFLUENTIAL_DETAILED_AGENTS = 18;
+const INITIAL_POPULATION_INSTANCE_CAPACITY = 64;
 
 const MAP_OVERLAY_MODES: readonly MapOverlayMode[] = [
   "world",
@@ -1372,6 +1387,77 @@ function applyCampState(visual: CampVisual, camp: VisualCamp, profile: TerrainPr
   visual.color = camp.color;
 }
 
+function makeInstancedPopulation(capacity: number): InstancedPopulationVisual {
+  const safeCapacity = Math.max(INITIAL_POPULATION_INSTANCE_CAPACITY, Math.ceil(capacity));
+  const root = new THREE.Group();
+  root.name = "instanced-population";
+
+  const body = new THREE.InstancedMesh(
+    new THREE.CapsuleGeometry(0.31, 0.7, 4, 7),
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.48,
+      metalness: 0.08,
+      transparent: true,
+    }),
+    safeCapacity,
+  );
+  body.name = "instanced-agent-bodies";
+  body.count = 0;
+  body.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  body.castShadow = false;
+  body.receiveShadow = false;
+  body.frustumCulled = false;
+  root.add(body);
+
+  const head = new THREE.InstancedMesh(
+    new THREE.IcosahedronGeometry(0.275, 1),
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.72,
+      transparent: true,
+    }),
+    safeCapacity,
+  );
+  head.name = "instanced-agent-heads";
+  head.count = 0;
+  head.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  head.castShadow = false;
+  head.receiveShadow = false;
+  head.frustumCulled = false;
+  root.add(head);
+
+  const beliefHalo = new THREE.InstancedMesh(
+    new THREE.RingGeometry(0.75, 0.82, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+    safeCapacity,
+  );
+  beliefHalo.name = "instanced-agent-belief-halos";
+  beliefHalo.count = 0;
+  beliefHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  beliefHalo.castShadow = false;
+  beliefHalo.receiveShadow = false;
+  beliefHalo.frustumCulled = false;
+  beliefHalo.renderOrder = 7;
+  root.add(beliefHalo);
+
+  return {
+    root,
+    body,
+    head,
+    beliefHalo,
+    agentIds: [],
+    beliefAgentIds: [],
+    capacity: safeCapacity,
+  };
+}
+
 function makeAgent(agent: VisualAgent, profile: TerrainProfile): AgentVisual {
   const color = safeColor(agent.color);
   const root = new THREE.Group();
@@ -2150,7 +2236,7 @@ export function createCivilizationScene(
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.domElement.style.display = "block";
   renderer.domElement.style.width = "100%";
   renderer.domElement.style.height = "100%";
@@ -2200,6 +2286,8 @@ export function createCivilizationScene(
   let staticWorld = makeStaticWorld(activeProfile);
   scene.add(staticWorld.root);
   const agentVisuals = new Map<VisualId, AgentVisual>();
+  let instancedPopulation = makeInstancedPopulation(INITIAL_POPULATION_INSTANCE_CAPACITY);
+  scene.add(instancedPopulation.root);
   const resourceVisuals = new Map<VisualId, ResourceVisual>();
   const campVisuals = new Map<VisualId, CampVisual>();
   const beliefVisuals = new Map<VisualId, BeliefVisual>();
@@ -2211,6 +2299,9 @@ export function createCivilizationScene(
   const desiredTarget = new THREE.Vector3();
   const connectionFrom = new THREE.Vector3();
   const connectionTo = new THREE.Vector3();
+  const instanceTransform = new THREE.Object3D();
+  const instanceColor = new THREE.Color();
+  const instanceAccentColor = new THREE.Color();
 
   const configureShadowCamera = () => {
     const extent = Math.min(82, activeProfile.halfSize * 0.9);
@@ -2283,15 +2374,175 @@ export function createCivilizationScene(
     });
   };
 
+  const ensureInstancedPopulationCapacity = (required: number) => {
+    if (required <= instancedPopulation.capacity) return;
+    let nextCapacity = instancedPopulation.capacity;
+    while (nextCapacity < required) nextCapacity *= 2;
+    scene.remove(instancedPopulation.root);
+    disposeObject(instancedPopulation.root);
+    instancedPopulation = makeInstancedPopulation(nextCapacity);
+    scene.add(instancedPopulation.root);
+  };
+
+  const chooseDetailedAgentIds = (agents: VisualAgent[]) => {
+    const byId = new Map(agents.map((agent) => [agent.id, agent] as const));
+    const chosen = new Set<VisualId>();
+    const selected = selectedAgentId ? byId.get(selectedAgentId) : undefined;
+    if (selected) chosen.add(selected.id);
+
+    const living = agents.filter((agent) => agent.alive && agent.id !== selectedAgentId);
+    living
+      .slice()
+      .sort((left, right) => finite(right.power) - finite(left.power) || left.id.localeCompare(right.id))
+      .slice(0, INFLUENTIAL_DETAILED_AGENTS)
+      .forEach((agent) => chosen.add(agent.id));
+
+    // Preserve already-created actors before filling nearby slots. This avoids
+    // churning canvas labels when agents cross a nearest-neighbour boundary.
+    agentVisuals.forEach((_visual, id) => {
+      if (chosen.size >= MAX_DETAILED_AGENTS) return;
+      if (byId.get(id)?.alive) chosen.add(id);
+    });
+
+    const focusX = selected
+      ? sceneCoordinate(selected.position.x, activeProfile.halfSize)
+      : cameraTarget.x;
+    const focusZ = selected
+      ? sceneCoordinate(selected.position.z, activeProfile.halfSize)
+      : cameraTarget.z;
+    if (chosen.size < MAX_DETAILED_AGENTS) {
+      living
+        .filter((agent) => !chosen.has(agent.id))
+        .map((agent) => ({
+          agent,
+          distance: (
+            Math.pow(sceneCoordinate(agent.position.x, activeProfile.halfSize) - focusX, 2)
+            + Math.pow(sceneCoordinate(agent.position.z, activeProfile.halfSize) - focusZ, 2)
+          ),
+        }))
+        .sort((left, right) => left.distance - right.distance || right.agent.power - left.agent.power)
+        .slice(0, MAX_DETAILED_AGENTS - chosen.size)
+        .forEach(({ agent }) => chosen.add(agent.id));
+    }
+    return chosen;
+  };
+
+  const syncInstancedAgents = (agents: VisualAgent[], detailedIds: Set<VisualId>) => {
+    const instancedAgents = agents.filter((agent) => !detailedIds.has(agent.id));
+    ensureInstancedPopulationCapacity(instancedAgents.length);
+    const population = instancedPopulation;
+    population.agentIds.length = 0;
+    population.beliefAgentIds.length = 0;
+
+    const isWorldOverlay = activeOverlayMode === "world";
+    const isBeliefOverlay = activeOverlayMode === "beliefs";
+    const overlayOpacity = isWorldOverlay
+      ? 1
+      : isBeliefOverlay
+        ? 0.82
+        : activeOverlayMode === "wars"
+          ? 0.62
+          : 0.44;
+    population.body.material.opacity = overlayOpacity;
+    population.head.material.opacity = overlayOpacity;
+    population.beliefHalo.material.opacity = isBeliefOverlay ? 0.66 : 0.28;
+
+    let beliefIndex = 0;
+    instancedAgents.forEach((agent, index) => {
+      const x = sceneCoordinate(agent.position.x, activeProfile.halfSize);
+      const z = sceneCoordinate(agent.position.z, activeProfile.halfSize);
+      const ground = terrainHeight(x, z, activeProfile);
+      const ageScale = agent.adult
+        ? clamp(0.88 + Math.min(Math.max(finite(agent.age), 0), 80) / 900, 0.88, 0.99)
+        : clamp(0.54 + Math.max(finite(agent.age), 0) / 85, 0.54, 0.8);
+      const healthRatio = clamp(finite(agent.health, 100), 0, 100) / 100;
+      const alive = Boolean(agent.alive);
+      const facing = Math.atan2(finite(agent.velocity.x), finite(agent.velocity.z, 1));
+
+      instanceTransform.position.set(x, ground + (alive ? 0.79 : 0.31) * ageScale, z);
+      instanceTransform.rotation.set(0, facing, alive ? 0 : Math.PI / 2);
+      instanceTransform.scale.setScalar(ageScale);
+      instanceTransform.updateMatrix();
+      population.body.setMatrixAt(index, instanceTransform.matrix);
+
+      instanceTransform.position.y = ground + (alive ? 1.43 : 0.38) * ageScale;
+      instanceTransform.updateMatrix();
+      population.head.setMatrixAt(index, instanceTransform.matrix);
+
+      instanceColor.copy(safeColor(agent.color)).multiplyScalar(0.56 + healthRatio * 0.44);
+      if (isBeliefOverlay) {
+        if (agent.beliefId && agent.beliefColor) {
+          instanceColor.lerp(safeColor(agent.beliefColor, 0xb89cff), 0.42);
+          if (selectedBeliefId && agent.beliefId !== selectedBeliefId) instanceColor.multiplyScalar(0.56);
+          if (selectedBeliefId === agent.beliefId) instanceColor.lerp(instanceAccentColor.set(0xffffff), 0.13);
+        } else {
+          instanceColor.lerp(instanceAccentColor.set(0x59635e), 0.72).multiplyScalar(0.58);
+        }
+      } else if (!isWorldOverlay) {
+        instanceColor.multiplyScalar(activeOverlayMode === "wars" ? 0.82 : 0.66);
+      }
+      if (!alive) instanceColor.multiplyScalar(0.28);
+      population.body.setColorAt(index, instanceColor);
+
+      const skinVariation = hashString(agent.id);
+      instanceAccentColor.setHSL(
+        0.075 + skinVariation * 0.035,
+        0.2 + skinVariation * 0.09,
+        0.59 + skinVariation * 0.11,
+      );
+      if (isBeliefOverlay && !agent.beliefId) instanceAccentColor.multiplyScalar(0.58);
+      if (!alive) instanceAccentColor.multiplyScalar(0.3);
+      population.head.setColorAt(index, instanceAccentColor);
+      population.agentIds.push(agent.id);
+
+      if (
+        alive
+        && agent.beliefId
+        && agent.beliefColor
+        && (isWorldOverlay || isBeliefOverlay)
+      ) {
+        const conviction = clamp(finite(agent.conviction), 0, 1);
+        const haloScale = (0.88 + conviction * 0.28) * (isBeliefOverlay ? 1.18 : 1);
+        instanceTransform.position.set(x, ground + 0.07, z);
+        instanceTransform.rotation.set(-Math.PI / 2, 0, 0);
+        instanceTransform.scale.setScalar(haloScale);
+        instanceTransform.updateMatrix();
+        population.beliefHalo.setMatrixAt(beliefIndex, instanceTransform.matrix);
+        instanceColor.copy(safeColor(agent.beliefColor, 0xb89cff));
+        if (selectedBeliefId && agent.beliefId !== selectedBeliefId) instanceColor.multiplyScalar(0.46);
+        if (selectedBeliefId === agent.beliefId) instanceColor.lerp(instanceAccentColor.set(0xffffff), 0.18);
+        population.beliefHalo.setColorAt(beliefIndex, instanceColor);
+        population.beliefAgentIds.push(agent.id);
+        beliefIndex += 1;
+      }
+    });
+
+    population.body.count = instancedAgents.length;
+    population.head.count = instancedAgents.length;
+    population.beliefHalo.count = beliefIndex;
+    population.body.instanceMatrix.needsUpdate = true;
+    population.head.instanceMatrix.needsUpdate = true;
+    population.beliefHalo.instanceMatrix.needsUpdate = true;
+    // InstancedMesh caches its aggregate raycast bounds. Invalidate them after
+    // moves so a formerly outlying agent remains exactly selectable.
+    population.body.boundingSphere = null;
+    population.head.boundingSphere = null;
+    population.beliefHalo.boundingSphere = null;
+    if (population.body.instanceColor) population.body.instanceColor.needsUpdate = true;
+    if (population.head.instanceColor) population.head.instanceColor.needsUpdate = true;
+    if (population.beliefHalo.instanceColor) population.beliefHalo.instanceColor.needsUpdate = true;
+  };
+
   const syncAgents = (agents: VisualAgent[], immediate: boolean) => {
-    const incoming = new Set(agents.map((agent) => agent.id));
+    const detailedIds = chooseDetailedAgentIds(agents);
     agentVisuals.forEach((visual, id) => {
-      if (incoming.has(id)) return;
+      if (detailedIds.has(id)) return;
       scene.remove(visual.root);
       disposeObject(visual.root);
       agentVisuals.delete(id);
     });
     agents.forEach((agent) => {
+      if (!detailedIds.has(agent.id)) return;
       let visual = agentVisuals.get(agent.id);
       let created = false;
       if (!visual) {
@@ -2309,6 +2560,7 @@ export function createCivilizationScene(
         );
       }
     });
+    syncInstancedAgents(agents, detailedIds);
   };
 
   const syncResources = (resources: VisualResource[], immediate: boolean) => {
@@ -3070,9 +3322,17 @@ export function createCivilizationScene(
   const objectAtPointer = (event: PointerEvent) => {
     if (!setRayFromPointer(event)) return { agentId: null, campId: null, beliefId: null, relation: null };
     const agentTargets = Array.from(agentVisuals.values()).flatMap((visual) => [visual.body, visual.head]);
-    const agentHit = raycaster.intersectObjects(agentTargets, false)[0];
+    const agentHit = raycaster.intersectObjects(
+      [...agentTargets, instancedPopulation.body, instancedPopulation.head],
+      false,
+    )[0];
     if (agentHit) {
-      return { agentId: agentHit.object.userData.agentId as VisualId, campId: null, beliefId: null, relation: null };
+      const isPopulationInstance = agentHit.object === instancedPopulation.body
+        || agentHit.object === instancedPopulation.head;
+      const agentId = isPopulationInstance && agentHit.instanceId !== undefined
+        ? instancedPopulation.agentIds[agentHit.instanceId] ?? null
+        : agentHit.object.userData.agentId as VisualId | null;
+      if (agentId) return { agentId, campId: null, beliefId: null, relation: null };
     }
     const beliefTargets = Array.from(beliefVisuals.values()).map((visual) => visual.hitTarget);
     const beliefHit = raycaster.intersectObjects(beliefTargets, false)[0];

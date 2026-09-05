@@ -11,6 +11,7 @@ import {
   catchUpCivilization,
   createCivilizationWorld,
   getCivilizationSummary,
+  getGeneratedCivilizationEvents,
   getRankedBeliefs,
   getRankedCamps,
   getRankedInfluentialAgents,
@@ -48,6 +49,8 @@ const OVERLAYS: Array<{ id: MapOverlayMode; label: string }> = [
   { id: "resources", label: "Resources" },
 ];
 
+const AGENT_BROWSER_PAGE_SIZE = 40;
+
 const EVENT_WEIGHT: Record<string, number> = {
   world_started: 9, camp_founded: 9, camp_destroyed: 10, camp_captured: 10,
   breakaway: 9, coup: 9, war: 8, peace: 7, alliance: 7, tech_unlocked: 8,
@@ -70,6 +73,121 @@ function titleCase(value: string) {
 
 function importance(event: MajorEvent) {
   return (EVENT_WEIGHT[event.type] ?? 4) + (event.tone === "critical" ? 3 : event.tone === "warning" ? 2 : 0);
+}
+
+type ChapterMeasure = {
+  births: number;
+  deaths: number;
+  wars: number;
+  advances: number;
+  political: number;
+  beliefs: number;
+  identity: number;
+};
+
+function chapterMeasure(events: readonly MajorEvent[]): ChapterMeasure {
+  const count = (...types: string[]) => events.filter((event) => types.includes(event.type)).length;
+  return {
+    births: count("birth"),
+    deaths: count("death"),
+    wars: count("war"),
+    advances: count("tech_unlocked", "shrine_built"),
+    political: count("camp_founded", "camp_destroyed", "camp_captured", "breakaway", "coup", "defection", "alliance", "peace", "truce", "power_lead_change"),
+    beliefs: count("belief_founded", "belief_conversion_wave", "belief_schism", "belief_reformed", "belief_rejected", "belief_faded"),
+    identity: count("agent_renamed", "camp_renamed", "leadership_change"),
+  };
+}
+
+function eventFingerprint(event: MajorEvent): string {
+  const camps = [...event.campIds].sort().join("+");
+  const beliefs = [...event.beliefIds].sort().join("+");
+  const agents = [...event.agentIds].sort().slice(0, 2).join("+");
+  if (["war", "peace", "alliance", "truce"].includes(event.type)) {
+    return `diplomacy:${camps}`;
+  }
+  if (["belief_conversion_wave", "belief_reformed", "belief_schism", "belief_rejected", "belief_faded"].includes(event.type)) {
+    return `belief:${beliefs || camps}`;
+  }
+  if (["leadership_change", "coup", "camp_captured", "camp_destroyed", "camp_renamed"].includes(event.type)) {
+    return `power:${camps}`;
+  }
+  if (event.type === "agent_renamed") return `identity:${agents}`;
+  return `${event.type}:${camps || beliefs || agents || event.title.toLowerCase().replace(/\W+/g, " ").trim()}`;
+}
+
+function selectDiverseMoments(
+  events: readonly MajorEvent[],
+  previousFingerprints: ReadonlySet<string> = new Set(),
+  limit = 5,
+): MajorEvent[] {
+  const ranked = [...events].sort((left, right) => importance(right) - importance(left) || right.day - left.day || left.id.localeCompare(right.id));
+  const selected: MajorEvent[] = [];
+  const typeCounts = new Map<string, number>();
+  const fingerprints = new Set<string>();
+
+  // Prefer developments this era did not simply inherit from the last one.
+  for (const allowRecurrence of [false, true]) {
+    for (const event of ranked) {
+      if (selected.some((candidate) => candidate.id === event.id)) continue;
+      const typeCount = typeCounts.get(event.type) ?? 0;
+      const fingerprint = eventFingerprint(event);
+      if (typeCount >= 2 || fingerprints.has(fingerprint)) continue;
+      if (!allowRecurrence && previousFingerprints.has(fingerprint)) continue;
+      selected.push(event);
+      typeCounts.set(event.type, typeCount + 1);
+      fingerprints.add(fingerprint);
+      if (selected.length >= limit) break;
+    }
+    if (selected.length >= limit) break;
+  }
+
+  return selected.sort((left, right) => left.day - right.day || left.id.localeCompare(right.id));
+}
+
+function chapterTheme(index: number, moments: readonly MajorEvent[], measure: ChapterMeasure): string {
+  if (index === 1) return "The First Claims";
+  const defining = moments.slice().sort((left, right) => importance(right) - importance(left))[0];
+  if (defining && !["birth", "death"].includes(defining.type)) {
+    return defining.title;
+  }
+  if (defining?.type === "camp_captured" || defining?.type === "camp_destroyed") return "Borders Redrawn";
+  if (defining?.type === "breakaway" || defining?.type === "camp_founded") return "New Powers Rising";
+  if (defining?.type === "belief_schism" || defining?.type === "belief_reformed") return "Convictions Divided";
+  if (defining?.type === "belief_founded" || measure.beliefs > Math.max(measure.wars, measure.advances)) return "New Convictions";
+  if (defining?.type === "tech_unlocked" || measure.advances > Math.max(measure.wars, measure.beliefs)) return "An Age of Invention";
+  if (defining?.type === "coup" || defining?.type === "power_lead_change") return "The Contest for Power";
+  if (measure.wars > 0) return "The Years of Conflict";
+  if (measure.identity > measure.political) return "Names and Leaders Remade";
+  return "Generations in Motion";
+}
+
+function chapterSynopsis(
+  start: number,
+  end: number,
+  events: readonly MajorEvent[],
+  moments: readonly MajorEvent[],
+  measure: ChapterMeasure,
+  previous?: ChapterMeasure,
+): string {
+  if (events.length === 0) return `Days ${start}–${end} remain a quiet part of the surviving record.`;
+  const measures: Array<[keyof ChapterMeasure, string]> = [
+    ["political", "political upheaval"],
+    ["wars", "open conflict"],
+    ["advances", "advancement"],
+    ["beliefs", "belief change"],
+    ["identity", "changes of name and leadership"],
+  ];
+  const dominant = measures.sort((left, right) => measure[right[0]] - measure[left[0]])[0];
+  const comparison = previous
+    ? measures
+        .map(([key, label]) => ({ label, delta: measure[key] - previous[key] }))
+        .sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta) || left.label.localeCompare(right.label))[0]
+    : null;
+  const change = comparison && comparison.delta !== 0
+    ? ` Compared with the prior chapter, ${comparison.label} ${comparison.delta > 0 ? "rose" : "fell"} by ${Math.abs(comparison.delta)} recorded event${Math.abs(comparison.delta) === 1 ? "" : "s"}.`
+    : "";
+  const turningPoint = moments.slice().sort((left, right) => importance(right) - importance(left))[0];
+  return `Across Days ${start}–${end}, the ledger records ${events.length} major events; ${dominant?.[1] ?? "daily survival"} defined the era. ${measure.births} people were born and ${measure.deaths} died.${change}${turningPoint ? ` Its clearest turning point was “${turningPoint.title}.”` : ""}`;
 }
 
 function campName(world: CivilizationWorldState, id: string | null) {
@@ -216,21 +334,149 @@ function BeliefInspector({ belief, world }: { belief: CivilizationBeliefSystem; 
   </div>;
 }
 
+function AgentBrowserRow({
+  agent,
+  world,
+  rank,
+  selected,
+  pinned = false,
+  onSelect,
+}: {
+  agent: CivilizationAgent;
+  world: CivilizationWorldState;
+  rank: number;
+  selected: boolean;
+  pinned?: boolean;
+  onSelect(): void;
+}) {
+  return <button
+    type="button"
+    className={`agent-row${selected ? " selected" : ""}${pinned ? " pinned" : ""}`}
+    aria-current={selected ? "true" : undefined}
+    onClick={onSelect}
+  >
+    <strong>{pinned ? "PIN" : String(rank).padStart(2, "0")}</strong>
+    <i style={{ background: agent.color }} />
+    <span>
+      <b>{agent.name}</b>
+      <small>{campName(world, agent.campId)} · {beliefName(world, agent.beliefId)}</small>
+      <small className="agent-row-action">{agent.alive ? titleCase(agent.currentPlan) : "Archived"} · {agent.id}</small>
+    </span>
+    <em>{Math.round(agent.influence + agent.spiritualInfluence)}</em>
+  </button>;
+}
+
 function MapView({
   world, history, overlay, setOverlay, selection, setSelection,
 }: {
   world: CivilizationWorldState; history: MajorEvent[]; overlay: MapOverlayMode;
   setOverlay(value: MapOverlayMode): void; selection: Selection; setSelection(value: Selection): void;
 }) {
-  const leaders = getRankedInfluentialAgents(world).filter((agent) => agent.alive).slice(0, 10);
+  const [agentBrowserMode, setAgentBrowserMode] = useState<"top" | "find">("top");
+  const [agentQuery, setAgentQuery] = useState("");
+  const [agentPage, setAgentPage] = useState(0);
+  const rankedAgents = useMemo(
+    () => getRankedInfluentialAgents(world).filter((agent) => agent.alive),
+    [world],
+  );
+  const leaders = rankedAgents.slice(0, 10);
   const selectedAgent = selection?.kind === "agent" ? world.agents.find((agent) => agent.id === selection.id) : undefined;
   const selectedCamp = selection?.kind === "camp" ? world.camps.find((camp) => camp.id === selection.id) : undefined;
   const selectedBelief = selection?.kind === "belief" ? world.beliefs.find((belief) => belief.id === selection.id) : undefined;
+  const influenceRank = useMemo(
+    () => new Map(rankedAgents.map((agent, index) => [agent.id, index + 1])),
+    [rankedAgents],
+  );
+  const normalizedAgentQuery = agentQuery.trim().toLocaleLowerCase();
+  const matchingAgents = useMemo(() => {
+    if (!normalizedAgentQuery) return rankedAgents;
+    return rankedAgents.filter((agent) => {
+      const searchable = [
+        agent.id,
+        agent.name,
+        campName(world, agent.campId),
+        beliefName(world, agent.beliefId),
+        agent.currentPlan,
+        titleCase(agent.currentPlan),
+        agent.goal,
+      ].join(" ").toLocaleLowerCase();
+      return searchable.includes(normalizedAgentQuery);
+    });
+  }, [normalizedAgentQuery, rankedAgents, world]);
+  const agentPageCount = Math.max(1, Math.ceil(matchingAgents.length / AGENT_BROWSER_PAGE_SIZE));
+  const safeAgentPage = Math.min(agentPage, agentPageCount - 1);
+  const pagedAgents = matchingAgents.slice(
+    safeAgentPage * AGENT_BROWSER_PAGE_SIZE,
+    (safeAgentPage + 1) * AGENT_BROWSER_PAGE_SIZE,
+  );
+  const displayedAgents = agentBrowserMode === "top" ? leaders : pagedAgents;
+  const pinnedAgent = selectedAgent && !displayedAgents.some((agent) => agent.id === selectedAgent.id)
+    ? selectedAgent
+    : undefined;
+
+  function switchAgentBrowser(mode: "top" | "find") {
+    setAgentBrowserMode(mode);
+    setAgentPage(0);
+  }
+
   return <main className="map-layout">
-    <aside className="ranking panel"><div className="section-title"><span>Top influence</span><em>Top 10</em></div>
-      {leaders.map((agent, index) => <button key={agent.id} className={selection?.id === agent.id ? "selected" : ""} onClick={() => setSelection({ kind: "agent", id: agent.id })}>
-        <strong>{String(index + 1).padStart(2, "0")}</strong><i style={{ background: agent.color }} /><span><b>{agent.name}</b><small>{campName(world, agent.campId)}</small></span><em>{Math.round(agent.influence + agent.spiritualInfluence)}</em>
-      </button>)}
+    <aside className={`ranking panel agent-browser agent-browser--${agentBrowserMode}`} aria-label="Agent browser">
+      <div className="section-title"><span>Switch agents</span><em>{rankedAgents.length} living</em></div>
+      <div
+        className="agent-browser-tabs"
+        role="tablist"
+        aria-label="Agent lists"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const nextMode = agentBrowserMode === "top" ? "find" : "top";
+          switchAgentBrowser(nextMode);
+          document.getElementById(`agent-tab-${nextMode}`)?.focus();
+        }}
+      >
+        <button type="button" id="agent-tab-top" role="tab" aria-controls="agent-roster" aria-selected={agentBrowserMode === "top"} className={agentBrowserMode === "top" ? "active" : ""} onClick={() => switchAgentBrowser("top")}>Top influence</button>
+        <button type="button" id="agent-tab-find" role="tab" aria-controls="agent-roster" aria-selected={agentBrowserMode === "find"} className={agentBrowserMode === "find" ? "active" : ""} onClick={() => switchAgentBrowser("find")}>Find agents</button>
+      </div>
+      {agentBrowserMode === "find" && <div className="agent-search">
+        <label htmlFor="agent-search-input">Name, camp, belief, action, or ID</label>
+        <input
+          id="agent-search-input"
+          type="search"
+          value={agentQuery}
+          placeholder={`Search ${rankedAgents.length} living agents`}
+          autoComplete="off"
+          onChange={(event) => {
+            setAgentQuery(event.target.value);
+            setAgentPage(0);
+          }}
+        />
+        <small aria-live="polite">{matchingAgents.length} {matchingAgents.length === 1 ? "match" : "matches"}</small>
+      </div>}
+      <div className="agent-list" id="agent-roster" role="tabpanel" aria-labelledby={agentBrowserMode === "top" ? "agent-tab-top" : "agent-tab-find"}>
+        {pinnedAgent && <AgentBrowserRow
+          agent={pinnedAgent}
+          world={world}
+          rank={influenceRank.get(pinnedAgent.id) ?? 0}
+          selected
+          pinned
+          onSelect={() => setSelection({ kind: "agent", id: pinnedAgent.id })}
+        />}
+        {displayedAgents.map((agent) => <AgentBrowserRow
+          key={agent.id}
+          agent={agent}
+          world={world}
+          rank={influenceRank.get(agent.id) ?? 0}
+          selected={selection?.kind === "agent" && selection.id === agent.id}
+          onSelect={() => setSelection({ kind: "agent", id: agent.id })}
+        />)}
+        {!displayedAgents.length && <div className="agent-list-empty"><b>No living agents found</b><small>Try a name, camp, belief, action, or agent ID.</small></div>}
+      </div>
+      {agentBrowserMode === "find" && <nav className="agent-pagination" aria-label="Agent result pages">
+        <button type="button" disabled={safeAgentPage === 0} onClick={() => setAgentPage(Math.max(0, safeAgentPage - 1))} aria-label="Previous agent results">←</button>
+        <span>Page {safeAgentPage + 1} / {agentPageCount}<small>{AGENT_BROWSER_PAGE_SIZE} per page</small></span>
+        <button type="button" disabled={safeAgentPage >= agentPageCount - 1} onClick={() => setAgentPage(Math.min(agentPageCount - 1, safeAgentPage + 1))} aria-label="Next agent results">→</button>
+      </nav>}
     </aside>
     <section className="map-stage">
       <MapCanvas world={world} overlay={overlay} selection={selection} onSelect={setSelection} />
@@ -274,22 +520,29 @@ function ArchiveView({ world, history }: { world: CivilizationWorldState; histor
 
 function HistoryView({ world, history }: { world: CivilizationWorldState; history: MajorEvent[] }) {
   const chapterCount = Math.max(1, Math.floor((Math.max(1, world.day) - 1) / 200) + 1);
-  const chapters = Array.from({ length: chapterCount }, (_, index) => {
+  const chronologicalChapters: Array<{
+    index: number; start: number; end: number; events: MajorEvent[];
+    moments: MajorEvent[]; measure: ChapterMeasure; complete: boolean;
+  }> = [];
+  let previousFingerprints = new Set<string>();
+  for (let index = 0; index < chapterCount; index += 1) {
     const start = index * 200 + 1;
     const end = start + 199;
     const events = history.filter((event) => event.day >= start && event.day <= end);
-    const moments = [...events].sort((a, b) => importance(b) - importance(a) || b.day - a.day).slice(0, 8);
-    return { index: index + 1, start, end, events, moments, complete: world.day > end };
-  }).reverse();
+    const moments = selectDiverseMoments(events, previousFingerprints);
+    const measure = chapterMeasure(events);
+    chronologicalChapters.push({ index: index + 1, start, end, events, moments, measure, complete: world.day > end });
+    previousFingerprints = new Set(moments.map(eventFingerprint));
+  }
+  const chapters = chronologicalChapters.slice().reverse();
   return <main className="reading-page history-page">
     <header className="page-intro"><p className="eyebrow">A living record · 200 days per chapter</p><h1>The History of the Frontier</h1><p>Every chapter is compiled from events the agents caused themselves—births, betrayals, inventions, wars, beliefs, and changing names.</p></header>
     {chapters.map((chapter) => {
-      const births = chapter.events.filter((event) => event.type === "birth").length;
-      const wars = chapter.events.filter((event) => event.type === "war").length;
-      const advances = chapter.events.filter((event) => event.type === "tech_unlocked").length;
+      const previous = chronologicalChapters[chapter.index - 2]?.measure;
       return <article className="chapter" key={chapter.index}>
-        <header><div><p>CHAPTER {chapter.index} · DAYS {chapter.start}–{chapter.end}</p><h2>{chapter.index === 1 ? "The First Claims" : `The Age of Day ${chapter.start}`}</h2></div><span>{chapter.complete ? "COMPLETE" : `WRITING · DAY ${world.day}`}</span></header>
-        <div className="chapter-stats"><span><b>{chapter.events.length}</b> major events</span><span><b>{births}</b> births</span><span><b>{wars}</b> wars</span><span><b>{advances}</b> advances</span></div>
+        <header><div><p>CHAPTER {chapter.index} · DAYS {chapter.start}–{chapter.end}</p><h2>{chapterTheme(chapter.index, chapter.moments, chapter.measure)}</h2></div><span>{chapter.complete ? "COMPLETE" : `WRITING · DAY ${world.day}`}</span></header>
+        <p className="chapter-synopsis">{chapterSynopsis(chapter.start, chapter.end, chapter.events, chapter.moments, chapter.measure, previous)}</p>
+        <div className="chapter-stats"><span><b>{chapter.events.length}</b> major events</span><span><b>{chapter.measure.births}</b> births</span><span><b>{chapter.measure.wars}</b> wars</span><span><b>{chapter.measure.advances}</b> advances</span></div>
         <div className="timeline">{chapter.moments.length ? chapter.moments.map((event) => <div key={event.id} data-tone={event.tone}><small>DAY {event.day}</small><div><h3>{event.title}</h3><p>{event.message}</p><em>{titleCase(event.type)}</em></div></div>) : <div className="empty"><p>This chapter is still quiet. The agents are deciding what comes next.</p></div>}</div>
       </article>;
     })}
@@ -350,10 +603,20 @@ function SimulationApp({ initial }: { initial: LoadedWorld }) {
       lastAdvanceAtRef.current = Date.now();
       batch += elapsed;
       ui += elapsed;
-      if (speedRef.current > 0 && batch >= 0.12) {
+      // A large world is several megabytes and the pure engine clones it once
+      // per call. Batch more fixed steps into each call as population grows so
+      // 1,000 agents do not cause eight full-world clones every real second.
+      const retainedAgents = worldRef.current.agents.length;
+      const simulationBatch = retainedAgents >= 800
+        ? 0.75
+        : retainedAgents >= 400 ? 0.35 : 0.12;
+      if (speedRef.current > 0 && batch >= simulationBatch) {
         const next = simulateCivilization(worldRef.current, batch * speedRef.current);
         worldRef.current = next;
-        historyRef.current = mergeHistory(historyRef.current, next.majorEvents);
+        historyRef.current = mergeHistory(
+          historyRef.current,
+          getGeneratedCivilizationEvents(next),
+        );
         batch = 0;
         setSaved(false);
       }
@@ -388,7 +651,10 @@ function SimulationApp({ initial }: { initial: LoadedWorld }) {
       if (elapsed > 0) {
         const next = catchUpCivilization(worldRef.current, elapsed);
         worldRef.current = next;
-        historyRef.current = mergeHistory(historyRef.current, next.majorEvents);
+        historyRef.current = mergeHistory(
+          historyRef.current,
+          getGeneratedCivilizationEvents(next),
+        );
         setWorld(next);
         setHistory(historyRef.current);
         setSaved(false);
