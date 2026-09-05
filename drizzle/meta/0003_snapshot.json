@@ -1,0 +1,1289 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "869c423b-9f10-4e2f-b9d1-027951fef72d",
+  "prevId": "72625a77-27e0-47b1-b31b-8efdf40aba95",
+  "tables": {
+    "civilization_events": {
+      "name": "civilization_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurred_at_ms": {
+          "name": "occurred_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_json": {
+          "name": "event_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_civilization_events_world_occurred": {
+          "name": "idx_civilization_events_world_occurred",
+          "columns": [
+            "world_id",
+            "occurred_at_ms",
+            "id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "civilization_events_world_id_civilization_world_id_fk": {
+          "name": "civilization_events_world_id_civilization_world_id_fk",
+          "tableFrom": "civilization_events",
+          "tableTo": "civilization_world",
+          "columnsFrom": [
+            "world_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "civilization_world": {
+      "name": "civilization_world",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "state_json": {
+          "name": "state_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "simulated_at_ms": {
+          "name": "simulated_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "civilization_world_canonical_id": {
+          "name": "civilization_world_canonical_id",
+          "value": "\"civilization_world\".\"id\" = 'canonical'"
+        }
+      }
+    },
+    "planet_ai_counsel_log": {
+      "name": "planet_ai_counsel_log",
+      "columns": {
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "world_revision": {
+          "name": "world_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "agent_ids_json": {
+          "name": "agent_ids_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "decisions_json": {
+          "name": "decisions_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_bytes": {
+          "name": "payload_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "output_tokens": {
+          "name": "output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_planet_ai_counsel_log_day": {
+          "name": "idx_planet_ai_counsel_log_day",
+          "columns": [
+            "world_id",
+            "day",
+            "run_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planet_ai_counsel_log_world_id_run_id_pk": {
+          "columns": [
+            "world_id",
+            "run_id"
+          ],
+          "name": "planet_ai_counsel_log_world_id_run_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "planet_ai_counsel_log_status": {
+          "name": "planet_ai_counsel_log_status",
+          "value": "\"planet_ai_counsel_log\".\"status\" IN ('applied', 'rejected', 'failed')"
+        },
+        "planet_ai_counsel_log_payload_bound": {
+          "name": "planet_ai_counsel_log_payload_bound",
+          "value": "\"planet_ai_counsel_log\".\"payload_bytes\" >= 2 AND \"planet_ai_counsel_log\".\"payload_bytes\" <= 24000"
+        }
+      }
+    },
+    "planet_ai_counsel_state": {
+      "name": "planet_ai_counsel_state",
+      "columns": {
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "lease_until_ms": {
+          "name": "lease_until_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "last_started_day": {
+          "name": "last_started_day",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": -1000000
+        },
+        "last_completed_day": {
+          "name": "last_completed_day",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": -1000000
+        },
+        "daily_bucket": {
+          "name": "daily_bucket",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "daily_calls": {
+          "name": "daily_calls",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "consecutive_failures": {
+          "name": "consecutive_failures",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "last_request_id": {
+          "name": "last_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "planet_ai_counsel_daily_calls_bound": {
+          "name": "planet_ai_counsel_daily_calls_bound",
+          "value": "\"planet_ai_counsel_state\".\"daily_calls\" >= 0 AND \"planet_ai_counsel_state\".\"daily_calls\" <= 24"
+        },
+        "planet_ai_counsel_failures_bound": {
+          "name": "planet_ai_counsel_failures_bound",
+          "value": "\"planet_ai_counsel_state\".\"consecutive_failures\" >= 0 AND \"planet_ai_counsel_state\".\"consecutive_failures\" <= 1000"
+        }
+      }
+    },
+    "planet_catalogs": {
+      "name": "planet_catalogs",
+      "columns": {
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_version": {
+          "name": "catalog_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_count": {
+          "name": "item_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_json": {
+          "name": "payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_bytes": {
+          "name": "payload_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planet_catalogs_kind_catalog_version_pk": {
+          "columns": [
+            "kind",
+            "catalog_version"
+          ],
+          "name": "planet_catalogs_kind_catalog_version_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "planet_catalogs_payload_bound": {
+          "name": "planet_catalogs_payload_bound",
+          "value": "\"planet_catalogs\".\"payload_bytes\" > 0 AND \"planet_catalogs\".\"payload_bytes\" <= 1450000"
+        }
+      }
+    },
+    "planet_entity_index": {
+      "name": "planet_entity_index",
+      "columns": {
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "commit_id": {
+          "name": "commit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "shard_id": {
+          "name": "shard_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "region_key": {
+          "name": "region_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_planet_entity_index_viewport": {
+          "name": "idx_planet_entity_index_viewport",
+          "columns": [
+            "world_id",
+            "commit_id",
+            "kind",
+            "latitude",
+            "longitude"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planet_entity_index_world_id_commit_id_kind_entity_id_pk": {
+          "columns": [
+            "world_id",
+            "commit_id",
+            "kind",
+            "entity_id"
+          ],
+          "name": "planet_entity_index_world_id_commit_id_kind_entity_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "planet_entity_shards": {
+      "name": "planet_entity_shards",
+      "columns": {
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "commit_id": {
+          "name": "commit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "shard_id": {
+          "name": "shard_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_count": {
+          "name": "entity_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_json": {
+          "name": "payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_bytes": {
+          "name": "payload_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planet_entity_shards_world_id_commit_id_kind_shard_id_pk": {
+          "columns": [
+            "world_id",
+            "commit_id",
+            "kind",
+            "shard_id"
+          ],
+          "name": "planet_entity_shards_world_id_commit_id_kind_shard_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "planet_entity_shards_payload_bound": {
+          "name": "planet_entity_shards_payload_bound",
+          "value": "\"planet_entity_shards\".\"payload_bytes\" > 0 AND \"planet_entity_shards\".\"payload_bytes\" <= 1450000"
+        }
+      }
+    },
+    "planet_events": {
+      "name": "planet_events",
+      "columns": {
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "importance": {
+          "name": "importance",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_json": {
+          "name": "event_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_planet_events_chapter": {
+          "name": "idx_planet_events_chapter",
+          "columns": [
+            "world_id",
+            "day",
+            "importance",
+            "event_id"
+          ],
+          "isUnique": false
+        },
+        "idx_planet_events_revision": {
+          "name": "idx_planet_events_revision",
+          "columns": [
+            "world_id",
+            "revision",
+            "event_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planet_events_world_id_event_id_pk": {
+          "columns": [
+            "world_id",
+            "event_id"
+          ],
+          "name": "planet_events_world_id_event_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "planet_history_chapters": {
+      "name": "planet_history_chapters",
+      "columns": {
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chapter_index": {
+          "name": "chapter_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "start_day": {
+          "name": "start_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "end_day": {
+          "name": "end_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "through_revision": {
+          "name": "through_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "complete": {
+          "name": "complete",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summary_json": {
+          "name": "summary_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summary_bytes": {
+          "name": "summary_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_planet_history_chapters_revision": {
+          "name": "idx_planet_history_chapters_revision",
+          "columns": [
+            "world_id",
+            "through_revision",
+            "chapter_index"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planet_history_chapters_world_id_chapter_index_pk": {
+          "columns": [
+            "world_id",
+            "chapter_index"
+          ],
+          "name": "planet_history_chapters_world_id_chapter_index_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "planet_history_chapters_summary_bound": {
+          "name": "planet_history_chapters_summary_bound",
+          "value": "\"planet_history_chapters\".\"summary_bytes\" > 0 AND \"planet_history_chapters\".\"summary_bytes\" <= 1450000"
+        }
+      }
+    },
+    "planet_region_shards": {
+      "name": "planet_region_shards",
+      "columns": {
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "commit_id": {
+          "name": "commit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "region_key": {
+          "name": "region_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "part": {
+          "name": "part",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chunk_x": {
+          "name": "chunk_x",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "chunk_y": {
+          "name": "chunk_y",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "payload_json": {
+          "name": "payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_bytes": {
+          "name": "payload_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_planet_region_shards_viewport": {
+          "name": "idx_planet_region_shards_viewport",
+          "columns": [
+            "world_id",
+            "commit_id",
+            "chunk_y",
+            "chunk_x"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planet_region_shards_world_id_commit_id_region_key_part_pk": {
+          "columns": [
+            "world_id",
+            "commit_id",
+            "region_key",
+            "part"
+          ],
+          "name": "planet_region_shards_world_id_commit_id_region_key_part_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "planet_region_shards_payload_bound": {
+          "name": "planet_region_shards_payload_bound",
+          "value": "\"planet_region_shards\".\"payload_bytes\" > 0 AND \"planet_region_shards\".\"payload_bytes\" <= 1450000"
+        }
+      }
+    },
+    "planet_settlement_index": {
+      "name": "planet_settlement_index",
+      "columns": {
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "commit_id": {
+          "name": "commit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "settlement_id": {
+          "name": "settlement_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "shard_id": {
+          "name": "shard_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "region_key": {
+          "name": "region_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_planet_settlement_index_viewport": {
+          "name": "idx_planet_settlement_index_viewport",
+          "columns": [
+            "world_id",
+            "commit_id",
+            "latitude",
+            "longitude"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planet_settlement_index_world_id_commit_id_settlement_id_pk": {
+          "columns": [
+            "world_id",
+            "commit_id",
+            "settlement_id"
+          ],
+          "name": "planet_settlement_index_world_id_commit_id_settlement_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "planet_settlement_shards": {
+      "name": "planet_settlement_shards",
+      "columns": {
+        "world_id": {
+          "name": "world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "commit_id": {
+          "name": "commit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "shard_id": {
+          "name": "shard_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "settlement_count": {
+          "name": "settlement_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_json": {
+          "name": "payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_bytes": {
+          "name": "payload_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planet_settlement_shards_world_id_commit_id_shard_id_pk": {
+          "columns": [
+            "world_id",
+            "commit_id",
+            "shard_id"
+          ],
+          "name": "planet_settlement_shards_world_id_commit_id_shard_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "planet_settlement_shards_payload_bound": {
+          "name": "planet_settlement_shards_payload_bound",
+          "value": "\"planet_settlement_shards\".\"payload_bytes\" > 0 AND \"planet_settlement_shards\".\"payload_bytes\" <= 1450000"
+        }
+      }
+    },
+    "planet_worlds": {
+      "name": "planet_worlds",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "era": {
+          "name": "era",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 3
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_version": {
+          "name": "catalog_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "seed": {
+          "name": "seed",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "state_revision": {
+          "name": "state_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "current_commit_id": {
+          "name": "current_commit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "manifest_json": {
+          "name": "manifest_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "manifest_bytes": {
+          "name": "manifest_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "simulated_at_ms": {
+          "name": "simulated_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "archive_world_id": {
+          "name": "archive_world_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_planet_worlds_era": {
+          "name": "idx_planet_worlds_era",
+          "columns": [
+            "era"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "planet_worlds_era_three": {
+          "name": "planet_worlds_era_three",
+          "value": "\"planet_worlds\".\"era\" = 3"
+        },
+        "planet_worlds_status": {
+          "name": "planet_worlds_status",
+          "value": "\"planet_worlds\".\"status\" IN ('active', 'paused', 'archived')"
+        },
+        "planet_worlds_manifest_bound": {
+          "name": "planet_worlds_manifest_bound",
+          "value": "\"planet_worlds\".\"manifest_bytes\" > 0 AND \"planet_worlds\".\"manifest_bytes\" <= 1450000"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

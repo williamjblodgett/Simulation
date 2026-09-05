@@ -91,15 +91,15 @@ async function render(pathname = "/") {
   );
 }
 
-test("server-renders the Wildgrid Sovereignty experience", async () => {
+test("server-renders the WildGrid Planetfall experience", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Wildgrid: Sovereignty — Autonomous Civilization Observatory<\/title>/i);
-  assert.match(html, /Watch ten autonomous founders build camps, create lineages, advance technology, fracture, ally, and fight for power/i);
-  assert.match(html, /sovereignty-experience/i);
+  assert.match(html, /<title>WildGrid: Planetfall — Autonomous Planetary Observatory<\/title>/i);
+  assert.match(html, /A living world in simulation|Planetary observatory/i);
+  assert.match(html, /planet-experience/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -160,9 +160,13 @@ test("lays out deterministic, map-contained, mutually exclusive political territ
   ], { halfSize: 30, edgeInset: 1.4, segments: 48 });
 });
 
-test("ships the civilization engine, persistent route, and Three.js world", async () => {
-  const [page, experience, archivePage, archive, historyPage, historyBook, styles, engine, scene, territoryLayout, route, hosting, packageJson, resetMigration] = await Promise.all([
+test("ships the Era III planet and preserves the Era II civilization archive", async () => {
+  const [page, planetExperience, planetEngine, planetCanvas, planetSummaryRoute, experience, archivePage, archive, historyPage, historyBook, styles, engine, scene, territoryLayout, route, hosting, packageJson, resetMigration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/planet-experience.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/simulation/planet/engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/planet/planet-canvas.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/planet/summary/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/sovereignty-experience.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/archive/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/civilization-archive.tsx", import.meta.url), "utf8"),
@@ -178,7 +182,12 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
     readFile(new URL("../drizzle/0001_reset_world_history.sql", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /SovereigntyExperience/);
+  assert.match(page, /PlanetExperience/);
+  assert.match(planetExperience, /Overview|People|Societies|Settlements|Research|Timeline/);
+  assert.match(planetExperience, /Deterministic autonomy only|External counsel active|aiCounsel/i);
+  assert.match(planetEngine, /MAX_PLANET_AGENTS\s*=\s*10_000|applyExternalAgentCounsel|natural causes/i);
+  assert.match(planetCanvas, /canvas|drawTerrain|drawAgents|drawTerritory/i);
+  assert.match(planetSummaryRoute, /authoritativePlanet|publicPlanetAiStatus/i);
   assert.match(experience, /createCivilizationScene|simulateCivilization|Sovereign roster|World chronicle/i);
   assert.match(experience, /Beliefs|emergent worldview|beliefRanking/i);
   assert.match(experience, /MAP_OVERLAY_OPTIONS|Choose a map overlay|Map layers/i);
@@ -230,9 +239,10 @@ test("ships the civilization engine, persistent route, and Three.js world", asyn
 });
 
 test("ships a functional device-local GitHub Pages edition", async () => {
-  const [app, persistence, pageConfig, builtHtml, styles, notFound] = await Promise.all([
-    readFile(new URL("../github-pages/src/App.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../github-pages/src/persistence.ts", import.meta.url), "utf8"),
+  const [router, persistence, runtime, pageConfig, builtHtml, styles, notFound] = await Promise.all([
+    readFile(new URL("../github-pages/src/Router.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../github-pages/src/planet-persistence.ts", import.meta.url), "utf8"),
+    readFile(new URL("../github-pages/src/planet-runtime.ts", import.meta.url), "utf8"),
     readFile(new URL("../github-pages/vite.config.ts", import.meta.url), "utf8"),
     readFile(new URL("../github-pages/dist/index.html", import.meta.url), "utf8"),
     readFile(new URL("../github-pages/src/styles.css", import.meta.url), "utf8"),
@@ -240,13 +250,13 @@ test("ships a functional device-local GitHub Pages edition", async () => {
   ]);
 
   assert.match(pageConfig, /base:\s*["']\/Simulation\//);
-  assert.match(app, /createCivilizationScene|getRankedInfluentialAgents|Top influence/i);
-  assert.match(app, /#\/map|#\/archive|#\/history/);
-  assert.match(app, /Saved on this device|catches up when this browser returns/i);
-  assert.match(app, /200 days per chapter|Beliefs and religions|Core values/i);
-  assert.match(persistence, /indexedDB|catchUpCivilization|mergeHistory|saveWorld/i);
+  assert.match(router, /PlanetExperience|#\/map|#\/history|#\/about|#\/legacy/i);
+  assert.match(router, /10,000-agent ceiling|External OpenAI counsel: unavailable/i);
+  assert.match(router, /200-day|chapter|Beliefs|resource catalog/i);
+  assert.match(persistence, /indexedDB|localStorage|savePlanetRecord|loadPlanetRecord/i);
+  assert.match(runtime, /catchUpPlanet|createPlanetWorldAdapter|auto-save|persistence/i);
   assert.match(builtHtml, /\/Simulation\/assets\/.+\.js/);
-  assert.match(styles, /min-height:\s*44px|\.overlay-switcher|\.ranking/i);
+  assert.match(styles, /min-height:\s*44px|\.pages-local-bar|\.planet-reading-header/i);
   assert.match(notFound, /\/Simulation\//);
   await access(new URL("../github-pages/dist/.nojekyll", import.meta.url));
 });

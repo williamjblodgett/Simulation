@@ -11,7 +11,7 @@
     "build:pages": "vite build --config github-pages/vite.config.ts",
     "typecheck:pages": "tsc -p github-pages/tsconfig.json",
     "start": "vinext start",
-    "test": "npm run build && npm run typecheck:pages && npm run build:pages && node --test tests/rendered-html.test.mjs tests/civilization-engine.test.mjs tests/world-state-codec.test.mjs",
+    "test": "npm run build && npm run typecheck:pages && npm run build:pages && node --import tsx --test tests/rendered-html.test.mjs tests/civilization-engine.test.mjs tests/world-state-codec.test.mjs tests/planet-core.test.mjs tests/planet-autonomy.test.mjs tests/planet-scale.test.mjs tests/planet-persistence.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern github-pages/dist",
     "db:generate": "drizzle-kit generate"
   },

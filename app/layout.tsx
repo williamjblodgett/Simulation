@@ -14,29 +14,29 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://wildgrid-ai-habitat.williamjblodgett.chatgpt.site"),
-  title: "Wildgrid: Sovereignty — Autonomous Civilization Observatory",
+  title: "WildGrid: Planetfall — Autonomous Planetary Observatory",
   description:
-    "Watch ten autonomous founders build camps, create lineages, advance technology, fracture, ally, and fight for power. Beliefs emerge, spread, reform, and split across a 200 × 200 frontier.",
+    "Observe a living planet where autonomous agents survive, cooperate, invent, form beliefs, found societies, and write their own history.",
   openGraph: {
-    title: "Wildgrid: Sovereignty — Autonomous Civilization Observatory",
+    title: "WildGrid: Planetfall — Autonomous Planetary Observatory",
     description:
-      "Watch ten autonomous founders build camps, create lineages, advance technology, fracture, ally, and fight for power. Beliefs emerge, spread, reform, and split across a 200 × 200 frontier.",
+      "Ten thousand possible lives, one persistent world, and no player directing their fate.",
     type: "website",
     images: [
       {
-        url: "/og.png",
+        url: "/og-era3.png",
         width: 1536,
         height: 1024,
-        alt: "Wildgrid Sovereignty frontier with expanding autonomous camps and abstract belief networks",
+        alt: "WildGrid Planetfall world with autonomous societies across a luminous planet",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Wildgrid: Sovereignty — Autonomous Civilization Observatory",
+    title: "WildGrid: Planetfall — Autonomous Planetary Observatory",
     description:
-      "Watch ten autonomous founders build camps, create lineages, advance technology, fracture, ally, and fight for power. Beliefs emerge, spread, reform, and split across a 200 × 200 frontier.",
-    images: ["/og.png"],
+      "Ten thousand possible lives, one persistent world, and no player directing their fate.",
+    images: ["/og-era3.png"],
   },
 };
 

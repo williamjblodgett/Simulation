@@ -1,5 +1,5 @@
-import { SovereigntyExperience } from "./sovereignty-experience";
+import { PlanetExperience } from "./planet-experience";
 
 export default function Home() {
-  return <SovereigntyExperience />;
+  return <PlanetExperience archiveHref="/legacy" historyHref="/planet-history" />;
 }
