@@ -23,7 +23,7 @@ const LEGACY_WORLD_SCHEMA_VERSION = 1;
 // Rollout guard: the first deployment teaches every Worker generation how to
 // read compressed snapshots while continuing to write legacy JSON. After old
 // in-flight requests drain, a second deployment flips this to true.
-const WORLD_COMPRESSION_WRITE_ENABLED = false;
+const WORLD_COMPRESSION_WRITE_ENABLED = true;
 const DEFAULT_HISTORY_LIMIT = 200;
 const MIN_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 1_000;
