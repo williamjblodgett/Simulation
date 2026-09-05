@@ -6,7 +6,8 @@
     <title>Returning to Wildgrid…</title>
     <script>
       var missingPath = location.pathname.replace(/^\/Simulation\/?/, "").split("/")[0];
-      var route = missingPath === "archive" || missingPath === "history" ? missingPath : "map";
+      var supported = ["history", "about", "legacy", "archive"];
+      var route = supported.indexOf(missingPath) >= 0 ? missingPath : "map";
       location.replace("/Simulation/" + location.search + "#/" + route);
     </script>
   </head>
