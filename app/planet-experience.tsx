@@ -53,7 +53,8 @@ import {
 } from "./planet/types";
 import styles from "./planet/planet-experience.module.css";
 
-const DEFAULT_CAMERA: PlanetCamera = { longitude: -12, latitude: 16, zoom: 0.86 };
+// Begin with the overhead field atlas. The globe remains an optional context view.
+const DEFAULT_CAMERA: PlanetCamera = { longitude: -12, latitude: 16, zoom: 2.4 };
 const VIEW_SECTIONS = ["overview", "people", "societies", "settlements", "research", "timeline"] as const;
 
 type LeftPanel = "agents" | "chronicle" | "nearby" | null;
@@ -61,12 +62,12 @@ type ExperienceView = (typeof VIEW_SECTIONS)[number];
 type DetailLoadState = "idle" | "loading" | "ready" | "error";
 
 const VIEW_DETAILS: Record<ExperienceView, { label: string; icon: LucideIcon; description: string }> = {
-  overview: { label: "Overview", icon: Globe2, description: "Observe the living planet" },
-  people: { label: "People", icon: Users, description: "Every named autonomous life" },
-  societies: { label: "Societies", icon: Shield, description: "Polities, beliefs, and relations" },
-  settlements: { label: "Settlements", icon: Building2, description: "Camps, towns, and growing cities" },
-  research: { label: "Research", icon: Atom, description: "Capabilities discovered in the world" },
-  timeline: { label: "Timeline", icon: BookOpen, description: "A causal record of change" },
+  overview: { label: "Overview", icon: Globe2, description: "Live field observation" },
+  people: { label: "People", icon: Users, description: "Life courses, choices, and kinship" },
+  societies: { label: "Societies", icon: Shield, description: "Emergent institutions and beliefs" },
+  settlements: { label: "Settlements", icon: Building2, description: "Habitation and material change" },
+  research: { label: "Knowledge", icon: Atom, description: "Capabilities actually established" },
+  timeline: { label: "Chronicle", icon: BookOpen, description: "Causes, changes, and consequences" },
 };
 
 const OVERLAY_DETAILS: Record<PlanetOverlay, {
@@ -80,8 +81,8 @@ const OVERLAY_DETAILS: Record<PlanetOverlay, {
   diplomacy: { label: "Diplomacy", compactLabel: "Relations", description: "Alliances, exchange routes, and active truces", icon: Handshake, color: "#6ee7b7" },
   wars: { label: "Conflicts", compactLabel: "Wars", description: "Active fronts and disputed strategic positions", icon: Flame, color: "#fb8371" },
   beliefs: { label: "Belief systems", compactLabel: "Beliefs", description: "Dominant traditions and secular populations", icon: Sparkles, color: "#d8b4fe" },
-  resources: { label: "Resources", compactLabel: "Resources", description: "Known deposits, renewable stocks, and energy sites", icon: Sprout, color: "#b8dc69" },
-  technology: { label: "Knowledge", compactLabel: "Knowledge", description: "Capability depth and routes of knowledge diffusion", icon: Atom, color: "#67e8f9" },
+  resources: { label: "Resource substrate", compactLabel: "Substrate", description: "Observer-only geology and ecology; wide views may include deposits inhabitants have not discovered", icon: Sprout, color: "#b8dc69" },
+  technology: { label: "Capability diffusion", compactLabel: "Capabilities", description: "A derived view of established capability breadth and movement between settlements", icon: Atom, color: "#67e8f9" },
   climate: { label: "Climate & ecology", compactLabel: "Ecology", description: "Biomes, ecological stress, and environmental recovery", icon: CloudSun, color: "#7dd3a8" },
   population: { label: "Population", compactLabel: "People", description: "Population density, settlement growth, and migration", icon: Users, color: "#f9e979" },
 };
@@ -89,6 +90,7 @@ const OVERLAY_DETAILS: Record<PlanetOverlay, {
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
   discovery: Atom,
   ecology: Sprout,
+  life: Users,
   politics: Shield,
   war: Flame,
   belief: Sparkles,
@@ -97,6 +99,12 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("en-US", { notation: value >= 10_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
+}
+
+function formatBirthRecord(birthDay: number) {
+  return birthDay >= 1
+    ? `Day ${birthDay.toLocaleString()}`
+    : `${(1 - birthDay).toLocaleString()} modeled age units before Day 1`;
 }
 
 function clamp(value: number, minimum: number, maximum: number) {
@@ -133,6 +141,7 @@ function findSelectionPoint(snapshot: PlanetSnapshot, selection: PlanetEntitySel
 function readInitialUrlState() {
   if (typeof window === "undefined") return null;
   const url = new URL(window.location.href);
+  const hasCamera = url.searchParams.has("lon") && url.searchParams.has("lat") && url.searchParams.has("z");
   const longitude = Number(url.searchParams.get("lon"));
   const latitude = Number(url.searchParams.get("lat"));
   const zoom = Number(url.searchParams.get("z"));
@@ -141,7 +150,7 @@ function readInitialUrlState() {
   const id = url.searchParams.get("id");
   const requestedView = url.searchParams.get("view") as ExperienceView | null;
   return {
-    camera: Number.isFinite(longitude) && Number.isFinite(latitude) && Number.isFinite(zoom)
+    camera: hasCamera && Number.isFinite(longitude) && Number.isFinite(latitude) && Number.isFinite(zoom)
       ? { longitude: wrapLongitude(longitude), latitude: clamp(latitude, -82, 82), zoom: clamp(zoom, 0.7, 18) }
       : null,
     overlay: overlay && PLANET_OVERLAYS.includes(overlay) ? overlay : null,
@@ -168,7 +177,7 @@ export function PlanetExperience({
   const getSnapshot = useCallback(() => adapter.getSnapshot(), [adapter]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const [view, setView] = useState<ExperienceView>("overview");
-  const [overlay, setOverlay] = useState<PlanetOverlay>("political");
+  const [overlay, setOverlay] = useState<PlanetOverlay>("population");
   const [camera, setCamera] = useState<PlanetCamera>(DEFAULT_CAMERA);
   const [selection, setSelection] = useState<PlanetEntitySelection | null>(null);
   const [entityDetail, setEntityDetail] = useState<PlanetEntityDetail | null>(null);
@@ -177,8 +186,13 @@ export function PlanetExperience({
   const [leftPanel, setLeftPanel] = useState<LeftPanel>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<PlanetAgent[]>([]);
+  const [selectedCompactAgent, setSelectedCompactAgent] = useState<PlanetAgent | null>(null);
   const [showOverlayMenu, setShowOverlayMenu] = useState(false);
   const initializedUrlRef = useRef(false);
+  const mobileDetailRef = useRef<HTMLDialogElement>(null);
+  const detailReturnFocusRef = useRef<HTMLElement | null>(null);
+  const hadMobileDetailRef = useRef(false);
+  const hasSelection = selection !== null;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -272,21 +286,72 @@ export function PlanetExperience({
     return () => controller.abort();
   }, [adapter, detailRetry, selection]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !hasSelection) return;
+    const mobileQuery = window.matchMedia("(max-width: 820px)");
+    const dialog = mobileDetailRef.current;
+    if (!dialog) return;
+    let focusFrame = 0;
+    const synchronizeDialog = () => {
+      if (!mobileQuery.matches) {
+        if (dialog.open) dialog.close();
+        return;
+      }
+      hadMobileDetailRef.current = true;
+      if (!dialog.open) dialog.showModal();
+      window.cancelAnimationFrame(focusFrame);
+      focusFrame = window.requestAnimationFrame(() => dialog.focus());
+    };
+    synchronizeDialog();
+    mobileQuery.addEventListener("change", synchronizeDialog);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      mobileQuery.removeEventListener("change", synchronizeDialog);
+      if (dialog.open) dialog.close();
+    };
+  }, [hasSelection]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || hasSelection || !hadMobileDetailRef.current) return;
+    hadMobileDetailRef.current = false;
+    const returnTarget = detailReturnFocusRef.current;
+    detailReturnFocusRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      if (returnTarget?.isConnected) {
+        returnTarget.focus();
+        return;
+      }
+      document.querySelector<HTMLElement>(`.${styles.mobileBottomNav} [aria-current="page"]`)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [hasSelection]);
+
   const selectEntity = useCallback((nextSelection: PlanetEntitySelection | null, focus = false) => {
+    if (nextSelection && !selection && typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches && document.activeElement instanceof HTMLElement) {
+      detailReturnFocusRef.current = document.activeElement;
+    }
+    if (nextSelection?.kind === "agent") {
+      const compactAgent = snapshot.agents.find((agent) => agent.id === nextSelection.id)
+        ?? searchResults.find((agent) => agent.id === nextSelection.id);
+      setSelectedCompactAgent((current) => compactAgent ?? (current?.id === nextSelection.id ? current : null));
+    } else {
+      setSelectedCompactAgent(null);
+    }
     setSelection(nextSelection);
     if (typeof window !== "undefined" && initializedUrlRef.current && nextSelection) {
       const url = new URL(window.location.href);
       url.searchParams.set("view", view);
       url.searchParams.set("kind", nextSelection.kind);
       url.searchParams.set("id", nextSelection.id);
-      window.history.pushState({ wildgrid: true, entry: "detail" }, "", url);
+      const method = selection ? "replaceState" : "pushState";
+      window.history[method]({ wildgrid: true, entry: "detail" }, "", url);
     }
     if (!nextSelection) return;
     if (focus) {
       const point = findSelectionPoint(snapshot, nextSelection);
       if (point) setCamera({ ...point, zoom: Math.max(camera.zoom, nextSelection.kind === "agent" ? 8.2 : 4.4) });
     }
-  }, [camera.zoom, snapshot, view]);
+  }, [camera.zoom, searchResults, selection, snapshot, view]);
 
   const nearby = useMemo(() => {
     const withDistance = <T extends GeoPoint>(items: T[]) => items.map((item) => ({
@@ -307,11 +372,24 @@ export function PlanetExperience({
     return [...settlements, ...agents].slice(0, 12);
   }, [camera, snapshot.agents, snapshot.settlements]);
 
-  const topAgents = useMemo(() => [...snapshot.agents]
-    .sort((left, right) => right.influence - left.influence)
-    .slice(0, 12), [snapshot.agents]);
+  const indexedAgents = useMemo(() => [...snapshot.agents]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .slice(0, 24), [snapshot.agents]);
 
   const currentOverlay = OVERLAY_DETAILS[overlay];
+  const continuityLabel = snapshot.meta.continuity
+    ? `${snapshot.meta.continuity.persistent ? "Persistent shared record" : "Device-local record"} · ${snapshot.meta.continuity.caughtUp ? "caught up to observation time" : `${Math.ceil(snapshot.meta.continuity.pendingSeconds).toLocaleString()} simulated seconds pending`}`
+    : "Continuity status awaiting record metadata";
+  const shownAgents = snapshot.coverage?.shown.agents;
+  const availableAgents = snapshot.coverage?.available.agents;
+  const coverageLabel = snapshot.coverage?.sampled
+    ? `Viewport sample · ${shownAgents ?? 0} of ${availableAgents ?? "available"} nearby life records shown`
+    : "Viewport record is not currently truncated";
+  const featuredAgent = snapshot.agents.find((agent) => agent.knownFacts.length > 0 && agent.currentGoal)
+    ?? searchResults.find((agent) => agent.knownFacts.length > 0 && agent.currentGoal)
+    ?? snapshot.agents[0]
+    ?? searchResults[0];
+  const latestRecord = snapshot.chronicle[0];
 
   function toggleLeftPanel(panel: Exclude<LeftPanel, null>) {
     setLeftPanel((current) => current === panel ? null : panel);
@@ -340,6 +418,36 @@ export function PlanetExperience({
     }
   }
 
+  function containMobileDetailFocus(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeDetail();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+      .filter((element) => element.getClientRects().length > 0);
+    if (!focusable.length) {
+      event.preventDefault();
+      event.currentTarget.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    const activeElement = document.activeElement;
+    if (activeElement === event.currentTarget || !event.currentTarget.contains(activeElement)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function backToOverview() {
     navigateView("overview");
   }
@@ -361,24 +469,25 @@ export function PlanetExperience({
         <div className={styles.brandLockup}>
           <span className={styles.brandMark} aria-hidden="true"><Orbit size={21} strokeWidth={1.7} /></span>
           <div>
-            <div className={styles.brandLine}><strong>WildGrid</strong><span>Planetary observatory</span></div>
-            <div className={styles.eraLine}>{snapshot.meta.era} <span>· Seed {snapshot.meta.seed.toLocaleString()}</span></div>
+            <div className={styles.brandLine}><strong>WildGrid</strong><span>Autonomous world observatory</span></div>
+            <div className={styles.eraLine}>Longitudinal study 03 <span>· Seed {snapshot.meta.seed.toLocaleString()}</span></div>
           </div>
         </div>
 
         <SectionTabs view={view} onChange={navigateView} className={styles.sectionTabs} />
 
         <nav className={styles.topActions} aria-label="World navigation">
-          <a href={historyHref} className={styles.textAction}><BookOpen size={17} /><span>History</span></a>
-          <a href={archiveHref} className={styles.textAction}><Telescope size={17} /><span>Era II</span></a>
+          <a href={historyHref} className={styles.textAction}><BookOpen size={17} /><span>Archive</span></a>
+          <a href={archiveHref} className={styles.textAction}><Telescope size={17} /><span>Prior study</span></a>
+          <span className={styles.mobileReadOnlyBadge} aria-label="Observer controls are read-only">Read-only</span>
           <span className={styles.liveBadge} data-status={snapshot.meta.status}>
-            <span aria-hidden="true" />{snapshot.meta.dataMode === "sample" && adapter.mode === "live" ? "Offline preview" : adapter.mode === "sample" ? "Era III preview" : snapshot.meta.status}
+            <span aria-hidden="true" />{snapshot.meta.dataMode === "sample" && adapter.mode === "live" ? "Offline record" : adapter.mode === "sample" ? "Study preview" : snapshot.meta.status === "live" ? "Observing" : snapshot.meta.status}
           </span>
         </nav>
       </header>
 
       <nav className={styles.sectionRail} aria-label="Observatory sections">
-        <div className={styles.railEra}><span>Era III</span><strong>Planetfall</strong><small>A living world in simulation</small></div>
+        <div className={styles.railEra}><span>Study 03 · planetary habitat</span><strong>Closed-world study</strong><small>Autonomous lives observed continuously. No player or intervention.</small></div>
         {VIEW_SECTIONS.map((section) => {
           const detail = VIEW_DETAILS[section];
           const Icon = detail.icon;
@@ -387,23 +496,48 @@ export function PlanetExperience({
         <div className={styles.railDivider} />
         <button type="button" data-active={leftPanel === "agents"} onClick={() => { if (view !== "overview") navigateView("overview"); toggleLeftPanel("agents"); }}><Search size={18} /><span>Search</span></button>
         <button type="button" data-active={leftPanel === "nearby"} onClick={() => { if (view !== "overview") navigateView("overview"); toggleLeftPanel("nearby"); }}><LocateFixed size={18} /><span>Nearby</span></button>
+        <div className={styles.railProtocol}><span>Observation protocol</span><p>Camera, search, and evidence layers are read-only. Inhabitants cannot detect the observer.</p></div>
       </nav>
 
       {view === "overview" ? (
         <div className={styles.overviewStats} aria-label="Current world statistics">
-          <Stat label="Day" value={snapshot.meta.day.toLocaleString()} />
-          <Stat label="People" value={formatNumber(snapshot.meta.population)} />
-          <Stat label="Societies" value={snapshot.meta.dataMode === "live" && !snapshot.civilizations.length ? "…" : String(snapshot.civilizations.length)} />
-          <Stat label="Settlements" value={snapshot.meta.dataMode === "live" && !snapshot.settlements.length ? "…" : String(snapshot.settlements.length)} />
+          <Stat label="Observed day" value={snapshot.meta.day.toLocaleString()} />
+          <Stat label="Living population" value={formatNumber(snapshot.meta.population)} />
+          <Stat label="Social formations" value={snapshot.meta.dataMode === "live" && !snapshot.civilizations.length ? "…" : String(snapshot.civilizations.length)} />
+          <Stat label="Habitation sites" value={snapshot.meta.dataMode === "live" && !snapshot.settlements.length ? "…" : String(snapshot.settlements.length)} />
         </div>
+      ) : null}
+
+      {view === "overview" && !selection ? (
+        <div className={styles.observationPlate} aria-label="Non-intervention observation status">
+          <span>Field view · {currentOverlay.label}</span>
+          <strong>World 01 / continuous autonomous run</strong>
+          <small>{continuityLabel}</small>
+          <small>{coverageLabel}. Navigation changes only the observer&apos;s view.</small>
+        </div>
+      ) : null}
+
+      {view === "overview" && !selection ? (
+        <section className={styles.mobileObservation} aria-label="Latest autonomy evidence">
+          {featuredAgent ? (
+            <button type="button" onClick={() => selectEntity({ kind: "agent", id: featuredAgent.id }, true)}>
+              <span>Named decision trace · {featuredAgent.name}</span>
+              <strong>{featuredAgent.knownFacts[0] ?? "No retained observation excerpt"}</strong>
+              <small>Choice: {featuredAgent.action} · {featuredAgent.currentGoal}</small>
+            </button>
+          ) : (
+            <div><span>Autonomy evidence</span><strong>Awaiting the first named life record.</strong></div>
+          )}
+          {latestRecord ? <button type="button" onClick={() => navigateView("timeline")}><span>Latest consequence · Day {latestRecord.day.toLocaleString()}</span><strong>{latestRecord.title}</strong></button> : null}
+        </section>
       ) : null}
 
       {view === "overview" && leftPanel ? (
         <aside className={styles.leftDrawer} aria-label={leftPanel === "agents" ? "Agent search" : leftPanel === "chronicle" ? "World chronicle" : "Nearby world"}>
           <div className={styles.drawerHeader}>
             <div>
-              <span className={styles.eyebrow}>{leftPanel === "agents" ? "10,000 individual lives" : leftPanel === "chronicle" ? "Causal history" : describeScale(camera.zoom)}</span>
-              <h2>{leftPanel === "agents" ? "Find an agent" : leftPanel === "chronicle" ? "World chronicle" : "Nearby world"}</h2>
+              <span className={styles.eyebrow}>{leftPanel === "agents" ? "Named-life register" : leftPanel === "chronicle" ? "Causal archive" : `${describeScale(camera.zoom)} observation`}</span>
+              <h2>{leftPanel === "agents" ? "Find a life record" : leftPanel === "chronicle" ? "World chronicle" : "Records in view"}</h2>
             </div>
             <button type="button" className={styles.iconButton} aria-label="Close panel" onClick={() => setLeftPanel(null)}><X size={18} /></button>
           </div>
@@ -411,7 +545,7 @@ export function PlanetExperience({
             <AgentRoster
               query={searchQuery}
               onQueryChange={setSearchQuery}
-              agents={searchQuery.trim() ? searchResults : topAgents}
+              agents={searchQuery.trim() ? searchResults : indexedAgents}
               civilizations={snapshot.civilizations}
               onSelect={(id) => selectEntity({ kind: "agent", id }, true)}
             />
@@ -426,19 +560,19 @@ export function PlanetExperience({
       {selection ? (
         <aside className={styles.inspector} aria-label="Selected entity details">
           <div className={styles.drawerHeader}>
-            <span className={styles.eyebrow}>Observed, never controlled</span>
-            <button type="button" className={styles.iconButton} aria-label="Close inspector" onClick={closeDetail}><X size={18} /></button>
+            <span className={styles.eyebrow}>Read-only field record · observed, never controlled</span>
+            <button type="button" className={styles.iconButton} aria-label="Close inspector" onClick={() => selectEntity(null)}><X size={18} /></button>
           </div>
-          <EntityInspector snapshot={snapshot} selection={selection} detail={entityDetail} detailStatus={detailStatus} onRetry={() => setDetailRetry((current) => current + 1)} onSelect={(next) => selectEntity(next, true)} />
+          <EntityInspector snapshot={snapshot} selection={selection} compactAgent={selectedCompactAgent} detail={entityDetail} detailStatus={detailStatus} onRetry={() => setDetailRetry((current) => current + 1)} onSelect={(next) => selectEntity(next, true)} />
         </aside>
       ) : view === "overview" ? (
-        <OverviewInsights snapshot={snapshot} historyHref={historyHref} onSelect={(next) => selectEntity(next, true)} />
+        <OverviewInsights snapshot={snapshot} featuredAgent={featuredAgent} historyHref={historyHref} onSelect={(next) => selectEntity(next, true)} />
       ) : null}
 
       {view === "overview" ? <div className={styles.overlayDock}>
         <div className={styles.overlayTitle}>
           <span style={{ "--overlay-color": currentOverlay.color } as React.CSSProperties}><currentOverlay.icon size={16} /></span>
-          <div><strong>{currentOverlay.label}</strong><small>{currentOverlay.description}</small></div>
+          <div><strong>Evidence layer · {currentOverlay.label}</strong><small>{currentOverlay.description}</small></div>
         </div>
         <div className={styles.overlayButtons} role="group" aria-label="Map overlays">
           {PLANET_OVERLAYS.map((option) => {
@@ -464,11 +598,11 @@ export function PlanetExperience({
       {view === "overview" ? <div className={styles.mapControls} aria-label="Map view controls">
         <button type="button" onClick={() => setCamera((current) => ({ ...current, zoom: clamp(current.zoom * 1.28, 0.7, 18) }))} aria-label="Zoom in"><Plus size={19} /></button>
         <button type="button" onClick={() => setCamera((current) => ({ ...current, zoom: clamp(current.zoom / 1.28, 0.7, 18) }))} aria-label="Zoom out"><Minus size={19} /></button>
-        <button type="button" onClick={() => setCamera(DEFAULT_CAMERA)} aria-label="Return to planet view"><Globe2 size={19} /></button>
+        <button type="button" onClick={() => setCamera({ ...DEFAULT_CAMERA, zoom: 0.86 })} aria-label="Show optional globe context view"><Globe2 size={19} /></button>
       </div> : null}
 
       {view === "overview" ? <div className={styles.viewReadout} aria-live="polite">
-        <Crosshair size={14} /> <span>{describeScale(camera.zoom)}</span><small>{coordinates(camera)} · {camera.zoom.toFixed(1)}×</small>
+        <Crosshair size={14} /> <span>{describeScale(camera.zoom)} sample</span><small>{coordinates(camera)} · optical scale {camera.zoom.toFixed(1)}×</small>
       </div> : null}
 
       {snapshot.meta.status === "connecting" || snapshot.meta.status === "offline" ? (
@@ -485,20 +619,20 @@ export function PlanetExperience({
           historyHref={historyHref}
           query={searchQuery}
           onQueryChange={setSearchQuery}
-          agents={searchQuery.trim() || searchResults.length ? searchResults : topAgents}
+          agents={searchQuery.trim() || searchResults.length ? searchResults : indexedAgents}
           onBack={backToOverview}
           onSelect={(next) => selectEntity(next, true)}
         />
       ) : null}
 
       {selection ? (
-        <section className={styles.mobileDetail} aria-label="Entity details">
+        <dialog ref={mobileDetailRef} className={styles.mobileDetail} aria-modal="true" aria-label="Entity details" tabIndex={-1} onCancel={(event) => { event.preventDefault(); closeDetail(); }} onKeyDown={containMobileDetailFocus}>
           <div className={styles.mobileDetailHeader}>
             <button type="button" onClick={closeDetail}><ArrowLeft size={19} />Back</button>
-            <span>Observed life</span>
+            <span>Read-only field record</span>
           </div>
-          <EntityInspector snapshot={snapshot} selection={selection} detail={entityDetail} detailStatus={detailStatus} onRetry={() => setDetailRetry((current) => current + 1)} onSelect={(next) => selectEntity(next, true)} />
-        </section>
+          <EntityInspector snapshot={snapshot} selection={selection} compactAgent={selectedCompactAgent} detail={entityDetail} detailStatus={detailStatus} onRetry={() => setDetailRetry((current) => current + 1)} onSelect={(next) => selectEntity(next, true)} />
+        </dialog>
       ) : null}
 
       <SectionTabs view={view} onChange={navigateView} className={styles.mobileBottomNav} />
@@ -541,51 +675,130 @@ function SectionTabs({ view, onChange, className }: { view: ExperienceView; onCh
   );
 }
 
-function OverviewInsights({ snapshot, historyHref, onSelect }: { snapshot: PlanetSnapshot; historyHref: string; onSelect: (selection: PlanetEntitySelection) => void }) {
-  const largest = [...snapshot.civilizations].sort((left, right) => right.population - left.population)[0];
-  const mappedResources = snapshot.resources.length || snapshot.resourceCells?.length || 0;
-  const resourceLabel = snapshot.resources.length ? "Known deposits" : "Resource regions";
+function OverviewInsights({ snapshot, featuredAgent, historyHref, onSelect }: { snapshot: PlanetSnapshot; featuredAgent?: PlanetAgent; historyHref: string; onSelect: (selection: PlanetEntitySelection) => void }) {
+  const generationCounts = new Map<number, number>();
+  for (const agent of snapshot.agents) generationCounts.set(agent.generation, (generationCounts.get(agent.generation) ?? 0) + 1);
+  const generationRows = [...generationCounts.entries()].sort((left, right) => left[0] - right[0]);
+  const sampledLives = generationRows.reduce((total, [, count]) => total + count, 0);
+  const capabilityCount = new Set(snapshot.settlements.flatMap((settlement) => settlement.capabilities ?? [])).size;
+  const observation = snapshot.observation;
+  const ageRows = observation ? [
+    { label: "0–17", description: "children", count: observation.ageBands.children },
+    { label: "18–64", description: "adults", count: observation.ageBands.adults },
+    { label: "65+", description: "elders", count: observation.ageBands.elders },
+  ] : [];
+  const ageTotal = ageRows.reduce((total, row) => total + row.count, 0);
+  const latestRecord = snapshot.chronicle[0];
+  const coverage = snapshot.coverage;
+  const continuity = snapshot.meta.continuity;
   return (
     <aside className={styles.insightStack} aria-label="World insights">
-      <section className={styles.insightCard}>
-        <div className={styles.insightHeading}><span><Globe2 size={17} /></span><div><small>World pulse</small><strong>{snapshot.meta.status === "live" ? "Simulation current" : snapshot.meta.status === "catching-up" ? "History catching up" : "Connecting"}</strong></div></div>
-        <div className={styles.insightGrid}>
-          <InspectorValue label="Named lives" value={formatNumber(snapshot.meta.population)} />
-          <InspectorValue label="Belief systems" value={String(snapshot.beliefs.length)} />
-          <InspectorValue label="Active conflicts" value={String(snapshot.conflicts.length)} />
-          <InspectorValue label={resourceLabel} value={mappedResources ? String(mappedResources) : snapshot.meta.status === "connecting" ? "…" : "0"} />
+      <section className={`${styles.insightCard} ${styles.protocolCard}`}>
+        <div className={styles.insightHeading}><span><Telescope size={17} /></span><div><small>Study protocol</small><strong>Continuous non-intervention</strong></div></div>
+        <p className={styles.studyStatement}>Every inhabitant acts from local knowledge, remembered outcomes, material needs, and social commitments. There is no player faction and no observer command channel.</p>
+        <div className={styles.protocolLine}>
+          <span>Day {snapshot.meta.day.toLocaleString()}</span>
+          <span>Revision {snapshot.meta.revision.toLocaleString()}</span>
+          <span>Seed {snapshot.meta.seed.toLocaleString()}</span>
+          <span>{continuity ? continuity.persistent ? "Persistent shared record" : "Device-local record" : "Continuity pending"}</span>
+          <span>{continuity?.caughtUp ? "Caught up to wall time" : continuity ? `${Math.ceil(continuity.pendingSeconds).toLocaleString()}s pending` : "Timing metadata pending"}</span>
+          {coverage?.sampled ? <span>Sampled viewport · {coverage.shown.agents ?? 0}/{coverage.available.agents ?? "?"} agents shown</span> : <span>Viewport not truncated</span>}
         </div>
       </section>
+
+      <section className={`${styles.insightCard} ${styles.decisionEvidenceCard}`}>
+        <div className={styles.insightCardTitle}><div><small>Named autonomy evidence</small><strong>{featuredAgent?.name ?? "Awaiting a life record"}</strong></div><CircleDot size={17} /></div>
+        {featuredAgent ? (
+          <button type="button" className={styles.compactDecisionTrace} onClick={() => onSelect({ kind: "agent", id: featuredAgent.id })}>
+            <span><b>Evidence</b>{featuredAgent.knownFacts[0] ?? "No compact observation excerpt retained."}</span>
+            <span><b>Choice</b>{featuredAgent.action}</span>
+            <span><b>Purpose</b>{featuredAgent.currentGoal}</span>
+            <small>Inspect the full record for alternatives, commitments, and learned outcomes.</small>
+          </button>
+        ) : <p className={styles.evidenceNote}>A named trace will appear when the first compact agent record reaches this viewport.</p>}
+      </section>
+
+      <section className={styles.insightCard}>
+        <div className={styles.insightCardTitle}><div><small>Demographic record</small><strong>Living population</strong></div><Users size={17} /></div>
+        <div className={styles.populationFigure}><strong>{formatNumber(snapshot.meta.population)}</strong><span>extant lives at Day {snapshot.meta.day.toLocaleString()}</span></div>
+        <div className={styles.cohortHeader}><span>{observation ? "Modeled life-cycle age" : "Generation cohorts"}</span><small>{observation ? `median ${observation.medianAge} · oldest ${observation.oldestAge}` : sampledLives ? `${sampledLives.toLocaleString()} mapped records` : "awaiting records"}</small></div>
+        {observation ? (
+          <div className={styles.cohortBars} role="img" aria-label={`Age distribution: ${observation.ageBands.children} children, ${observation.ageBands.adults} adults, and ${observation.ageBands.elders} elders`}>
+            {ageRows.map((row) => (
+              <div className={styles.cohortRow} key={row.label}>
+                <span>{row.label}<small>{row.description}</small></span>
+                <i><b style={{ width: `${ageTotal ? Math.max(3, row.count / ageTotal * 100) : 0}%` }} /></i>
+                <strong>{row.count}</strong>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className={styles.cohortBars} role="img" aria-label={`Generation distribution across ${sampledLives} currently mapped life records`}>
+            {generationRows.slice(0, 5).map(([generation, count]) => (
+              <div className={styles.cohortRow} key={generation}>
+                <span>G{generation}</span>
+                <i><b style={{ width: `${sampledLives ? Math.max(3, count / sampledLives * 100) : 0}%` }} /></i>
+                <strong>{count}</strong>
+              </div>
+            ))}
+            {!generationRows.length ? <p className={styles.evidenceNote}>No compact life records have reached this view yet.</p> : null}
+          </div>
+        )}
+        <p className={styles.evidenceNote}>{observation ? "One world day advances one modeled age unit. These are compressed life cycles derived from persisted birth and death records, not calendar years or assigned demographic targets." : "Exact modeled age, birth day, parentage, and descendants remain attached to each individual life record."}</p>
+      </section>
+
+      <section className={styles.insightCard}>
+        <div className={styles.insightCardTitle}><div><small>{observation ? `Up to ${observation.windowDays} modeled days` : "Current observation"}</small><strong>Autonomous activity</strong></div><Activity size={17} /></div>
+        {observation ? (
+          <div className={styles.decisionFigure}>
+            <strong>{observation.autonomousDecisions.toLocaleString()}</strong>
+            <span>living agents with a retained decision in this window</span>
+          </div>
+        ) : null}
+        {observation ? <div className={styles.eventEvidence}>
+          <InspectorValue label="Births / deaths" value={`${observation.births} / ${observation.deaths}`} />
+          <InspectorValue label="Migrations" value={String(observation.migrations)} />
+          <InspectorValue label="Discoveries" value={String(observation.discoveries)} />
+          <InspectorValue label="Inventions" value={String(observation.inventions)} />
+        </div> : null}
+        <div className={styles.cohortHeader}><span>Emergent organization</span><small>current world</small></div>
+        <div className={styles.emergenceGrid}>
+          <InspectorValue label="Social formations" value={String(snapshot.civilizations.length)} />
+          <InspectorValue label="Belief systems" value={String(snapshot.beliefs.length)} />
+          <InspectorValue label="Known capabilities" value={String(observation?.knownCapabilities ?? capabilityCount)} />
+          <InspectorValue label="Recorded relations" value={String(snapshot.relations.length)} />
+          {observation ? <InspectorValue label="Unaffiliated lives" value={String(observation.independentAgents)} /> : <InspectorValue label="Habitation sites" value={String(snapshot.settlements.length)} />}
+          {observation ? <InspectorValue label="No declared belief" value={String(observation.secularAgents)} /> : <InspectorValue label="Active conflicts" value={String(snapshot.conflicts.length)} />}
+        </div>
+        <p className={styles.evidenceNote}>Counts describe observed outcomes; they are not targets, scores, or authored progression.</p>
+      </section>
+
       <section className={`${styles.insightCard} ${styles.counselCard}`}>
         <div className={styles.insightCardTitle}>
-          <div><small>Decision engine</small><strong>{snapshot.aiCounsel?.configured ? "External counsel active" : "Deterministic autonomy only"}</strong></div>
-          <Atom size={17} />
+          <div><small>Decision provenance</small><strong>{snapshot.aiCounsel?.configured ? "Bounded external counsel observed" : "Internal deliberation only"}</strong></div>
+          <Compass size={17} />
         </div>
         {snapshot.aiCounsel?.configured ? (
           <div className={styles.counselFacts}>
-            <p>{snapshot.aiCounsel.model} may advise {snapshot.aiCounsel.activeSlots} high-influence agent{snapshot.aiCounsel.activeSlots === 1 ? "" : "s"}; agents still accept or reject advice through their own deliberation.</p>
+            <p>{snapshot.aiCounsel.model} may offer evidence-bounded counsel to {snapshot.aiCounsel.activeSlots} agent{snapshot.aiCounsel.activeSlots === 1 ? "" : "s"}. It cannot execute an action; each recipient weighs or rejects it through their own deliberation.</p>
             <div><span>{snapshot.aiCounsel.callsToday}/{snapshot.aiCounsel.dailyCallLimit} calls today</span><span>{snapshot.aiCounsel.lastCompletedDay === null ? "No completed counsel yet" : `Last completed Day ${snapshot.aiCounsel.lastCompletedDay.toLocaleString()}`}</span>{snapshot.aiCounsel.consecutiveFailures ? <span>{snapshot.aiCounsel.consecutiveFailures} consecutive failure{snapshot.aiCounsel.consecutiveFailures === 1 ? "" : "s"}</span> : null}</div>
           </div>
         ) : (
-          <p className={styles.counselCopy}>No external model is configured. Agents observe, plan, learn from outcomes, and choose independently through the simulation engine.</p>
+          <p className={styles.counselCopy}>Choices currently arise only from each agent&apos;s private observations, needs, relationships, plans, and learned outcome values. The observer supplies none of them.</p>
         )}
       </section>
-      {largest ? (
-        <button type="button" className={styles.leadingSociety} onClick={() => onSelect({ kind: "civilization", id: largest.id })}>
-          <span className={styles.eyebrow}>Largest observed society</span>
-          <div><span style={{ background: largest.color }} /><strong>{largest.name}</strong><small>{formatNumber(largest.population)} people</small></div>
-          <p>{largest.summary}</p>
-          <span>Open society <LocateFixed size={14} /></span>
-        </button>
-      ) : null}
-      <section className={styles.insightCard}>
-        <div className={styles.insightCardTitle}><div><small>Recent change</small><strong>Causal chronicle</strong></div><a href={historyHref}>Read history</a></div>
-        <div className={styles.recentEvents}>
-          {snapshot.chronicle.slice(0, 4).map((entry) => {
+
+      <section className={`${styles.insightCard} ${styles.causalCard}`}>
+        <div className={styles.insightCardTitle}><div><small>Latest causal record</small><strong>{latestRecord ? `Day ${latestRecord.day.toLocaleString()}` : "Awaiting first change"}</strong></div><a href={historyHref}>Full archive</a></div>
+        <div className={styles.causalEvents}>
+          {snapshot.chronicle.slice(0, 2).map((entry) => {
             const Icon = CATEGORY_ICONS[entry.category] ?? Activity;
-            return <div key={entry.id}><Icon size={15} /><span><strong>{entry.title}</strong><small>Day {entry.day.toLocaleString()} · {entry.category}</small></span></div>;
+            const content = <><Icon size={15} /><span><small>Day {entry.day.toLocaleString()} · {entry.category}</small><strong>{entry.title}</strong><p>{entry.summary}</p></span></>;
+            return entry.entity
+              ? <button key={entry.id} type="button" className={styles.causalEvent} onClick={() => onSelect(entry.entity!)}>{content}</button>
+              : <article key={entry.id} className={styles.causalEvent}>{content}</article>;
           })}
-          {!snapshot.chronicle.length ? <p>No major changes have been recorded yet.</p> : null}
+          {!snapshot.chronicle.length ? <p className={styles.evidenceNote}>No consequential change has been recorded yet.</p> : null}
         </div>
       </section>
     </aside>
@@ -633,18 +846,22 @@ function SectionView({
       <header className={styles.sectionViewHeader}>
         <button type="button" className={styles.sectionBack} onClick={onBack}><ArrowLeft size={19} /><span>Overview</span></button>
         <div className={styles.sectionTitle}><span><Icon size={22} /></span><div><p>{detail.description}</p><h1 id={`section-${view}-title`}>{detail.label}</h1></div></div>
-        <div className={styles.sectionCount}>{view === "people" ? formatNumber(snapshot.meta.population) : view === "societies" ? snapshot.civilizations.length : view === "settlements" ? snapshot.settlements.length : view === "research" ? capabilities.length : snapshot.chronicle.length}<span> observed</span></div>
+        <div className={styles.sectionCount}>{view === "people" ? formatNumber(snapshot.meta.population) : view === "societies" ? snapshot.civilizations.length : view === "settlements" ? snapshot.settlements.length : view === "research" ? capabilities.length : snapshot.chronicle.length}<span>{view === "people" ? " living" : " records"}</span></div>
       </header>
       <div className={styles.sectionBody}>
         {view === "people" ? (
-          <div className={styles.sectionRoster}><AgentRoster query={query} onQueryChange={onQueryChange} agents={agents} civilizations={snapshot.civilizations} onSelect={(id) => onSelect({ kind: "agent", id })} /></div>
+          <div className={styles.peopleLayout}>
+            <PopulationStudySummary snapshot={snapshot} />
+            <div className={styles.sectionRoster}><AgentRoster query={query} onQueryChange={onQueryChange} agents={agents} civilizations={snapshot.civilizations} onSelect={(id) => onSelect({ kind: "agent", id })} /></div>
+          </div>
         ) : view === "societies" ? (
           <div className={styles.societiesSection}>
             <div className={styles.recordGrid}>
               {snapshot.civilizations.map((civilization) => {
                 const settlementCount = snapshot.settlements.filter((settlement) => settlement.civilizationId === civilization.id).length;
                 const belief = snapshot.beliefs.find((candidate) => candidate.id === civilization.beliefId);
-                return <button type="button" key={civilization.id} className={styles.recordCard} style={{ "--entity-color": civilization.color } as React.CSSProperties} onClick={() => onSelect({ kind: "civilization", id: civilization.id })}><span className={styles.recordColor} /><div className={styles.recordHeading}><strong>{civilization.name}</strong><small>{formatNumber(civilization.population)} people</small></div><p>{civilization.summary}</p><div className={styles.recordFacts}><span>{settlementCount} settlements</span><span>{belief?.name ?? "Plural / secular"}</span><span>{civilization.technologyScore.toFixed(0)} knowledge</span></div><span className={styles.recordOpen}>View society <LocateFixed size={14} /></span></button>;
+                const relationCount = snapshot.relations.filter((relation) => relation.fromCivilizationId === civilization.id || relation.toCivilizationId === civilization.id).length;
+                return <button type="button" key={civilization.id} className={styles.recordCard} style={{ "--entity-color": civilization.color } as React.CSSProperties} onClick={() => onSelect({ kind: "civilization", id: civilization.id })}><span className={styles.recordColor} /><div className={styles.recordHeading}><strong>{civilization.name}</strong><small>{formatNumber(civilization.population)} people</small></div><p>{civilization.summary}</p><div className={styles.recordFacts}><span>{settlementCount} habitation sites</span><span>{belief?.name ?? "Plural / secular"}</span><span>{relationCount} recorded external ties</span></div><span className={styles.recordOpen}>Open field record <LocateFixed size={14} /></span></button>;
               })}
               {!snapshot.civilizations.length ? <SectionEmpty icon={Shield} title="No society records in this view" copy="The shared planet may still be connecting." /> : null}
             </div>
@@ -673,7 +890,7 @@ function SectionView({
           <div className={styles.recordGrid}>
             {[...snapshot.settlements].sort((left, right) => right.population - left.population).map((settlement) => {
               const civilization = snapshot.civilizations.find((candidate) => candidate.id === settlement.civilizationId);
-              return <button type="button" key={settlement.id} className={styles.recordCard} style={{ "--entity-color": civilization?.color ?? "#7ecfc7" } as React.CSSProperties} onClick={() => onSelect({ kind: "settlement", id: settlement.id })}><span className={styles.recordColor} /><div className={styles.recordHeading}><strong>{settlement.name}</strong><small>{settlement.kind} · {coordinates(settlement)}</small></div><div className={styles.recordFacts}><span>{formatNumber(settlement.population)} residents</span><span>{settlement.capabilities?.length ?? 0} capabilities</span><span>{settlement.prosperity.toFixed(0)} prosperity</span></div><span className={styles.recordOpen}>Open settlement <LocateFixed size={14} /></span></button>;
+              return <button type="button" key={settlement.id} className={styles.recordCard} style={{ "--entity-color": civilization?.color ?? "#7ecfc7" } as React.CSSProperties} onClick={() => onSelect({ kind: "settlement", id: settlement.id })}><span className={styles.recordColor} /><div className={styles.recordHeading}><strong>{settlement.name}</strong><small>{settlement.kind} · {coordinates(settlement)}</small></div><div className={styles.recordFacts}><span>{formatNumber(settlement.population)} residents</span><span>{settlement.capabilities?.length ?? 0} established capabilities</span><span>{civilization?.name ?? "No polity recorded"}</span></div><span className={styles.recordOpen}>Open site record <LocateFixed size={14} /></span></button>;
             })}
             {!snapshot.settlements.length ? <SectionEmpty icon={Building2} title="No settlements in this view" copy="The shared planet may still be connecting." /> : null}
           </div>
@@ -681,14 +898,72 @@ function SectionView({
           <div className={styles.researchLayout}>
             <div className={styles.researchIntro}><Atom size={25} /><div><span className={styles.eyebrow}>No prescribed technology tree</span><h2>Knowledge exists where people have learned it.</h2><p>These are capabilities currently established in observed settlements. New experiments, failures, and inventions enter this record only when the simulation produces them.</p></div></div>
             <div className={styles.researchList}>
-              {capabilities.map((capability, index) => <article key={capability.id}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{humanizeCapability(capability.id)}</strong><small>{capability.settlements} settlement{capability.settlements === 1 ? "" : "s"} · {capability.societies} societ{capability.societies === 1 ? "y" : "ies"}</small></div><em>Established</em></article>)}
+              {capabilities.map((capability, index) => <article key={capability.id}><span>R{String(index + 1).padStart(2, "0")}</span><div><strong>{humanizeCapability(capability.id)}</strong><small>Observed in {capability.settlements} settlement{capability.settlements === 1 ? "" : "s"} across {capability.societies} societ{capability.societies === 1 ? "y" : "ies"}</small></div><em>Established by agents</em></article>)}
               {!capabilities.length ? <SectionEmpty icon={Atom} title="No shared capability observed yet" copy="Founders must discover, teach, and institutionalize knowledge themselves." /> : null}
             </div>
           </div>
         ) : (
-          <div className={styles.timelineView}><div className={styles.timelineLead}><span>Era III</span><strong>Day {snapshot.meta.day.toLocaleString()}</strong><p>Major changes are grouped by cause and consequence rather than repeated status noise.</p><a href={historyHref}><BookOpen size={16} />Open history book</a></div><Chronicle snapshot={snapshot} onSelect={(entity) => entity && onSelect(entity)} /></div>
+          <div className={styles.timelineView}><div className={styles.timelineLead}><span>Longitudinal record · Study 03</span><strong>Through Day {snapshot.meta.day.toLocaleString()}</strong><p>Entries are admitted for causal significance. Routine ticks and repeated status noise are excluded from the archive.</p><a href={historyHref}><BookOpen size={16} />Open archival chapters</a></div><Chronicle snapshot={snapshot} onSelect={(entity) => entity && onSelect(entity)} /></div>
         )}
       </div>
+    </section>
+  );
+}
+
+function PopulationStudySummary({ snapshot }: { snapshot: PlanetSnapshot }) {
+  const observation = snapshot.observation;
+  const activePurposes = observation
+    ? Object.entries(observation.activeGoals)
+      .filter((entry): entry is [string, number] => typeof entry[1] === "number" && entry[1] > 0)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+    : [];
+  const totalPurposes = activePurposes.reduce((total, [, count]) => total + count, 0);
+  const ageRows = observation ? [
+    { label: "Children · 0–17", count: observation.ageBands.children },
+    { label: "Adults · 18–64", count: observation.ageBands.adults },
+    { label: "Elders · 65+", count: observation.ageBands.elders },
+  ] : [];
+  const ageTotal = ageRows.reduce((total, row) => total + row.count, 0);
+
+  return (
+    <section className={styles.populationStudy} aria-labelledby="population-study-title">
+      <header>
+        <span className={styles.eyebrow}>Population register · measured lives</span>
+        <h2 id="population-study-title">Demographic observation</h2>
+        <p>No demographic outcome is prescribed. Birth, death, aging, migration, affiliation, and family formation arise inside the simulation. One world day advances one modeled life-cycle age unit; these are not calendar years.</p>
+      </header>
+      <div className={styles.censusMeasure}>
+        <span>Current living census</span>
+        <strong>{snapshot.meta.population.toLocaleString()}</strong>
+        <small>as observed on Day {snapshot.meta.day.toLocaleString()}</small>
+      </div>
+      {observation ? (
+        <>
+          <div className={styles.populationSectionTitle}><span>Modeled age structure</span><small>median {observation.medianAge} · oldest {observation.oldestAge}</small></div>
+          <div className={styles.studyBars}>
+            {ageRows.map((row) => (
+              <div key={row.label}><span>{row.label}</span><i><b style={{ width: `${ageTotal ? Math.max(2, row.count / ageTotal * 100) : 0}%` }} /></i><strong>{row.count.toLocaleString()}</strong></div>
+            ))}
+          </div>
+          <div className={styles.populationSectionTitle}><span>Up to {observation.windowDays} modeled days ending now</span><small>persisted events</small></div>
+          <div className={styles.lifeEventGrid}>
+            <InspectorValue label="Living agents with a retained choice" value={observation.autonomousDecisions.toLocaleString()} />
+            <InspectorValue label="Births" value={observation.births.toLocaleString()} />
+            <InspectorValue label="Deaths" value={observation.deaths.toLocaleString()} />
+            <InspectorValue label="Migrations" value={observation.migrations.toLocaleString()} />
+            <InspectorValue label="Discoveries" value={observation.discoveries.toLocaleString()} />
+            <InspectorValue label="Inventions" value={observation.inventions.toLocaleString()} />
+          </div>
+          {activePurposes.length ? <div className={styles.activePurposes}>
+            <div className={styles.populationSectionTitle}><span>Most recent self-directed purposes</span><small>living agents</small></div>
+            {activePurposes.map(([purpose, count]) => <div key={purpose}><span>{humanizeCapability(purpose)}</span><i><b style={{ width: `${Math.max(3, count / totalPurposes * 100)}%` }} /></i><strong>{count}</strong></div>)}
+          </div> : null}
+        </>
+      ) : (
+        <p className={styles.studyUnavailable}>The detailed age and event window is not present in this snapshot. Individual life files still retain exact birth, death, and lineage evidence.</p>
+      )}
+      <p className={styles.studyFootnote}>This panel reports state; it contains no controls that can alter a life.</p>
     </section>
   );
 }
@@ -726,18 +1001,18 @@ function AgentRoster({
         <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search every named life…" autoComplete="off" />
         {query ? <button type="button" aria-label="Clear search" onClick={() => onQueryChange("")}><X size={16} /></button> : null}
       </label>
-      <p className={styles.panelHint}>{query ? `${agents.length} closest matches` : "Most influential now · rank emerges from lived outcomes"}</p>
+      <p className={styles.panelHint}>{query ? `Showing ${agents.length} matching living record${agents.length === 1 ? "" : "s"}` : "Named living records in alphabetical order. Open one to inspect evidence, memory, kinship, and deliberation."}</p>
       <div className={styles.entityList}>
-        {agents.map((agent, index) => {
+        {agents.map((agent) => {
           const civilization = civilizations.find((candidate) => candidate.id === agent.civilizationId);
           return (
             <button type="button" key={agent.id} className={styles.entityRow} onClick={() => onSelect(agent.id)}>
-              <span className={styles.rank}>{query ? <CircleDot size={13} /> : String(index + 1).padStart(2, "0")}</span>
+              <span className={styles.rank} style={{ "--entity-color": civilization?.color ?? "#9aa8aa" } as React.CSSProperties}><CircleDot size={14} /></span>
               <span className={styles.entityCopy}>
                 <strong>{agent.name}</strong>
-                <small>{agent.action}</small>
+                <small>{agent.action} · G{agent.generation} · {civilization?.name ?? "independent"}</small>
               </span>
-              <span className={styles.entityMeta} style={{ "--entity-color": civilization?.color ?? "#9aa8aa" } as React.CSSProperties}>{agent.influence}</span>
+              <span className={styles.entityMeta} style={{ "--entity-color": civilization?.color ?? "#9aa8aa" } as React.CSSProperties}>{agent.age === undefined ? `G${agent.generation}` : <><strong>{agent.age}</strong><small>age units</small></>}</span>
             </button>
           );
         })}
@@ -752,16 +1027,10 @@ function Chronicle({ snapshot, onSelect }: { snapshot: PlanetSnapshot; onSelect:
     <div className={styles.chronicleList}>
       {snapshot.chronicle.map((entry) => {
         const Icon = CATEGORY_ICONS[entry.category] ?? Activity;
-        return (
-          <button key={entry.id} type="button" className={styles.chronicleEntry} onClick={() => onSelect(entry.entity)} disabled={!entry.entity}>
-            <span className={styles.chronicleIcon}><Icon size={16} /></span>
-            <span>
-              <small>Day {entry.day.toLocaleString()} · {entry.category}</small>
-              <strong>{entry.title}</strong>
-              <p>{entry.summary}</p>
-            </span>
-          </button>
-        );
+        const content = <><span className={styles.chronicleIcon}><Icon size={16} /></span><span><small>Day {entry.day.toLocaleString()} · {entry.category}</small><strong>{entry.title}</strong><p>{entry.summary}</p></span></>;
+        return entry.entity
+          ? <button key={entry.id} type="button" className={styles.chronicleEntry} onClick={() => onSelect(entry.entity)}>{content}</button>
+          : <article key={entry.id} className={styles.chronicleEntry}>{content}</article>;
       })}
     </div>
   );
@@ -785,6 +1054,7 @@ function NearbyList({ nearby, onSelect }: { nearby: Array<{ kind: "agent" | "set
 function EntityInspector({
   snapshot,
   selection,
+  compactAgent,
   detail,
   detailStatus,
   onRetry,
@@ -792,30 +1062,49 @@ function EntityInspector({
 }: {
   snapshot: PlanetSnapshot;
   selection: PlanetEntitySelection;
+  compactAgent?: PlanetAgent | null;
   detail: PlanetEntityDetail | null;
   detailStatus: DetailLoadState;
   onRetry: () => void;
   onSelect: (selection: PlanetEntitySelection) => void;
 }) {
   const currentDetail = detail?.record.id === selection.id ? detail : null;
-  if (detailStatus === "loading" && selection.kind !== "resource") {
-    return <DetailState icon={Activity} title="Reading the living record" copy="Loading this entity’s current mind, family, and material state…" />;
-  }
-  if (detailStatus === "error" && selection.kind !== "resource") {
-    return <DetailState icon={CloudSun} title="Detail temporarily unavailable" copy="The compact map record is safe, but the deeper record could not be reached." action="Try again" onAction={onRetry} />;
-  }
   if (currentDetail) {
     return <DetailedEntityInspector snapshot={snapshot} detail={currentDetail} onSelect={onSelect} />;
   }
+  const compactRecordAvailable = selection.kind === "agent"
+    ? snapshot.agents.some((candidate) => candidate.id === selection.id) || compactAgent?.id === selection.id
+    : selection.kind === "settlement"
+      ? snapshot.settlements.some((candidate) => candidate.id === selection.id)
+      : selection.kind === "civilization"
+        ? snapshot.civilizations.some((candidate) => candidate.id === selection.id)
+        : snapshot.resources.some((candidate) => candidate.id === selection.id);
+  if (detailStatus === "loading" && selection.kind !== "resource" && !compactRecordAvailable) {
+    return <DetailState icon={Activity} title="Reading the living record" copy="Loading this entity’s current mind, family, and material state…" />;
+  }
+  if (detailStatus === "error" && selection.kind !== "resource" && !compactRecordAvailable) {
+    return <DetailState icon={CloudSun} title="Detail temporarily unavailable" copy="The compact map record is safe, but the deeper record could not be reached." action="Try again" onAction={onRetry} />;
+  }
+  const compactRecordNotice = selection.kind !== "resource" && (detailStatus === "loading" || detailStatus === "error") ? (
+    <div className={styles.compactRecordNotice} role={detailStatus === "loading" ? "status" : undefined}>
+      <span>
+        <strong>{detailStatus === "loading" ? "Reading the deeper record" : "Deep record temporarily unavailable"}</strong>
+        <small>{detailStatus === "loading" ? "Showing the compact viewport record while its evidence archive loads." : "Showing the compact viewport record; no simulation facts were invented to fill the gap."}</small>
+      </span>
+      {detailStatus === "error" ? <button type="button" onClick={onRetry}>Retry</button> : null}
+    </div>
+  ) : null;
+  const withCompactNotice = (content: React.ReactNode) => <>{compactRecordNotice}{content}</>;
   if (selection.kind === "agent") {
-    const agent = snapshot.agents.find((candidate) => candidate.id === selection.id);
+    const agent = snapshot.agents.find((candidate) => candidate.id === selection.id)
+      ?? (compactAgent?.id === selection.id ? compactAgent : null);
     if (!agent) return <MissingSelection />;
     const civilization = snapshot.civilizations.find((candidate) => candidate.id === agent.civilizationId);
     const settlement = snapshot.settlements.find((candidate) => candidate.id === agent.settlementId);
     const belief = snapshot.beliefs.find((candidate) => candidate.id === agent.beliefId);
-    return (
-      <InspectorFrame icon={<CircleDot size={23} />} title={agent.name} subtitle={`Generation ${agent.generation} · influence ${agent.influence}`} color={civilization?.color}>
-        <InspectorSection label="Current intention">
+    return withCompactNotice(
+      <InspectorFrame icon={<CircleDot size={23} />} title={agent.name} subtitle={`${agent.age === undefined ? "Modeled age pending" : `Modeled age ${agent.age}`} · Generation ${agent.generation} · living record`} color={civilization?.color}>
+        <InspectorSection label="Current self-directed purpose">
           <div className={styles.goalCard}><Compass size={18} /><span><strong>{agent.currentGoal}</strong><small>Now: {agent.action}</small></span></div>
         </InspectorSection>
         <InspectorSection label="What this mind knows">
@@ -828,7 +1117,7 @@ function EntityInspector({
           <InspectorValue label="Location" value={coordinates(agent)} />
         </InspectorSection>
         <p className={styles.observerNote}>WildGrid exposes the evidence behind this choice. It never supplies the choice.</p>
-      </InspectorFrame>
+      </InspectorFrame>,
     );
   }
 
@@ -837,17 +1126,17 @@ function EntityInspector({
     if (!settlement) return <MissingSelection />;
     const civilization = snapshot.civilizations.find((candidate) => candidate.id === settlement.civilizationId);
     const residents = snapshot.agents.filter((agent) => agent.settlementId === settlement.id);
-    return (
+    return withCompactNotice(
       <InspectorFrame icon={<MapPin size={23} />} title={settlement.name} subtitle={`${settlement.kind} · ${formatNumber(settlement.population)} residents`} color={civilization?.color}>
-        <InspectorSection label="Settlement condition">
-          <Metric label="Prosperity" value={settlement.prosperity} />
+        <InspectorSection label="Observed site record">
           <InspectorValue label="Location" value={coordinates(settlement)} />
+          <InspectorValue label="Established capabilities" value={String(settlement.capabilities?.length ?? 0)} />
           {civilization ? <InspectorLink label="Society" value={civilization.name} color={civilization.color} onClick={() => onSelect({ kind: "civilization", id: civilization.id })} /> : null}
         </InspectorSection>
         <InspectorSection label="Lives here">
           {residents.slice(0, 5).map((agent) => <InspectorLink key={agent.id} label={agent.action} value={agent.name} onClick={() => onSelect({ kind: "agent", id: agent.id })} />)}
         </InspectorSection>
-      </InspectorFrame>
+      </InspectorFrame>,
     );
   }
 
@@ -856,18 +1145,20 @@ function EntityInspector({
     if (!civilization) return <MissingSelection />;
     const belief = snapshot.beliefs.find((candidate) => candidate.id === civilization.beliefId);
     const settlements = snapshot.settlements.filter((settlement) => settlement.civilizationId === civilization.id).sort((left, right) => right.population - left.population);
-    return (
+    const relations = snapshot.relations.filter((relation) => relation.fromCivilizationId === civilization.id || relation.toCivilizationId === civilization.id);
+    const conflicts = snapshot.conflicts.filter((conflict) => conflict.attackerCivilizationId === civilization.id || conflict.defenderCivilizationId === civilization.id);
+    return withCompactNotice(
       <InspectorFrame icon={<Shield size={23} />} title={civilization.name} subtitle={`${formatNumber(civilization.population)} people · ${settlements.length} settlements`} color={civilization.color}>
         <p className={styles.entitySummary}>{civilization.summary}</p>
-        <InspectorSection label="Current condition">
-          <Metric label="Prosperity" value={civilization.prosperity} />
-          <Metric label="Knowledge depth" value={civilization.technologyScore} />
-          <InspectorValue label="Largest worldview" value={belief?.name ?? "Plural / secular"} />
+        <InspectorSection label="Observed organization">
+          <InspectorValue label="Declared worldview" value={belief?.name ?? "Plural / secular"} />
+          <InspectorValue label="External ties" value={String(relations.length)} />
+          <InspectorValue label="Active conflicts" value={String(conflicts.length)} />
         </InspectorSection>
         <InspectorSection label="Settlements">
           {settlements.slice(0, 6).map((settlement) => <InspectorLink key={settlement.id} label={`${settlement.kind} · ${formatNumber(settlement.population)}`} value={settlement.name} onClick={() => onSelect({ kind: "settlement", id: settlement.id })} />)}
         </InspectorSection>
-      </InspectorFrame>
+      </InspectorFrame>,
     );
   }
 
@@ -896,12 +1187,56 @@ function DetailedEntityInspector({ snapshot, detail, onSelect }: { snapshot: Pla
     const activeGoal = agent.mind.goals.find((goal) => goal.status === "active") ?? agent.mind.goals[0];
     const lastLivingDay = agent.deathDay ?? snapshot.meta.day;
     const age = Math.max(0, Math.floor(lastLivingDay - agent.birthDay));
+    const lifeStage = age < 18 ? "Child" : age < 35 ? "Young adult" : age < 65 ? "Adult" : "Elder";
+    const citedObservations = agent.mind.lastDecision
+      ? agent.mind.lastDecision.knownFactIds
+        .map((id) => agent.mind.observations.find((observation) => observation.id === id))
+        .filter((observation): observation is NonNullable<typeof observation> => Boolean(observation))
+      : [];
+    const learnedContexts = [...agent.mind.contextualLearning].sort((left, right) => right.lastUpdatedAt - left.lastUpdatedAt).slice(0, 4);
+    const strongestLearnedDrives = Object.entries(agent.mind.learnedDriveWeights)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+      .map(([drive]) => drive);
     return (
-      <InspectorFrame icon={<CircleDot size={23} />} title={agent.name} subtitle={`Age ${age} · Generation ${agent.generation} · ${agent.alive ? "living" : `died Day ${agent.deathDay?.toLocaleString()}`}`} color={civilization?.color}>
-        <InspectorSection label="Current decision">
-          {agent.mind.lastDecision ? <div className={styles.decisionRecord}><Compass size={18} /><div><strong>{agent.mind.lastDecision.explanation}</strong><small>{Math.round((1 - agent.mind.lastDecision.uncertainty) * 100)}% confidence in available evidence</small></div></div> : <p className={styles.missingRecord}>No completed deliberation has been recorded yet.</p>}
-          {activeGoal ? <div className={styles.activePlan}><span>{humanizeCapability(activeGoal.purpose)} · {activeGoal.status}</span><strong>{activeGoal.rationale}</strong>{activeGoal.steps.length ? <ol>{activeGoal.steps.map((step) => <li key={step.id} data-status={step.status}><span>{humanizeCapability(step.action)}</span><small>{step.status}{step.requirements.length ? ` · needs ${step.requirements.map(humanizeCapability).join(", ")}` : ""}</small></li>)}</ol> : null}</div> : null}
-          {agent.mind.lastDecision?.alternatives.length ? <div className={styles.alternatives}><span>Alternatives considered</span>{agent.mind.lastDecision.alternatives.map((alternative) => <div key={`${alternative.purpose}-${alternative.score}`}><strong>{humanizeCapability(alternative.purpose)}</strong><small>{alternative.summary}</small><em>{alternative.score.toFixed(1)}</em></div>)}</div> : null}
+      <InspectorFrame icon={<CircleDot size={23} />} title={agent.name} subtitle={`Modeled age ${age} · Generation ${agent.generation} · ${agent.alive ? "living" : `died Day ${agent.deathDay?.toLocaleString()}`}`} color={civilization?.color}>
+        <InspectorSection label="Autonomous decision trace">
+          <div className={styles.decisionTrace}>
+            <article>
+              <header><span>01</span><div><strong>Evidence available</strong><small>Private observations cited by the most recent choice</small></div></header>
+              {citedObservations.length ? <div className={styles.observationRecords}>{citedObservations.map((observation) => (
+                <div key={observation.id}><span>{humanizeCapability(observation.kind)} · learned Day {Math.floor(observation.learnedAt / 60) + 1}</span><strong>{humanizeCapability(observation.subjectId)}</strong><p>{Object.entries(observation.facts).slice(0, 3).map(([key, value]) => `${humanizeCapability(key)}: ${String(value)}`).join(" · ") || "No retained factual fields"}</p><small>confidence estimate {Math.round(observation.confidence * 100)}%</small></div>
+              ))}</div> : agent.mind.lastDecision?.knownFactIds.length ? <p className={styles.missingRecord}>{agent.mind.lastDecision.knownFactIds.length} cited fact reference{agent.mind.lastDecision.knownFactIds.length === 1 ? " is" : "s are"} outside this retained observation excerpt.</p> : <p className={styles.missingRecord}>No specific observation was cited in the retained decision record.</p>}
+            </article>
+            <article>
+              <header><span>02</span><div><strong>Alternatives considered</strong><small>Options generated inside this mind</small></div></header>
+              {agent.mind.lastDecision?.alternatives.length ? <div className={styles.alternatives}>{agent.mind.lastDecision.alternatives.map((alternative) => <div key={`${alternative.purpose}-${alternative.score}`}><strong>{humanizeCapability(alternative.purpose)}</strong><small>{alternative.summary}</small></div>)}</div> : <p className={styles.missingRecord}>No rejected alternative was retained.</p>}
+            </article>
+            <article>
+              <header><span>03</span><div><strong>Choice and active plan</strong><small>{agent.mind.lastDecision ? `decided Day ${Math.floor(agent.mind.lastDecision.decidedAt / 60) + 1} · confidence estimate ${Math.round((1 - agent.mind.lastDecision.uncertainty) * 100)}%` : "No completed choice retained"}</small></div></header>
+              {agent.mind.lastDecision ? <div className={styles.decisionRecord}><Compass size={18} /><div><strong>{agent.mind.lastDecision.explanation}</strong></div></div> : <p className={styles.missingRecord}>No completed deliberation has been recorded yet.</p>}
+              {activeGoal ? <div className={styles.activePlan}><span>{humanizeCapability(activeGoal.purpose)} · {activeGoal.status}{activeGoal.targetId ? ` · target ${humanizeCapability(activeGoal.targetId)}` : ""}</span><strong>{activeGoal.rationale}</strong>{activeGoal.steps.length ? <ol>{activeGoal.steps.map((step) => <li key={step.id} data-status={step.status}><span>{humanizeCapability(step.action)}</span><small>{step.status}{step.requirements.length ? ` · needs ${step.requirements.map(humanizeCapability).join(", ")}` : ""}</small></li>)}</ol> : null}</div> : null}
+            </article>
+            <article>
+              <header><span>04</span><div><strong>Learning retained</strong><small>Experience changes later expectations; no birth personality is assigned</small></div></header>
+              {learnedContexts.length ? <div className={styles.learningRecords}>{learnedContexts.map((learning) => <div key={learning.key}><strong>{humanizeCapability(learning.key)}</strong><span>{learning.attempts} observed attempt{learning.attempts === 1 ? "" : "s"}</span><small>{learning.expectedValue > 0.25 ? "outcomes learned as favorable" : learning.expectedValue < -0.25 ? "outcomes learned as unfavorable" : "outcomes remain mixed"}</small></div>)}</div> : <p className={styles.missingRecord}>No repeated contextual outcome has formed a retained expectation yet.</p>}
+              {strongestLearnedDrives.length ? <div className={styles.learnedDrives}><span>Most elevated learned concerns</span><p>{strongestLearnedDrives.map(humanizeCapability).join(" · ")}</p></div> : null}
+            </article>
+          </div>
+        </InspectorSection>
+        {agent.mind.advisory ? <InspectorSection label="Separate external advisory record">
+          <div className={styles.advisoryRecord}>
+            <div><Atom size={17} /><span><strong>Nonbinding counsel · {humanizeCapability(agent.mind.advisory.status)}</strong><small>{agent.mind.advisory.provenance}</small></span></div>
+            <p>{agent.mind.advisory.reasoning}</p>
+            <dl><div><dt>Suggested purpose</dt><dd>{humanizeCapability(agent.mind.advisory.goalKind)}</dd></div><div><dt>Proposal intent</dt><dd>{agent.mind.advisory.proposalIntent ? humanizeCapability(agent.mind.advisory.proposalIntent) : "None"}</dd></div><div><dt>Received</dt><dd>Day {Math.floor(agent.mind.advisory.receivedAt / 60) + 1}</dd></div><div><dt>Expires</dt><dd>Day {Math.floor(agent.mind.advisory.expiresAt / 60) + 1}</dd></div></dl>
+            <small>This counsel is an uncertain input. It cannot act, replace local evidence, or compel the recorded choice above.</small>
+          </div>
+        </InspectorSection> : null}
+        <InspectorSection label="Life course">
+          <InspectorValue label="Life stage" value={lifeStage} />
+          <InspectorValue label="Birth record" value={formatBirthRecord(agent.birthDay)} />
+          <InspectorValue label="Generation" value={String(agent.generation)} />
+          <InspectorValue label="Recorded children" value={String(agent.childIds.length)} />
         </InspectorSection>
         <InspectorSection label="Survival state">
           {Object.entries(agent.needs).map(([need, value]) => <Metric key={need} label={humanizeCapability(need)} value={value} />)}
@@ -948,7 +1283,7 @@ function DetailedEntityInspector({ snapshot, detail, onSelect }: { snapshot: Pla
   return (
     <InspectorFrame icon={<Shield size={23} />} title={civilization.name} subtitle={`${formatNumber(publicCivilization?.population ?? civilization.citizenIds.length)} citizens · formed Day ${foundedDay.toLocaleString()}`} color={publicCivilization?.color}>
       <InspectorSection label="Leadership & institutions">
-        {civilization.leaderId ? <InspectorLink label="Current leader" value={agentName(civilization.leaderId)} onClick={() => onSelect({ kind: "agent", id: civilization.leaderId! })} /> : <InspectorValue label="Current leader" value="No sole leader" />}
+        {civilization.leaderId ? <InspectorLink label="Recorded leader" value={agentName(civilization.leaderId)} onClick={() => onSelect({ kind: "agent", id: civilization.leaderId! })} /> : <InspectorValue label="Recorded leader" value="No sole leader" />}
         <InspectorValue label="Institutions" value={String(civilization.institutionIds.length)} />
       </InspectorSection>
       <InspectorSection label="Settlements">

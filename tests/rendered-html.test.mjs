@@ -91,14 +91,14 @@ async function render(pathname = "/") {
   );
 }
 
-test("server-renders the WildGrid Planetfall experience", async () => {
+test("server-renders the WildGrid autonomous world observatory", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>WildGrid: Planetfall — Autonomous Planetary Observatory<\/title>/i);
-  assert.match(html, /A living world in simulation|Planetary observatory/i);
+  assert.match(html, /<title>WildGrid — Autonomous World Observatory<\/title>/i);
+  assert.match(html, /Autonomous world observatory|persistent, inspectable simulation/i);
   assert.match(html, /planet-experience/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });

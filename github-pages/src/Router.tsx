@@ -62,36 +62,35 @@ function formatDuration(seconds: number) {
 
 function LocalWorldBar({ runtime }: { runtime: LocalPlanetRuntime }) {
   const storageLabel = runtime.persistence === "indexeddb"
-    ? "Saved in this browser"
-    : runtime.persistence === "localstorage" ? "Browser fallback save" : "Temporary session";
-
-  async function reset() {
-    if (!window.confirm("Start a new Era III planet? This permanently removes this browser's current Era III world and history.")) return;
-    await runtime.reset();
-    location.hash = "#/map";
-  }
+    ? "IndexedDB record"
+    : runtime.persistence === "localstorage" ? "Local fallback record" : "Temporary record";
+  const recordState = runtime.catchingUp
+    ? `Reconstructing ${formatDuration(runtime.catchUpSeconds)} of elapsed time`
+    : runtime.saved ? "Observation record current" : "Recording new events";
 
   return (
-    <aside className="pages-local-bar" aria-label="Local world status">
+    <aside className="pages-local-bar" aria-label="On-device observation status">
       <span className="pages-local-dot" aria-hidden="true" />
       <div>
-        <strong>{runtime.catchingUp ? `Catching up ${formatDuration(runtime.catchUpSeconds)}` : storageLabel}</strong>
-        <small>Device-local edition · this planet is not shared with other visitors</small>
+        <strong>{recordState}</strong>
+        <small>Clock and camera are observer tools. No agent can be commanded.</small>
       </div>
-      <label>
-        <span>Speed</span>
+      <span className="pages-observer-boundary">NO DIRECT CONTROL</span>
+      <label className="pages-clock-control">
+        <span>Clock rate</span>
         <select aria-label="Simulation speed" value={runtime.speed} onChange={(event) => runtime.setSpeed(Number(event.target.value))}>
-          <option value={0}>Paused</option>
+          <option value={0}>Held</option>
           <option value={1}>1×</option>
           <option value={4}>4×</option>
           <option value={8}>8×</option>
           <option value={16}>16×</option>
         </select>
       </label>
-      <a className="pages-history-link" href="#/history">History</a>
-      <a className="pages-about-link" href="#/about">How it works</a>
-      <button type="button" onClick={() => void reset()}>New planet</button>
-      <em>{runtime.saved ? "SAVED" : "AUTO-SAVE"}</em>
+      <nav aria-label="Observation resources">
+        <a className="pages-history-link" href="#/history">Record</a>
+        <a className="pages-about-link" href="#/about">Method</a>
+      </nav>
+      <em>{storageLabel}</em>
     </aside>
   );
 }
@@ -100,16 +99,16 @@ function ReadingHeader({ route, runtime }: { route: Route; runtime: LocalPlanetR
   return (
     <>
       <header className="planet-reading-header">
-        <a className="planet-wordmark" href="#/map"><span>W</span><div><strong>WILDGRID</strong><small>PLANETARY OBSERVATORY</small></div></a>
-        <nav aria-label="Era III sections">
-          <a className={route === "map" ? "active" : ""} href="#/map">Map</a>
-          <a className={route === "history" ? "active" : ""} href="#/history">History</a>
-          <a className={route === "about" ? "active" : ""} href="#/about">About</a>
-          <a className={route === "legacy" ? "active" : ""} href="#/legacy">Era II</a>
+        <a className="planet-wordmark" href="#/map"><span>W</span><div><strong>WILDGRID</strong><small>AUTONOMOUS WORLD STUDY</small></div></a>
+        <nav aria-label="Observatory sections">
+          <a className={route === "map" ? "active" : ""} href="#/map">World</a>
+          <a className={route === "history" ? "active" : ""} href="#/history">Record</a>
+          <a className={route === "about" ? "active" : ""} href="#/about">Method</a>
+          <a className={route === "legacy" ? "active" : ""} href="#/legacy">Prior model</a>
         </nav>
-        <div className="planet-reading-status"><span />Day {runtime.world?.day.toLocaleString() ?? "—"}</div>
+        <div className="planet-reading-status"><span />Observing · Day {runtime.world?.day.toLocaleString() ?? "—"}</div>
       </header>
-      <div className="planet-local-strip"><strong>LOCAL WORLD</strong><span>Saved only on this device. This GitHub Pages planet is not the shared hosted world.</span></div>
+      <div className="planet-local-strip"><strong>OBSERVER BOUNDARY</strong><span>Navigation and clock rate only · agents remain uncommanded · this record exists only on this device</span></div>
     </>
   );
 }
@@ -197,9 +196,9 @@ function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
       <ReadingHeader route="history" runtime={runtime} />
       <main className="planet-reading-main history-reading-main">
         <section className="planet-hero">
-          <p>THE LIVING RECORD · ONE CHAPTER EVERY 200 DAYS</p>
-          <h1>A history written by consequence.</h1>
-          <div><p>Repeated routine is omitted. Each chapter favors distinct turning points, then connects them to the decisions and discoveries that caused them.</p><span>{totalChapters} chapter{totalChapters === 1 ? "" : "s"}<br />{formatNumber(world.history.length)} recorded events</span></div>
+          <p>CAUSAL ARCHIVE · 200-DAY OBSERVATION INTERVALS</p>
+          <h1>A causal record of an autonomous world.</h1>
+          <div><p>Routine state changes are omitted. Each interval preserves distinct demographic, material, institutional, and ideological changes, with recorded causes where the simulation has them.</p><span>{totalChapters} interval{totalChapters === 1 ? "" : "s"}<br />{formatNumber(world.history.length)} recorded events</span></div>
         </section>
 
         <nav className="chapter-pager" aria-label="History chapter pages">
@@ -216,10 +215,10 @@ function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
                 <span data-complete={chapter.complete}>{chapter.complete ? "SEALED" : "IN PROGRESS"}</span>
               </header>
               <div className="chapter-metrics">
-                <span><strong>{chapter.totals.events}</strong> major records</span>
-                <span><strong>{chapter.totals.advances}</strong> discoveries & advances</span>
-                <span><strong>{chapter.totals.politics}</strong> political turns</span>
-                <span><strong>{chapter.totals.people}</strong> movements of life</span>
+                <span><strong>{chapter.totals.events}</strong> recorded changes</span>
+                <span><strong>{chapter.totals.advances}</strong> material advances</span>
+                <span><strong>{chapter.totals.politics}</strong> institutional turns</span>
+                <span><strong>{chapter.totals.people}</strong> demographic events</span>
               </div>
               <div className="chapter-timeline">
                 {chapter.moments.length ? chapter.moments.map((event) => {
@@ -232,7 +231,7 @@ function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
                       </div>
                     </section>
                   );
-                }) : <p className="quiet-record">No distinct major change has entered the record yet.</p>}
+                }) : <p className="quiet-record">No distinct major change meets the archive threshold yet.</p>}
               </div>
             </article>
           ))}
@@ -245,16 +244,17 @@ function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
 function AboutPage({ runtime }: { runtime: LocalPlanetRuntime }) {
   const world = runtime.world!;
   const catalog = validatePlanetCatalogs();
+  const livingAgents = world.agents.filter(({ alive }) => alive).length;
   const cards = [
-    ["LOCAL KNOWLEDGE", "Agents act on observations they personally made or learned through social contact. The observer does not grant them omniscience."],
-    ["PLANS, NOT SCRIPTS", "Each named person weighs survival needs, uncertainty, learned outcomes, commitments, and multi-step goals before acting."],
-    ["MUTUAL DECISIONS", "Families, trade, migration, leadership, alliances, peace, war, and belief reform use named proposals that other agents can accept or reject."],
-    ["OPEN INVENTION", "Technology has no final node. Agents combine materials, processes, evidence, and prior capabilities into named projects."],
-    ["EXCLUSIVE TERRITORY", "A territorial cell has one sovereign owner. Rival claims become explicit disputes instead of overlapping borders."],
-    ["DETERMINISTIC WORLD", "The same seed and sequence of elapsed simulation time produce the same outcomes, making histories reproducible and testable."],
+    ["OBSERVER BOUNDARY", "No interface action orders a person, society, or settlement. The observer can navigate the evidence and alter only the rate at which simulation time is evaluated."],
+    ["LOCAL EVIDENCE", "Agents act on observations they personally made or learned through social contact. The observer does not grant them global knowledge."],
+    ["GOAL FORMATION", "Each named person weighs survival needs, uncertainty, learned outcomes, commitments, and multi-step goals before selecting an action."],
+    ["RECIPROCAL DECISIONS", "Families, trade, migration, leadership, alliances, peace, war, and belief reform use named proposals that other agents can accept or reject."],
+    ["OPEN DEVELOPMENT", "There is no prescribed final technology. Agents combine known materials, processes, evidence, and existing capabilities into projects."],
+    ["REPRODUCIBLE HISTORY", "A seed and the same sequence of elapsed simulation time produce the same outcomes, so a run can be inspected and tested."],
   ];
   async function reset() {
-    if (!window.confirm("Start a new Era III planet? This permanently removes this browser's current Era III world and history.")) return;
+    if (!window.confirm("Erase this on-device observation record and initialize a new simulation run? This cannot be undone.")) return;
     await runtime.reset();
     location.hash = "#/map";
   }
@@ -263,15 +263,15 @@ function AboutPage({ runtime }: { runtime: LocalPlanetRuntime }) {
       <ReadingHeader route="about" runtime={runtime} />
       <main className="planet-reading-main">
         <section className="planet-hero">
-          <p>AN AUTONOMOUS PLANET · OBSERVED, NEVER COMMANDED</p>
-          <h1>Freedom built from evidence and consequence.</h1>
-          <div><p>This edition uses a deterministic on-device simulation—not an external language model. Autonomy means agents choose within their world from what they know, need, remember, and can physically attempt.</p><span>Seed {world.seed.toLocaleString()}<br />10,000-agent ceiling</span></div>
+          <p>SIMULATION METHODOLOGY · OBSERVATION WITHOUT INTERVENTION</p>
+          <h1>What “autonomous” means in this model.</h1>
+          <div><p>This edition runs a deterministic model on this device, not an external language model. An agent chooses within modeled constraints using its own local evidence, needs, memories, commitments, and feasible actions.</p><span>Current record · Day {world.day.toLocaleString()}<br />{formatNumber(livingAgents)} living agents · {formatNumber(world.settlements.length)} settlements<br />10,000-agent ceiling</span></div>
         </section>
         <section className="autonomy-grid">
           {cards.map(([title, copy], index) => <article key={title} style={{ "--card-index": index } as CSSProperties}><span>{String(index + 1).padStart(2, "0")}</span><h2>{title}</h2><p>{copy}</p></article>)}
         </section>
         <section className="catalog-section">
-          <div><p>SIMULATION SUBSTRATE</p><h2>A planet rich enough to surprise its inhabitants.</h2></div>
+          <div><p>MODELED ENVIRONMENT</p><h2>The material substrate agents can investigate.</h2></div>
           <dl>
             <div><dt>{catalog.counts.resources}</dt><dd>natural resources, including crude oil, gas, uranium, water, food, fibers, metals, and renewables</dd></div>
             <div><dt>{catalog.counts.commodities}</dt><dd>usable commodities derived from raw materials</dd></div>
@@ -280,7 +280,7 @@ function AboutPage({ runtime }: { runtime: LocalPlanetRuntime }) {
           </dl>
         </section>
         <section className="local-explanation">
-          <p>THIS GITHUB PAGES EDITION</p><h2>One browser, one private timeline.</h2><p>Your Era III planet is stored in IndexedDB on this device and advances while open. When you return, the deterministic event engine catches up from the last save. Clearing browser data removes it, and another visitor sees a different local copy—not yours.</p><div className="counsel-boundary"><strong>External OpenAI counsel: unavailable</strong><span>Static hosting cannot protect a server-side API secret, so no external model is called here. Every choice remains inside the deterministic agent planner.</span></div><button type="button" onClick={() => void reset()}>Start a new local planet</button>
+          <p>PUBLIC, DEVICE-LOCAL EDITION</p><h2>One browser, one reproducible observation record.</h2><p>The world state is stored in IndexedDB on this device and advances while the page is open. On return, the deterministic event engine reconstructs elapsed time from the last save. Clearing browser data removes the record; another visitor observes an independent run.</p><div className="counsel-boundary"><strong>External OpenAI counsel: unavailable</strong><span>Static hosting cannot protect a server-side API secret. No external model is called, and every recorded choice comes from the deterministic agent planner.</span></div><button type="button" onClick={() => void reset()}>Erase this record and initialize a new run</button>
         </section>
       </main>
     </div>
@@ -288,7 +288,7 @@ function AboutPage({ runtime }: { runtime: LocalPlanetRuntime }) {
 }
 
 function LoadingWorld({ error }: { error: string }) {
-  return <main className="planet-boot"><span>W</span><p>ERA III · PLANETFALL</p><h1>{error ? "The planet could not open." : "Restoring your local planet…"}</h1><small>{error || "Ten founders, ten camps, one unobserved future."}</small>{error ? <button type="button" onClick={() => location.reload()}>Try again</button> : null}</main>;
+  return <main className="planet-boot"><span>W</span><p>AUTONOMOUS WORLD OBSERVATORY · ERA III</p><h1>{error ? "The observation record could not open." : "Restoring the local world record…"}</h1><small>{error || "Initializing agents, material conditions, and the event archive."}</small>{error ? <button type="button" onClick={() => location.reload()}>Try again</button> : null}</main>;
 }
 
 export function Router() {
@@ -305,15 +305,17 @@ export function Router() {
   if (!runtime.adapter || !runtime.world || runtime.error) return <LoadingWorld error={runtime.error} />;
 
   if (route === "legacy") {
-    return <div className="legacy-route"><Suspense fallback={<LoadingWorld error="" />}><LegacyEraTwoApp /></Suspense><a className="return-era-three" href="#/map">Return to Era III</a></div>;
+    return <div className="legacy-route"><Suspense fallback={<LoadingWorld error="" />}><LegacyEraTwoApp /></Suspense><a className="return-era-three" href="#/map">Return to current observatory</a></div>;
   }
   if (route === "history") return <PlanetHistoryPage runtime={runtime} />;
   if (route === "about") return <AboutPage runtime={runtime} />;
 
   return (
     <div className="planet-pages-route">
-      <PlanetExperience adapter={runtime.adapter} archiveHref="#/legacy" historyHref="#/history" />
       <LocalWorldBar runtime={runtime} />
+      <div className="pages-experience">
+        <PlanetExperience adapter={runtime.adapter} archiveHref="#/legacy" historyHref="#/history" />
+      </div>
     </div>
   );
 }

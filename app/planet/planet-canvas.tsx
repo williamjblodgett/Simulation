@@ -44,24 +44,24 @@ interface PointerPosition {
 }
 
 const BIOME_COLORS: Record<string, string> = {
-  tundra: "#79969b",
-  boreal: "#2b6b60",
-  temperate: "#387c5d",
-  grassland: "#7f9355",
-  desert: "#b99562",
-  tropical: "#176e55",
-  alpine: "#69777c",
+  tundra: "#8b9d9c",
+  boreal: "#365c50",
+  temperate: "#50715a",
+  grassland: "#747d55",
+  desert: "#9a7d5c",
+  tropical: "#2e604f",
+  alpine: "#6f7777",
 };
 
 const RESOURCE_COLORS: Record<string, string> = {
-  food: "#b8dc69",
-  water: "#70d9f7",
-  biological: "#53c58b",
-  construction: "#c8b99e",
-  metal: "#bcc8d7",
-  strategic: "#de9fff",
-  fuel: "#f0a15c",
-  energy: "#f9e979",
+  food: "#a9b878",
+  water: "#77aebd",
+  biological: "#73a184",
+  construction: "#aa9e8a",
+  metal: "#9fa8ad",
+  strategic: "#a491b2",
+  fuel: "#b88b67",
+  energy: "#c0ad70",
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -256,11 +256,11 @@ function drawTerritoryCells(
       { longitude: west, latitude: north },
     ];
     if (!fill || !beginLandPath(context, points, project)) continue;
-    context.fillStyle = hexToRgba(fill, overlay === "political" ? 0.42 : 0.32);
+    context.fillStyle = hexToRgba(fill, overlay === "political" ? 0.26 : 0.2);
     context.fill();
     if (cell.contestedBy.length) {
-      context.strokeStyle = "rgba(255, 126, 104, .95)";
-      context.lineWidth = 1.6;
+      context.strokeStyle = "rgba(207, 129, 112, .78)";
+      context.lineWidth = 1.25;
       context.stroke();
     }
   }
@@ -268,8 +268,8 @@ function drawTerritoryCells(
   // Stroke only ownership changes, never every storage cell. Political borders
   // therefore remain exact without revealing the engine's internal grid.
   context.save();
-  context.strokeStyle = "rgba(217, 241, 235, .62)";
-  context.lineWidth = 0.9;
+  context.strokeStyle = "rgba(205, 219, 214, .48)";
+  context.lineWidth = 0.72;
   for (const cell of cells) {
     const [x, y] = cell.cellKey.split(":").map(Number);
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
@@ -322,18 +322,18 @@ function beginLandPath(
 
 function drawStars(context: CanvasRenderingContext2D, width: number, height: number, seed: number) {
   const gradient = context.createRadialGradient(width * 0.52, height * 0.45, 0, width * 0.52, height * 0.45, Math.max(width, height));
-  gradient.addColorStop(0, "#081a24");
-  gradient.addColorStop(0.52, "#041018");
-  gradient.addColorStop(1, "#010509");
+  gradient.addColorStop(0, "#0a1519");
+  gradient.addColorStop(0.52, "#061014");
+  gradient.addColorStop(1, "#020608");
   context.fillStyle = gradient;
   context.fillRect(0, 0, width, height);
-  const starCount = Math.min(330, Math.max(110, Math.floor((width * height) / 5_800)));
+  const starCount = Math.min(190, Math.max(70, Math.floor((width * height) / 9_000)));
   for (let index = 0; index < starCount; index += 1) {
     const x = ((index * 12_913 + seed * 17) % 10_007) / 10_007 * width;
     const y = ((index * 7_919 + seed * 31) % 9_973) / 9_973 * height;
-    const size = 0.45 + (((index * 37 + seed) % 17) / 17) * 1.25;
-    const opacity = 0.18 + (((index * 71 + seed) % 29) / 29) * 0.62;
-    context.fillStyle = `rgba(217, 242, 255, ${opacity})`;
+    const size = 0.35 + (((index * 37 + seed) % 17) / 17) * 0.75;
+    const opacity = 0.08 + (((index * 71 + seed) % 29) / 29) * 0.28;
+    context.fillStyle = `rgba(221, 232, 228, ${opacity})`;
     context.fillRect(x, y, size, size);
   }
 }
@@ -355,18 +355,18 @@ function drawGlobe(
   context.globalAlpha = opacity;
   const atmosphere = context.createRadialGradient(width / 2, height / 2, radius * 0.72, width / 2, height / 2, radius * 1.1);
   atmosphere.addColorStop(0, "rgba(57, 194, 205, 0)");
-  atmosphere.addColorStop(0.84, "rgba(73, 211, 222, 0.08)");
-  atmosphere.addColorStop(0.98, "rgba(94, 222, 235, 0.27)");
-  atmosphere.addColorStop(1, "rgba(94, 222, 235, 0)");
+  atmosphere.addColorStop(0.84, "rgba(137, 183, 184, 0.05)");
+  atmosphere.addColorStop(0.98, "rgba(150, 197, 196, 0.18)");
+  atmosphere.addColorStop(1, "rgba(150, 197, 196, 0)");
   context.fillStyle = atmosphere;
   context.beginPath();
   context.arc(width / 2, height / 2, radius * 1.1, 0, Math.PI * 2);
   context.fill();
 
   const ocean = context.createRadialGradient(width * 0.43, height * 0.36, radius * 0.08, width / 2, height / 2, radius);
-  ocean.addColorStop(0, "#174959");
-  ocean.addColorStop(0.55, "#0c2d3d");
-  ocean.addColorStop(1, "#061821");
+  ocean.addColorStop(0, "#244852");
+  ocean.addColorStop(0.55, "#17333c");
+  ocean.addColorStop(1, "#0b2027");
   context.fillStyle = ocean;
   context.beginPath();
   context.arc(width / 2, height / 2, radius, 0, Math.PI * 2);
@@ -378,7 +378,7 @@ function drawGlobe(
   for (const landmass of (snapshot.terrain?.length ? [] : snapshot.landmasses)) {
     const civilization = findCivilization(snapshot, landmass.civilizationId);
     if (!beginLandPath(context, landmass.points, project)) continue;
-    context.fillStyle = hexToRgba(territoryColor(snapshot, civilization, landmass.biome, overlay), overlay === "political" ? 0.78 : 0.68);
+    context.fillStyle = hexToRgba(territoryColor(snapshot, civilization, landmass.biome, overlay), overlay === "political" ? 0.46 : 0.5);
     context.fill();
     context.strokeStyle = civilization ? hexToRgba(civilization.color, 0.62) : "rgba(171, 213, 195, 0.2)";
     context.lineWidth = civilization ? 1.2 : 0.8;
@@ -392,7 +392,7 @@ function drawGlobe(
 
   context.save();
   context.globalAlpha = opacity;
-  context.strokeStyle = "rgba(135, 226, 232, 0.34)";
+  context.strokeStyle = "rgba(170, 202, 199, 0.28)";
   context.lineWidth = 1;
   context.beginPath();
   context.arc(width / 2, height / 2, radius, 0, Math.PI * 2);
@@ -415,9 +415,9 @@ function drawAtlas(
   context.save();
   context.globalAlpha = opacity;
   const ocean = context.createLinearGradient(0, 0, 0, height);
-  ocean.addColorStop(0, "#0a2b3a");
-  ocean.addColorStop(0.5, "#071f2d");
-  ocean.addColorStop(1, "#051822");
+  ocean.addColorStop(0, "#17323a");
+  ocean.addColorStop(0.5, "#10272e");
+  ocean.addColorStop(1, "#0a1d23");
   context.fillStyle = ocean;
   context.fillRect(0, 0, width, height);
 
@@ -448,10 +448,13 @@ function drawAtlas(
     const civilization = findCivilization(snapshot, landmass.civilizationId);
     if (!beginLandPath(context, landmass.points, project)) continue;
     const fill = territoryColor(snapshot, civilization, landmass.biome, overlay);
-    context.fillStyle = hexToRgba(fill, overlay === "political" ? 0.7 : 0.76);
+    context.fillStyle = hexToRgba(fill, overlay === "political" ? 0.42 : 0.48);
     context.fill();
-    context.strokeStyle = civilization ? hexToRgba(civilization.color, 0.8) : "rgba(159, 203, 187, 0.32)";
-    context.lineWidth = clamp(camera.zoom * 0.28, 0.8, 2.4);
+    const politicalLens = ["political", "beliefs", "technology", "wars"].includes(overlay);
+    context.strokeStyle = politicalLens && civilization
+      ? hexToRgba(civilization.color, 0.62)
+      : "rgba(159, 203, 187, 0.18)";
+    context.lineWidth = politicalLens ? clamp(camera.zoom * 0.24, 0.7, 2) : 0.55;
     context.stroke();
   }
 
@@ -478,6 +481,32 @@ function drawMapEntities(
     const current = capitalByCivilization.get(settlement.civilizationId);
     if (!current || settlement.population > current.population) capitalByCivilization.set(settlement.civilizationId, settlement);
   }
+  const projectedSettlements = snapshot.settlements
+    .map((settlement) => ({ settlement, point: project(settlement) }))
+    .filter(({ point }) => point.visible && point.x >= -30 && point.x <= width + 30 && point.y >= -30 && point.y <= height + 30);
+  const labelBudget = globe
+    ? Math.min(8, projectedSettlements.length)
+    : Math.min(width < 680 ? 4 : 22, projectedSettlements.length);
+  const labelledSettlementIds = new Set([...projectedSettlements]
+    .sort((left, right) => {
+      const leftSelected = selection?.kind === "settlement" && selection.id === left.settlement.id ? 1 : 0;
+      const rightSelected = selection?.kind === "settlement" && selection.id === right.settlement.id ? 1 : 0;
+      if (leftSelected !== rightSelected) return rightSelected - leftSelected;
+      const leftCapital = left.settlement.kind === "capital" ? 1 : 0;
+      const rightCapital = right.settlement.kind === "capital" ? 1 : 0;
+      if (leftCapital !== rightCapital) return rightCapital - leftCapital;
+      if (left.settlement.population !== right.settlement.population) return right.settlement.population - left.settlement.population;
+      return left.settlement.id.localeCompare(right.settlement.id);
+    })
+    .slice(0, labelBudget)
+    .map(({ settlement }) => settlement.id));
+  const occupiedLabels: Array<{ id?: string; left: number; right: number; top: number; bottom: number }> = projectedSettlements.map(({ settlement, point }) => ({
+    id: settlement.id,
+    left: point.x - 9,
+    right: point.x + 9,
+    top: point.y - 9,
+    bottom: point.y + 9,
+  }));
 
   if (overlay === "diplomacy") {
     for (const relation of snapshot.relations) {
@@ -487,8 +516,8 @@ function drawMapEntities(
       const start = project(from);
       const end = project(to);
       if (!start.visible || !end.visible) continue;
-      context.strokeStyle = relation.kind === "alliance" ? "rgba(100, 230, 197, .8)" : relation.kind === "trade" ? "rgba(108, 197, 237, .65)" : "rgba(244, 216, 122, .65)";
-      context.lineWidth = relation.kind === "alliance" ? 2.2 : 1.2;
+      context.strokeStyle = relation.kind === "alliance" ? "rgba(115, 184, 162, .72)" : relation.kind === "trade" ? "rgba(113, 158, 174, .62)" : "rgba(187, 168, 105, .58)";
+      context.lineWidth = relation.kind === "alliance" ? 1.55 : 1.05;
       context.setLineDash(relation.kind === "trade" ? [4, 5] : relation.kind === "truce" ? [1, 5] : []);
       context.beginPath();
       context.moveTo(start.x, start.y);
@@ -503,9 +532,9 @@ function drawMapEntities(
       const point = project(conflict);
       if (!point.visible || point.x < -20 || point.x > width + 20 || point.y < -20 || point.y > height + 20) continue;
       const radius = 7 + conflict.intensity * 0.08;
-      context.fillStyle = "rgba(255, 102, 86, .12)";
-      context.strokeStyle = "rgba(255, 124, 102, .85)";
-      context.lineWidth = 1.5;
+      context.fillStyle = "rgba(183, 96, 83, .08)";
+      context.strokeStyle = "rgba(197, 116, 100, .74)";
+      context.lineWidth = 1.25;
       context.beginPath();
       context.arc(point.x, point.y, radius, 0, Math.PI * 2);
       context.fill();
@@ -579,9 +608,7 @@ function drawMapEntities(
     drawAgents(context, snapshot, camera, selection, project, width, height, globe, hits);
   }
 
-  for (const settlement of snapshot.settlements) {
-    const point = project(settlement);
-    if (!point.visible || point.x < -30 || point.x > width + 30 || point.y < -30 || point.y > height + 30) continue;
+  for (const { settlement, point } of projectedSettlements) {
     const civilization = findCivilization(snapshot, settlement.civilizationId);
     const radius = clamp(2.8 + Math.sqrt(settlement.population) * 0.24 + (globe ? 0 : camera.zoom * 0.15), 4, globe ? 10 : 14);
     if (overlay === "technology") {
@@ -590,31 +617,57 @@ function drawMapEntities(
       context.arc(point.x, point.y, radius * 2.2, 0, Math.PI * 2);
       context.fill();
     }
-    context.fillStyle = civilization?.color ?? "#d7e3df";
-    context.strokeStyle = "rgba(2, 11, 16, .88)";
-    context.lineWidth = 2;
-    context.beginPath();
-    context.arc(point.x, point.y, radius, 0, Math.PI * 2);
-    context.fill();
-    context.stroke();
+    // Settlements are cartographic observations, not game pieces: a pale
+    // survey mark carries the polity color only on its border.
+    context.save();
+    context.translate(point.x, point.y);
+    context.rotate(Math.PI / 4);
+    context.fillStyle = "rgba(224, 231, 226, .9)";
+    context.strokeStyle = civilization ? hexToRgba(civilization.color, 0.82) : "rgba(193, 207, 202, .72)";
+    context.lineWidth = settlement.kind === "capital" ? 2 : 1.35;
+    const markerSize = radius * 1.32;
+    context.fillRect(-markerSize / 2, -markerSize / 2, markerSize, markerSize);
+    context.strokeRect(-markerSize / 2, -markerSize / 2, markerSize, markerSize);
+    context.restore();
     if (settlement.kind === "capital") {
-      context.fillStyle = "rgba(238, 250, 245, .95)";
+      context.fillStyle = "rgba(43, 67, 69, .92)";
       context.beginPath();
-      context.arc(point.x, point.y, Math.max(1.6, radius * 0.28), 0, Math.PI * 2);
+      context.arc(point.x, point.y, Math.max(1.35, radius * 0.22), 0, Math.PI * 2);
       context.fill();
     }
     const isSelected = selection?.kind === "settlement" && selection.id === settlement.id;
     if (isSelected) {
-      context.strokeStyle = "#ffffff";
+      context.strokeStyle = "rgba(239, 236, 218, .96)";
       context.lineWidth = 1.5;
       context.beginPath();
       context.arc(point.x, point.y, radius + 5, 0, Math.PI * 2);
       context.stroke();
     }
-    if ((!globe && camera.zoom >= 3.1) || (globe && settlement.kind === "capital")) {
+    if (labelledSettlementIds.has(settlement.id) && ((!globe && camera.zoom >= 3.1) || (globe && settlement.kind === "capital"))) {
       context.fillStyle = "rgba(231, 244, 240, .86)";
       context.font = `${settlement.kind === "capital" ? 600 : 500} ${globe ? 10 : 11}px ui-sans-serif, system-ui`;
-      context.fillText(settlement.name, point.x + radius + 5, point.y + 4);
+      const textWidth = context.measureText(settlement.name).width;
+      const labelHeight = globe ? 12 : 13;
+      const gap = radius + 5;
+      const candidates = [
+        { x: point.x + gap, y: point.y + 4, align: "left" as const },
+        { x: point.x - gap, y: point.y + 4, align: "right" as const },
+        { x: point.x, y: point.y - gap, align: "center" as const },
+        { x: point.x, y: point.y + gap + labelHeight, align: "center" as const },
+      ];
+      const placement = candidates.find((candidate) => {
+        const left = candidate.align === "left" ? candidate.x : candidate.align === "right" ? candidate.x - textWidth : candidate.x - textWidth / 2;
+        const box = { left: left - 3, right: left + textWidth + 3, top: candidate.y - labelHeight, bottom: candidate.y + 4 };
+        if (box.left < 4 || box.right > width - 4 || box.top < 4 || box.bottom > height - 4) return false;
+        if (occupiedLabels.some((occupied) => occupied.id !== settlement.id && !(box.right < occupied.left || box.left > occupied.right || box.bottom < occupied.top || box.top > occupied.bottom))) return false;
+        occupiedLabels.push(box);
+        return true;
+      });
+      if (placement) {
+        context.textAlign = placement.align;
+        context.fillText(settlement.name, placement.x, placement.y);
+        context.textAlign = "start";
+      }
     }
     hits.push({ x: point.x, y: point.y, radius: Math.max(10, radius + 4), selection: { kind: "settlement", id: settlement.id } });
   }
@@ -633,7 +686,7 @@ function drawAgents(
   globe: boolean,
   hits: HitTarget[],
 ) {
-  const individualMode = !globe && camera.zoom >= 7;
+  const individualMode = !globe && camera.zoom >= (width < 680 ? 12 : 7);
   if (individualMode) {
     for (const agent of snapshot.agents) {
       const point = project(agent);
@@ -641,12 +694,15 @@ function drawAgents(
       const civilization = findCivilization(snapshot, agent.civilizationId);
       const selected = selection?.kind === "agent" && selection.id === agent.id;
       const radius = selected ? 4.6 : clamp(1.7 + camera.zoom * 0.08, 2.1, 3.6);
-      context.fillStyle = civilization?.color ?? "#cbd8d4";
+      context.fillStyle = "rgba(226, 233, 229, .9)";
+      context.strokeStyle = civilization ? hexToRgba(civilization.color, 0.84) : "rgba(190, 205, 199, .75)";
+      context.lineWidth = 1;
       context.beginPath();
       context.arc(point.x, point.y, radius, 0, Math.PI * 2);
       context.fill();
+      context.stroke();
       if (selected) {
-        context.strokeStyle = "rgba(255,255,255,.95)";
+        context.strokeStyle = "rgba(239,236,218,.96)";
         context.lineWidth = 1.5;
         context.beginPath();
         context.arc(point.x, point.y, radius + 4, 0, Math.PI * 2);
@@ -664,20 +720,22 @@ function drawAgents(
       const civilization = findCivilization(snapshot, cluster.civilizationIds[0] ?? null);
       const color = civilization?.color ?? "#b4cbc8";
       const radius = clamp(2.5 + Math.log2(cluster.count + 1) * 1.55, 3.5, 13);
-      context.fillStyle = hexToRgba(color, 0.18);
+      context.fillStyle = "rgba(213, 224, 219, .05)";
+      context.strokeStyle = hexToRgba(color, 0.62);
+      context.lineWidth = 1;
       context.beginPath();
       context.arc(point.x, point.y, radius + 4, 0, Math.PI * 2);
       context.fill();
-      context.fillStyle = hexToRgba(color, 0.92);
+      context.stroke();
+      context.fillStyle = "rgba(219, 228, 223, .88)";
       context.beginPath();
-      context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      context.arc(point.x, point.y, Math.max(1.5, radius * 0.32), 0, Math.PI * 2);
       context.fill();
       if (!globe && cluster.count > 8) {
-        context.fillStyle = "rgba(4, 16, 20, .9)";
-        context.textAlign = "center";
-        context.font = "700 9px ui-monospace, monospace";
-        context.fillText(cluster.count > 999 ? `${Math.round(cluster.count / 100) / 10}k` : String(cluster.count), point.x, point.y + 3);
+        context.fillStyle = "rgba(211, 221, 216, .84)";
         context.textAlign = "start";
+        context.font = "700 9px ui-monospace, monospace";
+        context.fillText(cluster.count > 999 ? `${Math.round(cluster.count / 100) / 10}k` : String(cluster.count), point.x + radius + 5, point.y + 3);
       }
     }
     return;
@@ -707,20 +765,22 @@ function drawAgents(
     const x = cluster.x / cluster.count;
     const y = cluster.y / cluster.count;
     const radius = clamp(2.5 + Math.log2(cluster.count + 1) * 1.5, 3.5, 12);
-    context.fillStyle = hexToRgba(cluster.color, 0.18);
+    context.fillStyle = "rgba(213, 224, 219, .05)";
+    context.strokeStyle = hexToRgba(cluster.color, 0.62);
+    context.lineWidth = 1;
     context.beginPath();
     context.arc(x, y, radius + 4, 0, Math.PI * 2);
     context.fill();
-    context.fillStyle = hexToRgba(cluster.color, 0.92);
+    context.stroke();
+    context.fillStyle = "rgba(219, 228, 223, .88)";
     context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.arc(x, y, Math.max(1.5, radius * 0.32), 0, Math.PI * 2);
     context.fill();
     if (cluster.count > 8 && !globe) {
-      context.fillStyle = "rgba(4, 16, 20, .9)";
-      context.textAlign = "center";
-      context.font = "700 9px ui-monospace, monospace";
-      context.fillText(cluster.count > 999 ? `${Math.round(cluster.count / 100) / 10}k` : String(cluster.count), x, y + 3);
+      context.fillStyle = "rgba(211, 221, 216, .84)";
       context.textAlign = "start";
+      context.font = "700 9px ui-monospace, monospace";
+      context.fillText(cluster.count > 999 ? `${Math.round(cluster.count / 100) / 10}k` : String(cluster.count), x + radius + 5, y + 3);
     }
   }
 }

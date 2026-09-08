@@ -340,7 +340,8 @@ export function createPlanetWorld(
       lastRenameDay: -1_000,
       nameHistory: [],
       alive: true,
-      birthDay: -20,
+      // The world begins on Day 1, so -19 yields the intended modeled age of 20.
+      birthDay: -19,
       deathDay: null,
       coordinate: jitterCoordinate(seed, settlement.coordinate, index),
       homeSettlementId: settlement.id,
@@ -1516,6 +1517,35 @@ export function catchUpPlanet(
 }
 
 export function getPlanetSummary(world: PlanetWorldState): PlanetSummary {
+  const livingAgents = world.agents.filter(({ alive }) => alive);
+  const ages = livingAgents
+    .map(({ birthDay }) => Math.max(0, world.day - birthDay))
+    .sort((left, right) => left - right);
+  const medianAge = ages.length
+    ? ages.length % 2
+      ? ages[Math.floor(ages.length / 2)]
+      : (ages[ages.length / 2 - 1] + ages[ages.length / 2]) / 2
+    : 0;
+  const activeGoals: PlanetSummary["observation"]["activeGoals"] = {};
+  const knownCapabilities = new Set<string>();
+  const windowDays = 30;
+  const windowStartTime = Math.max(0, world.time - windowDays * PLANET_DAY_SECONDS);
+  let recentDecisionMinds = 0;
+  for (const agent of livingAgents) {
+    for (const capability of agent.capabilities) knownCapabilities.add(capability);
+    if (agent.mind.lastDecision && agent.mind.lastDecision.decidedAt >= windowStartTime) recentDecisionMinds += 1;
+    let latestGoal = agent.mind.goals.find(({ status }) => status === "active") ?? null;
+    for (const candidate of agent.mind.goals) {
+      if (!latestGoal || candidate.lastReconsideredAt > latestGoal.lastReconsideredAt) latestGoal = candidate;
+    }
+    if (latestGoal) activeGoals[latestGoal.purpose] = (activeGoals[latestGoal.purpose] ?? 0) + 1;
+  }
+  for (const settlement of world.settlements) {
+    for (const capability of settlement.capabilities) knownCapabilities.add(capability);
+  }
+  const recentHistory = world.history.filter(({ day }) => day > world.day - windowDays);
+  const countRecent = (type: PlanetHistoryEvent["type"]) =>
+    recentHistory.reduce((count, event) => count + (event.type === type ? 1 : 0), 0);
   return {
     schemaVersion: PLANET_SCHEMA_VERSION,
     seedLabel: world.seedLabel,
@@ -1527,6 +1557,26 @@ export function getPlanetSummary(world: PlanetWorldState): PlanetSummary {
     beliefs: world.beliefs.length,
     openProposals: world.proposals.filter(({ status }) => status === "open").length,
     activeProjects: world.projects.filter(({ status }) => !["institutionalized", "failed"].includes(status)).length,
+    observation: {
+      windowDays,
+      ageBands: {
+        children: ages.filter((age) => age < 18).length,
+        adults: ages.filter((age) => age >= 18 && age < 65).length,
+        elders: ages.filter((age) => age >= 65).length,
+      },
+      medianAge,
+      oldestAge: ages.at(-1) ?? 0,
+      autonomousDecisions: recentDecisionMinds,
+      births: countRecent("birth"),
+      deaths: countRecent("death"),
+      migrations: countRecent("migration"),
+      inventions: countRecent("invention"),
+      discoveries: countRecent("discovery"),
+      secularAgents: livingAgents.filter(({ beliefId }) => beliefId === null).length,
+      independentAgents: livingAgents.filter(({ polityId }) => polityId === null).length,
+      knownCapabilities: knownCapabilities.size,
+      activeGoals,
+    },
   };
 }
 

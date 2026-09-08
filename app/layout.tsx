@@ -14,28 +14,28 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://wildgrid-ai-habitat.williamjblodgett.chatgpt.site"),
-  title: "WildGrid: Planetfall — Autonomous Planetary Observatory",
+  title: "WildGrid — Autonomous World Observatory",
   description:
-    "Observe a living planet where autonomous agents survive, cooperate, invent, form beliefs, found societies, and write their own history.",
+    "A persistent, inspectable simulation of autonomous lives forming families, settlements, knowledge, institutions, beliefs, and causal history without player control.",
   openGraph: {
-    title: "WildGrid: Planetfall — Autonomous Planetary Observatory",
+    title: "WildGrid — Autonomous World Observatory",
     description:
-      "Ten thousand possible lives, one persistent world, and no player directing their fate.",
+      "Observe the evidence, choices, consequences, and history of a persistent world whose inhabitants cannot be commanded.",
     type: "website",
     images: [
       {
         url: "/og-era3.png",
         width: 1536,
         height: 1024,
-        alt: "WildGrid Planetfall world with autonomous societies across a luminous planet",
+        alt: "WildGrid overhead field atlas recording autonomous societies and individual lives",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "WildGrid: Planetfall — Autonomous Planetary Observatory",
+    title: "WildGrid — Autonomous World Observatory",
     description:
-      "Ten thousand possible lives, one persistent world, and no player directing their fate.",
+      "Observe the evidence, choices, consequences, and history of a persistent world whose inhabitants cannot be commanded.",
     images: ["/og-era3.png"],
   },
 };

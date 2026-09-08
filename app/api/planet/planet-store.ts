@@ -207,11 +207,16 @@ export interface CompactPlanetAgent {
   beliefId: string | null;
   influence: number;
   health: number;
+  birthDay: number;
+  generation: number;
+  observationCount: number;
+  lastDecisionExplanation: string | null;
   currentGoal: null | {
     id: string;
     purpose: string;
     status: string;
     targetId: string | null;
+    rationale: string;
   };
 }
 
@@ -241,10 +246,13 @@ export interface BoundedViewport {
   resourceSites: Array<{
     id: string;
     resourceId: string;
+    family: string;
+    renewability: "renewable" | "slow" | "finite";
     coordinate: PlanetCoordinate;
     reserve: number;
     capacity: number;
     discovered: boolean;
+    discoveredBy: string[];
     extractionFacilityId: string | null;
   }>;
   resourceCells: Array<{
@@ -257,6 +265,7 @@ export interface BoundedViewport {
     color: string;
     population: number;
     settlements: number;
+    dominantBeliefId: string | null;
   }>;
   beliefs: Array<{
     id: string;
@@ -284,6 +293,9 @@ export interface BoundedViewport {
     polityId: string | null;
     counterpartyIds: string[];
     status: string;
+    trust?: number;
+    tension?: number;
+    changedAt?: number;
   }>;
   conflicts: Array<{
     id: string;
@@ -291,10 +303,13 @@ export interface BoundedViewport {
     polityId: string | null;
     counterpartyIds: string[];
     status: string;
+    trust?: number;
+    tension?: number;
+    changedAt?: number;
   }>;
   chronicle: Array<Pick<
     PlanetHistoryEvent,
-    "id" | "at" | "day" | "type" | "title" | "summary" | "importance" | "coordinate"
+    "id" | "at" | "day" | "type" | "title" | "summary" | "importance" | "coordinate" | "actorIds" | "entityIds" | "causalEventIds"
   >>;
   truncated: {
     agents: boolean;
@@ -1260,8 +1275,24 @@ export function publicPlanetAiStatus(
   return planetAiCounselStatus(getD1(), world, serverTime);
 }
 
+function observedAgentGoal(agent: PlanetAgent): PlanetAgent["mind"]["goals"][number] | null {
+  const activeGoals = agent.mind.goals.filter((goal) => goal.status === "active");
+  const candidates = activeGoals.length > 0 ? activeGoals : agent.mind.goals;
+  return candidates.reduce<(typeof candidates)[number] | null>((latest, goal) => {
+    if (!latest) return goal;
+    const reconsideredDifference = goal.lastReconsideredAt - latest.lastReconsideredAt;
+    if (reconsideredDifference !== 0) return reconsideredDifference > 0 ? goal : latest;
+    const formedDifference = goal.formedAt - latest.formedAt;
+    if (formedDifference !== 0) return formedDifference > 0 ? goal : latest;
+    return goal.id.localeCompare(latest.id) > 0 ? goal : latest;
+  }, null);
+}
+
 function compactAgent(agent: PlanetAgent): CompactPlanetAgent {
-  const currentGoal = agent.mind.goals.find((goal) => goal.status === "active") ?? null;
+  // Most plan steps resolve within the same simulation pulse. Retain the
+  // latest completed/blocked choice when no goal is currently active so the
+  // compact record still reports what the agent actually decided and why.
+  const currentGoal = observedAgentGoal(agent);
   return {
     id: agent.id,
     name: agent.name,
@@ -1272,12 +1303,17 @@ function compactAgent(agent: PlanetAgent): CompactPlanetAgent {
     beliefId: agent.beliefId,
     influence: agent.influence,
     health: agent.needs.health,
+    birthDay: agent.birthDay,
+    generation: agent.generation,
+    observationCount: agent.mind.observations.length,
+    lastDecisionExplanation: agent.mind.lastDecision?.explanation ?? null,
     currentGoal: currentGoal
       ? {
           id: currentGoal.id,
           purpose: currentGoal.purpose,
           status: currentGoal.status,
           targetId: currentGoal.targetId,
+          rationale: currentGoal.rationale,
         }
       : null,
   };
@@ -1358,6 +1394,7 @@ function viewportResources(
 ): Pick<BoundedViewport, "resourceSites" | "resourceCells"> {
   const definitions = getResourceCatalog();
   const familyById = new Map(definitions.map((definition) => [definition.id, definition.family]));
+  const definitionById = new Map(definitions.map((definition) => [definition.id, definition]));
   const chunks = sampledChunks(bounds, zoom >= 6 ? 32 : 56);
   const resourceSites: BoundedViewport["resourceSites"] = [];
   const resourceCells: BoundedViewport["resourceCells"] = [];
@@ -1373,13 +1410,17 @@ function viewportResources(
       .filter((site) => coordinateInside(site.coordinate, bounds));
     if (zoom >= 6) {
       for (const site of sites) {
+        const definition = definitionById.get(site.resourceId);
         resourceSites.push({
           id: site.id,
           resourceId: site.resourceId,
+          family: definition?.family ?? "strategic_mineral",
+          renewability: definition?.renewability ?? "finite",
           coordinate: site.coordinate,
           reserve: site.reserve,
           capacity: site.capacity,
           discovered: site.discoveredBy.length > 0,
+          discoveredBy: site.discoveredBy.slice(0, 24),
           extractionFacilityId: site.extractionFacilityId,
         });
         if (resourceSites.length >= 420) break;
@@ -1431,10 +1472,19 @@ export function boundedViewport(
   const disputeLimit = 300;
   const terrain = sampleViewportTerrain(world, bounds, zoom);
   const resources = viewportResources(world, bounds, zoom);
+  const beliefCountsByPolity = new Map<string, Map<string, number>>();
+  for (const agent of world.agents) {
+    if (!agent.alive || !agent.polityId || !agent.beliefId) continue;
+    const counts = beliefCountsByPolity.get(agent.polityId) ?? new Map<string, number>();
+    counts.set(agent.beliefId, (counts.get(agent.beliefId) ?? 0) + 1);
+    beliefCountsByPolity.set(agent.polityId, counts);
+  }
+  const dominantBelief = (polityId: string) => [...(beliefCountsByPolity.get(polityId) ?? new Map<string, number>())]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]?.[0] ?? null;
   const chronicle = [...world.history]
     .sort((left, right) => right.at - left.at || right.importance - left.importance || left.id.localeCompare(right.id))
     .slice(0, 40)
-    .map(({ id, at, day, type, title, summary, importance, coordinate }) => ({
+    .map(({ id, at, day, type, title, summary, importance, coordinate, actorIds, entityIds, causalEventIds }) => ({
       id,
       at,
       day,
@@ -1443,9 +1493,12 @@ export function boundedViewport(
       summary,
       importance,
       coordinate,
+      actorIds: actorIds.slice(0, 8),
+      entityIds: entityIds.slice(0, 12),
+      causalEventIds: causalEventIds.slice(0, 8),
     }));
   const sourceCounts = {
-    agents: source.agents.length,
+    agents: world.agents.reduce((count, agent) => count + (agent.alive && coordinateInside(agent.coordinate, bounds) ? 1 : 0), 0),
     clusters: source.agentClusters.length,
     settlements: source.settlements.length,
     territory: source.territory.length,
@@ -1483,6 +1536,7 @@ export function boundedViewport(
       color: stablePolityColor(polity.id),
       population: polity.citizenIds.length,
       settlements: polity.settlementIds.length,
+      dominantBeliefId: dominantBelief(polity.id),
     })),
     beliefs: world.beliefs.slice(0, 256).map((belief) => ({
       id: belief.id,
@@ -1516,6 +1570,9 @@ export function boundedViewport(
         polityId: relation.polityIds[0] ?? null,
         counterpartyIds: relation.polityIds.slice(1),
         status: relation.status,
+        trust: relation.trust,
+        tension: relation.tension,
+        changedAt: relation.changedAt,
         })),
       ...world.proposals
         .filter((proposal) => proposal.kind === "trade" && proposal.status !== "rejected" && proposal.status !== "expired")
@@ -1538,6 +1595,9 @@ export function boundedViewport(
         polityId: relation.polityIds[0] ?? null,
         counterpartyIds: relation.polityIds.slice(1),
         status: relation.status,
+        trust: relation.trust,
+        tension: relation.tension,
+        changedAt: relation.changedAt,
       })),
     chronicle,
     truncated: {
@@ -1731,16 +1791,17 @@ export async function searchPlanetAgents(
   );
   const matched = snapshot.world.agents
     .filter((agent) => {
-      if (!normalizedQuery) return agent.alive;
-      const activeGoal = agent.mind.goals.find((goal) => goal.status === "active");
+      if (!agent.alive) return false;
+      if (!normalizedQuery) return true;
+      const observedGoal = observedAgentGoal(agent);
       const searchable = [
         agent.id,
         agent.name,
         agent.polityId ? polityName.get(agent.polityId) : "",
         agent.homeSettlementId ? settlementName.get(agent.homeSettlementId) : "",
         agent.beliefId ? beliefName.get(agent.beliefId) : "",
-        activeGoal?.purpose,
-        activeGoal?.rationale,
+        observedGoal?.purpose,
+        observedGoal?.rationale,
         agent.mind.lastDecision?.explanation,
       ]
         .filter(Boolean)
@@ -1749,9 +1810,7 @@ export async function searchPlanetAgents(
       return searchable.includes(normalizedQuery);
     })
     .sort((left, right) =>
-      Number(right.alive) - Number(left.alive) ||
-      right.influence - left.influence ||
-      left.id.localeCompare(right.id)
+      left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
     );
   const agents = matched
     .slice(safeCursor, safeCursor + safeLimit)

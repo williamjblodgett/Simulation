@@ -629,4 +629,24 @@ export interface PlanetSummary {
   beliefs: number;
   openProposals: number;
   activeProjects: number;
+  observation: {
+    windowDays: number;
+    ageBands: {
+      children: number;
+      adults: number;
+      elders: number;
+    };
+    medianAge: number;
+    oldestAge: number;
+    autonomousDecisions: number;
+    births: number;
+    deaths: number;
+    migrations: number;
+    inventions: number;
+    discoveries: number;
+    secularAgents: number;
+    independentAgents: number;
+    knownCapabilities: number;
+    activeGoals: Partial<Record<GoalKind, number>>;
+  };
 }

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   PLANET_CHUNKS_X,
+  PLANET_DAY_SECONDS,
   RESOURCE_CATALOG,
   advancePlanet,
   catchUpPlanet,
@@ -12,12 +13,40 @@ import {
   extractResource,
   generatePlanetChunk,
   getResourceCatalog,
+  getPlanetSummary,
   normalizePlanetWorld,
   runRecipe,
   serializePlanetWorld,
   validatePlanetCatalogs,
   validatePlanetWorld,
 } from "../app/simulation/planet/index.ts";
+import { createPlanetWorldAdapter } from "../app/planet/engine-adapter.ts";
+
+test("observatory summary reports real recent deliberations and modeled ages", () => {
+  const world = createPlanetWorld("observatory-summary", { initialAgentCount: 10, initialSettlementCount: 10 });
+  assert.equal(world.day - world.agents[0].birthDay, 20, "founders should begin at modeled age 20");
+  catchUpPlanet(world, PLANET_DAY_SECONDS * 2, { maxEvents: 10_000 });
+  const summary = getPlanetSummary(world);
+  assert.ok(summary.observation.autonomousDecisions > 0, "recent retained decisions must not report a false zero");
+  assert.ok(Object.values(summary.observation.activeGoals).reduce((sum, count = 0) => sum + count, 0) > 0, "latest self-directed purposes must remain observable after a goal resolves");
+});
+
+test("device-local agent search is alphabetical rather than influence-ranked", () => {
+  const world = createPlanetWorld("alphabetical-agent-search", {
+    initialAgentCount: 3,
+    initialSettlementCount: 1,
+  });
+  world.agents[0].name = "Zulu Observer";
+  world.agents[0].influence = 10_000;
+  world.agents[1].name = "Alpha Observer";
+  world.agents[1].influence = 1;
+  world.agents[2].name = "Alpha Observer";
+  world.agents[2].influence = 9_000;
+
+  const expected = [world.agents[1].id, world.agents[2].id, world.agents[0].id];
+  const result = createPlanetWorldAdapter(world).searchAgents("", 10);
+  assert.deepEqual(result.map(({ id }) => id), expected);
+});
 
 test("catalogs are broad, reference-valid, acyclic, and include a working oil chain", () => {
   const validation = validatePlanetCatalogs();

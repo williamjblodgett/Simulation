@@ -2,6 +2,7 @@ import {
   PLANET_HEIGHT,
   PLANET_WIDTH,
   coordinateToLogical,
+  getPlanetSummary,
   getResourceDefinition,
   sampleTerrain,
   territoryCellKey,
@@ -76,10 +77,12 @@ function settlementKind(population: number): PlanetSettlement["kind"] {
 }
 
 function historyCategory(type: string): PlanetChronicleEntry["category"] {
-  if (type === "invention" || type === "discovery" || type === "production") return "discovery";
-  if (type === "migration" || type === "settlement_founded") return "migration";
-  if (type === "proposal" || type === "agreement" || type === "territory_claim") return "politics";
-  if (type === "territory_contested") return "war";
+  if (/invent|discover|extract|produc|knowledge|research/.test(type)) return "discovery";
+  if (/territory_contested|war|raid|conflict/.test(type)) return "war";
+  if (/belief|faith|reform|schism/.test(type)) return "belief";
+  if (/birth|death|famil|offspring|renam/.test(type)) return "life";
+  if (/migrat|settlement|found/.test(type)) return "migration";
+  if (/proposal|agreement|territory|leader|law|counsel/.test(type)) return "politics";
   return "ecology";
 }
 
@@ -112,6 +115,7 @@ function createTerrainCells(world: PlanetWorldState): PlanetLandmass[] {
 }
 
 export function snapshotFromPlanetWorld(world: PlanetWorldState): PlanetSnapshot {
+  const summary = getPlanetSummary(world);
   const civilizations: PlanetCivilization[] = world.polities.map((polity, index) => {
     const settlements = world.settlements.filter((settlement) => settlement.polityId === polity.id);
     const capabilities = new Set(settlements.flatMap((settlement) => settlement.capabilities));
@@ -155,10 +159,11 @@ export function snapshotFromPlanetWorld(world: PlanetWorldState): PlanetSnapshot
       name: agent.name,
       civilizationId: agent.polityId,
       settlementId: agent.homeSettlementId,
-      beliefId: null,
+      beliefId: agent.beliefId,
       action: activeGoal ? formatIdentifier(activeGoal.purpose) : "Reassessing immediate needs",
       influence: Math.round(agent.influence),
-      generation: agent.parentIds.length ? 1 : 0,
+      generation: agent.generation,
+      age: Math.max(0, Math.floor(world.day - agent.birthDay)),
       currentGoal: activeGoal?.rationale || (activeGoal ? formatIdentifier(activeGoal.purpose) : "Survive and prosper"),
       knownFacts: latestFacts.length ? latestFacts : ["This agent only knows what has been directly observed or reliably shared."],
       longitude: agent.coordinate.longitude,
@@ -245,12 +250,16 @@ export function snapshotFromPlanetWorld(world: PlanetWorldState): PlanetSnapshot
     resources,
     relations,
     conflicts,
+    observation: summary.observation,
     chronicle: world.history.slice(-80).reverse().map((event) => ({
       id: event.id,
       day: event.day,
       category: historyCategory(event.type),
       title: event.title,
       summary: event.summary,
+      actorIds: event.actorIds,
+      entityIds: event.entityIds,
+      causalEventIds: event.causalEventIds,
       entity: event.actorIds[0] ? { kind: "agent", id: event.actorIds[0] } : undefined,
     })),
   };
@@ -280,7 +289,9 @@ class PlanetWorldAdapter implements PlanetExperienceAdapter {
     const normalized = query.trim().toLocaleLowerCase();
     return this.snapshot.agents
       .filter((agent) => agent.name.toLocaleLowerCase().includes(normalized))
-      .sort((left, right) => right.influence - left.influence)
+      .sort((left, right) =>
+        left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
+      )
       .slice(0, limit);
   }
 

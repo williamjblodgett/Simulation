@@ -30,7 +30,11 @@ interface CompactApiAgent {
   beliefId?: string | null;
   influence: number;
   health?: number;
-  currentGoal: null | { id: string; purpose: string; status: string; targetId: string | null };
+  birthDay?: number;
+  generation?: number;
+  observationCount?: number;
+  lastDecisionExplanation?: string | null;
+  currentGoal: null | { id: string; purpose: string; status: string; targetId: string | null; rationale?: string };
 }
 
 interface ApiViewport {
@@ -71,17 +75,20 @@ interface ApiViewport {
   resourceSites: Array<{
     id: string;
     resourceId: string;
+    family?: string;
+    renewability?: "renewable" | "slow" | "finite";
     coordinate: { longitude: number; latitude: number };
     reserve: number;
     capacity: number;
     discovered: boolean;
+    discoveredBy?: string[];
     extractionFacilityId: string | null;
   }>;
   resourceCells: Array<{
     coordinate: { longitude: number; latitude: number };
     resources: Record<string, number>;
   }>;
-  polities: Array<{ id: string; name: string; color: string; population: number; settlements: number }>;
+  polities: Array<{ id: string; name: string; color: string; population: number; settlements: number; dominantBeliefId: string | null }>;
   beliefs: Array<{
     id: string;
     name: string;
@@ -101,8 +108,8 @@ interface ApiViewport {
     reforms?: Array<{ day: number; summary: string }>;
     schisms?: number;
   }>;
-  diplomacy: Array<{ id: string; kind: string; title: string; polityId: string | null; counterpartyIds: string[]; status: string }>;
-  conflicts: Array<{ id: string; title: string; polityId: string | null; counterpartyIds: string[]; status: string }>;
+  diplomacy: Array<{ id: string; kind: string; title: string; polityId: string | null; counterpartyIds: string[]; status: string; trust?: number; tension?: number; changedAt?: number }>;
+  conflicts: Array<{ id: string; title: string; polityId: string | null; counterpartyIds: string[]; status: string; trust?: number; tension?: number; changedAt?: number }>;
   chronicle: Array<{
     id: string;
     at: number;
@@ -112,7 +119,12 @@ interface ApiViewport {
     summary: string;
     importance: number;
     coordinate: { longitude: number; latitude: number } | null;
+    actorIds: string[];
+    entityIds: string[];
+    causalEventIds: string[];
   }>;
+  truncated?: Partial<Record<string, boolean>>;
+  sourceCounts?: Partial<Record<string, number>>;
 }
 
 interface SummaryResponse {
@@ -129,11 +141,15 @@ interface SummaryResponse {
     settlements?: number;
     polities?: number;
     beliefs?: number;
+    observation?: PlanetSnapshot["observation"];
   };
   sync?: {
     revision?: number;
     catchUpPendingSeconds?: number;
     caughtUp?: boolean;
+    serverTime?: number;
+    simulatedAtMs?: number;
+    persistent?: boolean;
   };
   aiCounsel?: {
     configured: boolean;
@@ -153,7 +169,7 @@ interface RegionsResponse {
   stateRevision?: number;
   day?: number;
   viewport?: ApiViewport;
-  sync?: { catchUpPendingSeconds?: number; caughtUp?: boolean };
+  sync?: { catchUpPendingSeconds?: number; caughtUp?: boolean; serverTime?: number; simulatedAtMs?: number; persistent?: boolean };
 }
 
 const EMPTY_SNAPSHOT: PlanetSnapshot = {
@@ -201,19 +217,24 @@ function hashSeed(value: string) {
   return hash >>> 0;
 }
 
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
 function humanize(value: string) {
   return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function resourceFamily(value: string): PlanetResourceFamily {
   const normalized = value.toLocaleLowerCase();
-  if (/water|aquifer|spring|river/.test(normalized)) return "water";
-  if (/grain|fruit|fish|food|crop|herd/.test(normalized)) return "food";
-  if (/wood|timber|fiber|flora|fauna|hide/.test(normalized)) return "biological";
-  if (/clay|stone|sand|limestone|gypsum|cement/.test(normalized)) return "construction";
-  if (/oil|gas|coal|peat|uranium|thorium/.test(normalized)) return "fuel";
-  if (/wind|solar|tidal|geothermal|hydro/.test(normalized)) return "energy";
-  if (/iron|copper|tin|aluminum|lead|zinc/.test(normalized)) return "metal";
+  if (normalized === "water") return "water";
+  if (normalized === "food") return "food";
+  if (normalized === "biological" || normalized === "fiber") return "biological";
+  if (normalized === "construction" || normalized === "industrial_mineral") return "construction";
+  if (normalized === "metal") return "metal";
+  if (normalized === "fossil_fuel") return "fuel";
+  if (normalized === "renewable_energy") return "energy";
+  if (normalized === "strategic_mineral" || normalized === "precious" || normalized === "nuclear") return "strategic";
   return "strategic";
 }
 
@@ -229,6 +250,7 @@ function chronicleCategory(type: string): PlanetChronicleEntry["category"] {
   if (/invent|discover|extract|produc|knowledge|research/.test(type)) return "discovery";
   if (/territory_contested|war|raid|conflict/.test(type)) return "war";
   if (/belief|faith|reform|schism/.test(type)) return "belief";
+  if (/birth|death|famil|offspring|renam/.test(type)) return "life";
   if (/migrat|settlement|found/.test(type)) return "migration";
   if (/ecology|pollution|deplet|recover/.test(type)) return "ecology";
   return "politics";
@@ -257,7 +279,7 @@ function cameraBounds(camera: PlanetCamera) {
   };
 }
 
-function mapCompactAgent(agent: CompactApiAgent): PlanetAgent {
+function mapCompactAgent(agent: CompactApiAgent, currentDay?: number): PlanetAgent {
   return {
     id: agent.id,
     name: agent.name,
@@ -268,11 +290,14 @@ function mapCompactAgent(agent: CompactApiAgent): PlanetAgent {
     latitude: agent.coordinate.latitude,
     action: agent.currentGoal ? humanize(agent.currentGoal.purpose) : "Reconsidering immediate needs",
     influence: Math.round(agent.influence),
-    generation: 0,
-    currentGoal: agent.currentGoal ? humanize(agent.currentGoal.purpose) : "Survive and prosper",
+    generation: agent.generation ?? 0,
+    age: typeof currentDay === "number" && typeof agent.birthDay === "number"
+      ? Math.max(0, Math.floor(currentDay - agent.birthDay))
+      : undefined,
+    currentGoal: agent.currentGoal?.rationale ?? (agent.currentGoal ? humanize(agent.currentGoal.purpose) : "Survive and prosper"),
     knownFacts: [
-      agent.health === undefined ? "This agent acts from incomplete local knowledge." : `Current health is ${Math.round(agent.health)}%.`,
-      "Only directly observed or reliably shared information informs this choice.",
+      agent.lastDecisionExplanation ?? "No completed deliberation is available in this compact record.",
+      `${agent.observationCount ?? 0} retained local observation${agent.observationCount === 1 ? "" : "s"} informed the current mind state.`,
     ],
   };
 }
@@ -291,6 +316,16 @@ function numericRecord(value: unknown) {
   return Object.fromEntries(Object.entries(record).flatMap(([key, item]) => typeof item === "number" && Number.isFinite(item) ? [[key, item]] : []));
 }
 
+function factRecord(value: unknown) {
+  const record = objectRecord(value);
+  if (!record) return {};
+  return Object.fromEntries(Object.entries(record).flatMap(([key, item]) =>
+    typeof item === "string" || typeof item === "boolean" || (typeof item === "number" && Number.isFinite(item))
+      ? [[key, item]]
+      : [],
+  ));
+}
+
 function normalizeEntityDetail(kind: PlanetEntitySelection["kind"], value: unknown): PlanetEntityDetail | null {
   const record = objectRecord(value);
   if (!record || typeof record.id !== "string" || typeof record.name !== "string") return null;
@@ -303,10 +338,14 @@ function normalizeEntityDetail(kind: PlanetEntitySelection["kind"], value: unkno
       return [{
         id: goal.id,
         purpose: typeof goal.purpose === "string" ? goal.purpose : "survive",
+        targetId: typeof goal.targetId === "string" ? goal.targetId : null,
         priority: typeof goal.priority === "number" ? goal.priority : 0,
         confidence: typeof goal.confidence === "number" ? goal.confidence : 0,
         status: typeof goal.status === "string" ? goal.status : "considered",
         rationale: typeof goal.rationale === "string" ? goal.rationale : "No rationale was recorded.",
+        expectedBenefits: numericRecord(goal.expectedBenefits),
+        formedAt: typeof goal.formedAt === "number" ? goal.formedAt : 0,
+        lastReconsideredAt: typeof goal.lastReconsideredAt === "number" ? goal.lastReconsideredAt : 0,
         steps: Array.isArray(goal.steps) ? goal.steps.flatMap((rawStep) => {
           const step = objectRecord(rawStep);
           return step && typeof step.id === "string" ? [{
@@ -354,9 +393,50 @@ function normalizeEntityDetail(kind: PlanetEntitySelection["kind"], value: unkno
               kind: typeof commitment.kind === "string" ? commitment.kind : "agreement",
               targetId: commitment.targetId,
               strength: typeof commitment.strength === "number" ? commitment.strength : 0,
+              createdAt: typeof commitment.createdAt === "number" ? commitment.createdAt : 0,
+              expiresAt: typeof commitment.expiresAt === "number" ? commitment.expiresAt : null,
             }] : [];
           }) : [],
+          observations: Array.isArray(mind?.observations) ? mind.observations.slice(-12).flatMap((rawObservation) => {
+            const observation = objectRecord(rawObservation);
+            return observation && typeof observation.id === "string" && typeof observation.subjectId === "string" ? [{
+              id: observation.id,
+              kind: typeof observation.kind === "string" ? observation.kind : "knowledge",
+              subjectId: observation.subjectId,
+              learnedAt: typeof observation.learnedAt === "number" ? observation.learnedAt : 0,
+              confidence: typeof observation.confidence === "number" ? observation.confidence : 0,
+              facts: factRecord(observation.facts),
+            }] : [];
+          }) : [],
+          contextualLearning: Array.isArray(mind?.contextualLearning) ? mind.contextualLearning.slice(-12).flatMap((rawLearning) => {
+            const learning = objectRecord(rawLearning);
+            return learning && typeof learning.key === "string" ? [{
+              key: learning.key,
+              attempts: typeof learning.attempts === "number" ? learning.attempts : 0,
+              expectedValue: typeof learning.expectedValue === "number" ? learning.expectedValue : 0,
+              lastUpdatedAt: typeof learning.lastUpdatedAt === "number" ? learning.lastUpdatedAt : 0,
+            }] : [];
+          }) : [],
+          learnedDriveWeights: numericRecord(mind?.learnedDriveWeights),
+          advisory: (() => {
+            const advisory = objectRecord(mind?.advisory);
+            if (!advisory || advisory.source !== "openai") return null;
+            return {
+              source: "openai" as const,
+              receivedAt: typeof advisory.receivedAt === "number" ? advisory.receivedAt : 0,
+              expiresAt: typeof advisory.expiresAt === "number" ? advisory.expiresAt : 0,
+              goalKind: typeof advisory.goalKind === "string" ? advisory.goalKind : "survive",
+              proposalIntent: typeof advisory.proposalIntent === "string" ? advisory.proposalIntent : null,
+              targetId: typeof advisory.targetId === "string" ? advisory.targetId : null,
+              reasoning: typeof advisory.reasoning === "string" ? advisory.reasoning : "No reasoning was retained.",
+              status: typeof advisory.status === "string" ? advisory.status : "expired",
+              provenance: typeof advisory.provenance === "string" ? advisory.provenance : "External counsel record",
+            };
+          })(),
           lastDecision: decision ? {
+            decidedAt: typeof decision.decidedAt === "number" ? decision.decidedAt : 0,
+            chosenGoalId: typeof decision.chosenGoalId === "string" ? decision.chosenGoalId : "",
+            knownFactIds: stringList(decision.knownFactIds),
             explanation: typeof decision.explanation === "string" ? decision.explanation : "No explanation was recorded.",
             uncertainty: typeof decision.uncertainty === "number" ? decision.uncertainty : 0,
             alternatives,
@@ -424,7 +504,7 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
       name: polity.name,
       color: polity.color,
       population: polity.population,
-      beliefId: viewport.beliefs.sort((left, right) => right.adherents - left.adherents)[0]?.id ?? null,
+      beliefId: polity.dominantBeliefId,
       technologyScore: Math.min(100, capabilityCount * 3.5),
       prosperity: Math.min(100, 24 + Math.log2(polity.population + 1) * 7),
       summary: `${polity.settlements} autonomous settlement${polity.settlements === 1 ? "" : "s"} held together by proposals, relationships, and shared knowledge.`,
@@ -462,10 +542,10 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
   const resources: PlanetResourceSite[] = viewport.resourceSites.map((resource) => ({
     id: resource.id,
     name: humanize(resource.resourceId),
-    family: resourceFamily(resource.resourceId),
+    family: resourceFamily(resource.family ?? "strategic_mineral"),
     abundance: resource.capacity > 0 ? Math.round(resource.reserve / resource.capacity * 100) : 0,
-    discoveredBy: resource.discovered ? ["known"] : [],
-    finite: !/water|timber|food|fish|solar|wind|tidal|geothermal/.test(resource.resourceId),
+    discoveredBy: resource.discoveredBy ?? (resource.discovered ? ["archived observer"] : []),
+    finite: resource.renewability ? resource.renewability === "finite" : true,
     longitude: resource.coordinate.longitude,
     latitude: resource.coordinate.latitude,
   }));
@@ -502,7 +582,10 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
       fromCivilizationId: proposal.polityId!,
       toCivilizationId: proposal.counterpartyIds[0],
       kind: proposal.kind === "peace" ? "truce" : proposal.kind === "alliance" ? "alliance" : "trade",
-      strength: proposal.status === "accepted" ? 78 : 42,
+      strength: typeof proposal.trust === "number" ? clamp((proposal.trust + 100) / 2, 0, 100) : proposal.status === "accepted" ? 65 : 45,
+      trust: proposal.trust,
+      tension: proposal.tension,
+      sinceDay: typeof proposal.changedAt === "number" ? Math.floor(proposal.changedAt / 60) + 1 : undefined,
     }));
   const conflicts: PlanetConflict[] = viewport.conflicts
     .filter((proposal) => proposal.polityId && proposal.counterpartyIds[0] && proposal.status !== "rejected" && proposal.status !== "expired")
@@ -515,8 +598,9 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
         defenderCivilizationId: proposal.counterpartyIds[0],
         longitude: location?.longitude ?? 0,
         latitude: location?.latitude ?? 0,
-        intensity: proposal.status === "accepted" || proposal.status === "war" ? 70 : 38,
-        sinceDay: viewport.day,
+        intensity: typeof proposal.tension === "number" ? clamp(proposal.tension, 0, 100) : 50,
+        tension: proposal.tension,
+        sinceDay: typeof proposal.changedAt === "number" ? Math.floor(proposal.changedAt / 60) + 1 : viewport.day,
       };
     });
 
@@ -533,7 +617,9 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
     civilizations,
     beliefs,
     settlements,
-    agents: viewport.agents.filter((agent) => agent.alive !== false).map(mapCompactAgent),
+    agents: viewport.agents
+      .filter((agent) => agent.alive !== false)
+      .map((agent) => mapCompactAgent(agent, viewport.day)),
     resources,
     relations,
     conflicts,
@@ -543,6 +629,10 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
       category: chronicleCategory(entry.type),
       title: entry.title,
       summary: entry.summary,
+      actorIds: entry.actorIds ?? [],
+      entityIds: entry.entityIds ?? [],
+      causalEventIds: entry.causalEventIds ?? [],
+      entity: entry.actorIds?.[0] ? { kind: "agent", id: entry.actorIds[0] } : undefined,
     })),
     terrain,
     agentClusters,
@@ -555,6 +645,18 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
       longitude: cell.coordinate.longitude,
       latitude: cell.coordinate.latitude,
     })),
+    coverage: {
+      sampled: Object.values(viewport.truncated ?? {}).some(Boolean),
+      shown: {
+        agents: viewport.agents.length,
+        settlements: viewport.settlements.length,
+        terrain: viewport.terrain.length,
+        resourceSites: viewport.resourceSites.length,
+        resourceCells: viewport.resourceCells.length,
+        chronicle: viewport.chronicle.length,
+      },
+      available: viewport.sourceCounts ?? {},
+    },
   };
 }
 
@@ -600,12 +702,12 @@ export class PlanetHttpAdapter implements PlanetExperienceAdapter {
       const response = await fetch(`${this.baseUrl}/api/planet/search?${search}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`Search failed with ${response.status}`);
       const payload = await response.json() as { agents?: CompactApiAgent[] };
-      return (payload.agents ?? []).map(mapCompactAgent);
+      return (payload.agents ?? []).map((agent) => mapCompactAgent(agent, this.snapshot.meta.day));
     } catch {
       const normalized = query.trim().toLocaleLowerCase();
       return this.snapshot.agents
         .filter((agent) => !normalized || agent.name.toLocaleLowerCase().includes(normalized))
-        .sort((left, right) => right.influence - left.influence)
+        .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
         .slice(0, limit);
     }
   }
@@ -665,6 +767,7 @@ export class PlanetHttpAdapter implements PlanetExperienceAdapter {
       this.emit({
         ...this.snapshot,
         aiCounsel: payload.aiCounsel,
+        observation: payload.summary?.observation ?? this.snapshot.observation,
         meta: {
           ...this.snapshot.meta,
           seed: hashSeed(seedLabel),
@@ -674,6 +777,13 @@ export class PlanetHttpAdapter implements PlanetExperienceAdapter {
           status: pending > 35 ? "catching-up" : "live",
           dataMode: "live",
           notice: "Shared Era III planet",
+          continuity: {
+            persistent: payload.sync?.persistent ?? true,
+            serverTimeMs: payload.sync?.serverTime ?? Date.now(),
+            simulatedAtMs: payload.sync?.simulatedAtMs ?? Date.now(),
+            pendingSeconds: pending,
+            caughtUp: payload.sync?.caughtUp ?? pending <= 0,
+          },
         },
       });
     } catch {

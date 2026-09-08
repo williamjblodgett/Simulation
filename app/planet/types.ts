@@ -77,6 +77,7 @@ export interface PlanetAgent extends GeoPoint {
   action: string;
   influence: number;
   generation: number;
+  age?: number;
   currentGoal: string;
   knownFacts: string[];
 }
@@ -106,6 +107,9 @@ export interface PlanetRelation {
   toCivilizationId: string;
   kind: "alliance" | "trade" | "truce";
   strength: number;
+  trust?: number;
+  tension?: number;
+  sinceDay?: number;
 }
 
 export interface PlanetConflict {
@@ -117,15 +121,19 @@ export interface PlanetConflict {
   latitude: number;
   intensity: number;
   sinceDay: number;
+  tension?: number;
 }
 
 export interface PlanetChronicleEntry {
   id: string;
   day: number;
-  category: "discovery" | "ecology" | "politics" | "war" | "belief" | "migration";
+  category: "discovery" | "ecology" | "life" | "politics" | "war" | "belief" | "migration";
   title: string;
   summary: string;
   entity?: PlanetEntitySelection;
+  actorIds?: string[];
+  entityIds?: string[];
+  causalEventIds?: string[];
 }
 
 export interface PlanetSnapshot {
@@ -138,6 +146,13 @@ export interface PlanetSnapshot {
     revision: number;
     dataMode?: "live" | "sample";
     notice?: string;
+    continuity?: {
+      persistent: boolean;
+      serverTimeMs: number;
+      simulatedAtMs: number;
+      pendingSeconds: number;
+      caughtUp: boolean;
+    };
   };
   civilizations: PlanetCivilization[];
   beliefs: PlanetBelief[];
@@ -162,6 +177,27 @@ export interface PlanetSnapshot {
     callsToday: number;
     dailyCallLimit: number;
     consecutiveFailures: number;
+  };
+  observation?: {
+    windowDays: number;
+    ageBands: { children: number; adults: number; elders: number };
+    medianAge: number;
+    oldestAge: number;
+    autonomousDecisions: number;
+    births: number;
+    deaths: number;
+    migrations: number;
+    inventions: number;
+    discoveries: number;
+    secularAgents: number;
+    independentAgents: number;
+    knownCapabilities: number;
+    activeGoals: Partial<Record<string, number>>;
+  };
+  coverage?: {
+    sampled: boolean;
+    shown: Partial<Record<string, number>>;
+    available: Partial<Record<string, number>>;
   };
 }
 
@@ -249,9 +285,13 @@ export interface PlanetAgentDetailRecord {
   capabilities: string[];
   influence: number;
   mind: {
-    goals: Array<{ id: string; purpose: string; priority: number; confidence: number; status: string; rationale: string; steps: Array<{ id: string; action: string; status: string; requirements: string[] }> }>;
-    commitments: Array<{ id: string; kind: string; targetId: string; strength: number }>;
-    lastDecision: null | { explanation: string; uncertainty: number; alternatives: Array<{ purpose: string; score: number; summary: string }> };
+    goals: Array<{ id: string; purpose: string; targetId: string | null; priority: number; confidence: number; status: string; rationale: string; expectedBenefits: Record<string, number>; formedAt: number; lastReconsideredAt: number; steps: Array<{ id: string; action: string; status: string; requirements: string[] }> }>;
+    commitments: Array<{ id: string; kind: string; targetId: string; strength: number; createdAt: number; expiresAt: number | null }>;
+    observations: Array<{ id: string; kind: string; subjectId: string; learnedAt: number; confidence: number; facts: Record<string, string | number | boolean> }>;
+    contextualLearning: Array<{ key: string; attempts: number; expectedValue: number; lastUpdatedAt: number }>;
+    learnedDriveWeights: Record<string, number>;
+    advisory: null | { source: "openai"; receivedAt: number; expiresAt: number; goalKind: string; proposalIntent: string | null; targetId: string | null; reasoning: string; status: string; provenance: string };
+    lastDecision: null | { decidedAt: number; chosenGoalId: string; knownFactIds: string[]; explanation: string; uncertainty: number; alternatives: Array<{ purpose: string; score: number; summary: string }> };
   };
 }
 
