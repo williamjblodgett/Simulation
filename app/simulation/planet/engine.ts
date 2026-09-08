@@ -57,7 +57,15 @@ export const PLANET_SCHEMA_VERSION = 3 as const;
 export const PLANET_CATALOG_VERSION = "era-3-catalog-v1" as const;
 export const DEFAULT_PLANET_SEED = "wildgrid-era-3";
 export const PLANET_DAY_SECONDS = 60;
+/** Hard ceiling for simultaneously living, independently scheduled people. */
 export const MAX_PLANET_AGENTS = 10_000;
+/**
+ * Bounded full-person archive. Dead people remain rich records for lineage and
+ * historical inspection, but cannot accumulate forever in a long-running
+ * Worker. This keeps the worst-case checkpoint at 12,000 rich agent records.
+ */
+export const MAX_PLANET_DECEASED_AGENT_RECORDS = 2_000;
+export const MAX_PLANET_AGENT_RECORDS = MAX_PLANET_AGENTS + MAX_PLANET_DECEASED_AGENT_RECORDS;
 export const DEFAULT_PLANET_AGENTS = 10;
 export const DEFAULT_PLANET_SETTLEMENTS = 10;
 export const MAX_PLANET_HISTORY_EVENTS = 5_000;
@@ -669,6 +677,89 @@ function naturalLifespan(world: PlanetWorldState, agent: PlanetAgent): number {
 function removeFromArray(values: string[], id: string): void {
   const index = values.indexOf(id);
   if (index >= 0) values.splice(index, 1);
+}
+
+/**
+ * Deterministically bound deceased full-person records without touching a
+ * living person. Nearest lineage and founders are retained first, followed by
+ * other still-referenced or historically significant people. Returns the
+ * number of records removed and mutates the supplied world in place.
+ */
+export function compactPlanetAgentRecords(world: PlanetWorldState): number {
+  if (!Array.isArray(world.agents)) return 0;
+  const living = world.agents.filter(({ alive }) => alive);
+  const deceased = world.agents.filter(({ alive }) => !alive);
+  if (deceased.length <= MAX_PLANET_DECEASED_AGENT_RECORDS) return 0;
+
+  const livingRelativeCount = new Map<string, number>();
+  for (const agent of living) {
+    for (const relativeId of [
+      ...(Array.isArray(agent.parentIds) ? agent.parentIds : []),
+      ...(Array.isArray(agent.childIds) ? agent.childIds : []),
+    ]) {
+      livingRelativeCount.set(relativeId, (livingRelativeCount.get(relativeId) ?? 0) + 1);
+    }
+  }
+  const founderIds = new Set<string>();
+  for (const settlement of world.settlements ?? []) {
+    for (const founderId of settlement.founderIds ?? []) founderIds.add(founderId);
+  }
+  for (const belief of world.beliefs ?? []) founderIds.add(belief.founderAgentId);
+
+  const activeReferenceIds = new Set<string>();
+  for (const institution of world.institutions ?? []) {
+    for (const memberId of institution.memberIds ?? []) activeReferenceIds.add(memberId);
+  }
+  for (const proposal of world.proposals ?? []) {
+    if (proposal.status !== "open") continue;
+    activeReferenceIds.add(proposal.sponsorAgentId);
+    for (const agentId of proposal.requiredDecisionAgentIds ?? []) activeReferenceIds.add(agentId);
+    for (const decision of proposal.decisions ?? []) activeReferenceIds.add(decision.agentId);
+  }
+  for (const project of world.projects ?? []) {
+    if (!["institutionalized", "failed"].includes(project.status)) activeReferenceIds.add(project.sponsorAgentId);
+  }
+
+  const recentActorIds = new Set<string>();
+  for (const event of (world.history ?? []).slice(-MAX_PLANET_HISTORY_EVENTS)) {
+    for (const actorId of event.actorIds ?? []) recentActorIds.add(actorId);
+  }
+  const priority = (agent: PlanetAgent): [number, number, number, number, number] => [
+    livingRelativeCount.get(agent.id) ?? 0,
+    founderIds.has(agent.id) ? 1 : 0,
+    activeReferenceIds.has(agent.id) ? 1 : 0,
+    recentActorIds.has(agent.id) ? 1 : 0,
+    Number.isFinite(agent.influence) ? agent.influence : 0,
+  ];
+  deceased.sort((left, right) => {
+    const leftPriority = priority(left);
+    const rightPriority = priority(right);
+    for (let index = 0; index < leftPriority.length; index += 1) {
+      if (leftPriority[index] !== rightPriority[index]) return rightPriority[index] - leftPriority[index];
+    }
+    return (right.deathDay ?? -1) - (left.deathDay ?? -1) || left.id.localeCompare(right.id);
+  });
+
+  const retainedDeadIds = new Set(
+    deceased.slice(0, MAX_PLANET_DECEASED_AGENT_RECORDS).map(({ id }) => id),
+  );
+  const livingIds = new Set(living.map(({ id }) => id));
+  const before = world.agents.length;
+  // Preserve stable source order so compaction cannot change simulation
+  // iteration order or deterministic outcomes among living agents.
+  world.agents = world.agents.filter(({ id, alive }) => alive || retainedDeadIds.has(id));
+  // Stable lineage IDs deliberately remain even when their rich person record
+  // crosses the archive boundary. This lets inspectors show an archived
+  // relative instead of falsely implying the relationship never existed.
+  world.scheduler = (world.scheduler ?? []).filter((event) =>
+    event.kind !== "agent_wake" || livingIds.has(event.entityId)
+  );
+  heapify(world.scheduler);
+  for (const entry of Object.values(world.regionIndex ?? {})) {
+    entry.agentIds = (entry.agentIds ?? []).filter((id) => livingIds.has(id));
+  }
+  RUNTIME_INDEXES.delete(world);
+  return before - world.agents.length;
 }
 
 function relocateAgent(world: PlanetWorldState, agent: PlanetAgent, settlement: SettlementState): void {
@@ -1494,6 +1585,7 @@ export function advancePlanet(
       agent.mind.advisory.status = "expired";
     }
   }
+  compactPlanetAgentRecords(world);
   world.stats.processedEvents += processedEvents;
   return { processedEvents, reachedTime: world.time, targetTime, complete };
 }
@@ -1863,6 +1955,10 @@ export function getPlanetManifest(world: PlanetWorldState): PlanetManifest {
 }
 
 export function serializePlanetWorld(world: PlanetWorldState): string {
+  // Catch-up can contain many death/birth cycles while the living population
+  // never approaches its cap. Bound the deceased archive before validation so
+  // a valid long-running world remains saveable.
+  compactPlanetAgentRecords(world);
   if (!validatePlanetWorld(world)) throw new Error("Cannot serialize an invalid Era III planet world.");
   const regionIndex = Object.fromEntries(Object.entries(world.regionIndex)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -1882,7 +1978,7 @@ export function validatePlanetWorld(value: unknown): value is PlanetWorldState {
   const world = value as Partial<PlanetWorldState>;
   if (world.schemaVersion !== PLANET_SCHEMA_VERSION || !Number.isInteger(world.seed)) return false;
   if (!Number.isFinite(world.time) || !Number.isFinite(world.day) || !Number.isFinite(world.revision)) return false;
-  if (!Array.isArray(world.agents) || world.agents.length < 1 || world.agents.length > MAX_PLANET_AGENTS) return false;
+  if (!Array.isArray(world.agents) || world.agents.length < 1 || world.agents.length > MAX_PLANET_AGENT_RECORDS) return false;
   if (!Array.isArray(world.settlements) || !Array.isArray(world.polities) || !Array.isArray(world.scheduler)) return false;
   if (!Array.isArray(world.history) || world.history.length > MAX_PLANET_HISTORY_EVENTS) return false;
   if (!world.territoryOwners || typeof world.territoryOwners !== "object") return false;
@@ -1893,7 +1989,10 @@ export function validatePlanetWorld(value: unknown): value is PlanetWorldState {
     if (!validateAgentMind(agent)) return false;
     if (agent.capabilities.length > CAPABILITY_CATALOG.length + 128) return false;
   }
-  if (!world.stats || world.stats.livingAgents !== world.agents.filter(({ alive }) => alive).length) return false;
+  const livingAgents = world.agents.filter(({ alive }) => alive).length;
+  const deceasedAgents = world.agents.length - livingAgents;
+  if (livingAgents > MAX_PLANET_AGENTS || deceasedAgents > MAX_PLANET_DECEASED_AGENT_RECORDS) return false;
+  if (!world.stats || world.stats.livingAgents !== livingAgents) return false;
   const polityIds = new Set(world.polities.map(({ id }) => id));
   if (Object.values(world.territoryOwners).some((owner) => !polityIds.has(owner))) return false;
   return true;
@@ -1913,6 +2012,9 @@ export function normalizePlanetWorld(value: unknown): PlanetWorldState {
         (mind as { advisory: null }).advisory = null;
       }
     }
+    // Schema 3 originally validated the 10,000 living cap against all lifetime
+    // records. Migrate those checkpoints in place before strict validation.
+    compactPlanetAgentRecords(parsed as PlanetWorldState);
   }
   if (!validatePlanetWorld(parsed)) throw new Error("Invalid or unsupported Era III planet world.");
   heapify(parsed.scheduler);

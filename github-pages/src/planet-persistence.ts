@@ -9,7 +9,9 @@ const DATABASE_NAME = "wildgrid-pages-era3";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "planet-worlds";
 const RECORD_KEY = "active-world-v3";
+const RECOVERY_RECORD_KEY = "last-unreadable-world-v3";
 const FALLBACK_KEY = "wildgrid:pages:active-world:v3";
+const FALLBACK_RECOVERY_KEY = "wildgrid:pages:last-unreadable-world:v3";
 const INITIAL_SEED = "wildgrid-github-pages-era-3";
 
 export type PlanetPersistenceMode = "indexeddb" | "localstorage" | "memory";
@@ -64,17 +66,45 @@ async function readIndexedDb(): Promise<unknown> {
 }
 
 async function writeIndexedDb(record: PersistedPlanetWorld): Promise<void> {
+  return writeIndexedDbValue(RECORD_KEY, record);
+}
+
+async function writeIndexedDbValue(key: string, value: unknown): Promise<void> {
   const database = await openDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction(STORE_NAME, "readwrite");
-      transaction.objectStore(STORE_NAME).put(record, RECORD_KEY);
+      transaction.objectStore(STORE_NAME).put(value, key);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error ?? new Error("The local Era III world could not be saved."));
       transaction.onabort = () => reject(transaction.error ?? new Error("The local Era III save was interrupted."));
     });
   } finally {
     database.close();
+  }
+}
+
+async function preserveUnreadableIndexedDbRecord(value: unknown): Promise<void> {
+  if (value === undefined || value === null) return;
+  try {
+    await writeIndexedDbValue(RECOVERY_RECORD_KEY, {
+      preservedAt: Date.now(),
+      record: value,
+    });
+  } catch {
+    // A failed recovery copy must not prevent the simulation from opening.
+  }
+}
+
+function preserveUnreadableLocalRecord(value: string): void {
+  if (!value) return;
+  try {
+    localStorage.setItem(FALLBACK_RECOVERY_KEY, JSON.stringify({
+      preservedAt: Date.now(),
+      record: value,
+    }));
+  } catch {
+    // Storage quotas and privacy modes can prevent a recovery copy.
   }
 }
 
@@ -101,8 +131,10 @@ function normalizeRecord(value: unknown, persistence: PlanetPersistenceMode): Lo
 export async function loadPlanetWorld(): Promise<LoadedPlanetWorld> {
   if (typeof indexedDB !== "undefined") {
     try {
-      const record = normalizeRecord(await readIndexedDb(), "indexeddb");
+      const stored = await readIndexedDb();
+      const record = normalizeRecord(stored, "indexeddb");
       if (record) return record;
+      await preserveUnreadableIndexedDbRecord(stored);
     } catch {
       // Some private browsing modes expose IndexedDB but reject operations.
     }
@@ -110,8 +142,17 @@ export async function loadPlanetWorld(): Promise<LoadedPlanetWorld> {
 
   try {
     const serialized = localStorage.getItem(FALLBACK_KEY);
-    const record = normalizeRecord(serialized ? JSON.parse(serialized) : null, "localstorage");
+    let candidate: unknown = null;
+    if (serialized) {
+      try {
+        candidate = JSON.parse(serialized);
+      } catch {
+        preserveUnreadableLocalRecord(serialized);
+      }
+    }
+    const record = normalizeRecord(candidate, "localstorage");
     if (record) return record;
+    if (serialized && candidate !== null) preserveUnreadableLocalRecord(serialized);
   } catch {
     // The in-memory simulation remains usable when storage is unavailable.
   }
@@ -130,9 +171,22 @@ export async function savePlanetWorld(
   speed: number,
   savedAt = Date.now(),
 ): Promise<PlanetPersistenceMode> {
+  let serializedWorld: string;
+  try {
+    serializedWorld = serializePlanetWorld(world);
+  } catch (initialReason) {
+    // Compatibility normalization is deliberately attempted on a clone. It
+    // can compact bounded historical records from older Era III releases
+    // without mutating the world that the observer is currently watching.
+    try {
+      serializedWorld = serializePlanetWorld(normalizePlanetWorld(world));
+    } catch {
+      throw initialReason;
+    }
+  }
   const record: PersistedPlanetWorld = {
     schemaVersion: 3,
-    serializedWorld: serializePlanetWorld(world),
+    serializedWorld,
     savedAt,
     speed,
   };
@@ -157,6 +211,7 @@ export async function savePlanetWorld(
 export async function clearPlanetWorld(): Promise<void> {
   try {
     localStorage.removeItem(FALLBACK_KEY);
+    localStorage.removeItem(FALLBACK_RECOVERY_KEY);
   } catch {
     // Resetting the in-memory world still succeeds.
   }
@@ -166,7 +221,9 @@ export async function clearPlanetWorld(): Promise<void> {
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction(STORE_NAME, "readwrite");
-      transaction.objectStore(STORE_NAME).delete(RECORD_KEY);
+      const store = transaction.objectStore(STORE_NAME);
+      store.delete(RECORD_KEY);
+      store.delete(RECOVERY_RECORD_KEY);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error ?? new Error("The Era III world could not be cleared."));
       transaction.onabort = () => reject(transaction.error ?? new Error("The Era III reset was interrupted."));

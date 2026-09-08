@@ -79,20 +79,27 @@ export function useLocalPlanetRuntime(): LocalPlanetRuntime {
     const world = worldRef.current;
     if (!world) return;
     const persistedRevision = world.revision;
+    const recordsBeforeSave = world.agents.length;
     try {
       const mode = await savePlanetWorld(world, speedRef.current, savedAt);
       if (!mountedRef.current) return;
+      // Serialization intentionally bounds the rich deceased-person archive
+      // in place. Refresh the adapter immediately if that maintenance changed
+      // the observable record without advancing simulation time.
+      if (world.agents.length !== recordsBeforeSave) publishWorld(true);
       const changedWhileSaving = worldRef.current?.revision !== persistedRevision;
       setPersistence(mode);
       setSaved(!changedWhileSaving);
       dirtyRef.current = changedWhileSaving;
-    } catch (reason) {
+    } catch {
       if (!mountedRef.current) return;
-      setPersistence("memory");
+      // A transient quota/serialization failure must not turn a healthy,
+      // already-open world into a fatal boot screen. Keep the last durable
+      // checkpoint in place and retry on the next save interval.
       setSaved(false);
-      setError(reason instanceof Error ? reason.message : "This world could not be saved on the device.");
+      dirtyRef.current = true;
     }
-  }, []);
+  }, [publishWorld]);
 
   const runCatchUp = useCallback(async (seconds: number, token: number) => {
     const world = worldRef.current;
@@ -138,6 +145,7 @@ export function useLocalPlanetRuntime(): LocalPlanetRuntime {
       setWorldRevision(loaded.world.revision);
       setSpeedState(loaded.speed);
       setPersistence(loaded.persistence);
+      setError("");
       if (loaded.catchUpSeconds > 0.2) await runCatchUp(loaded.catchUpSeconds, token);
       else await persist();
     }).catch((reason: unknown) => {
