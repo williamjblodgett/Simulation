@@ -1,6 +1,8 @@
 import {
   PLANET_NO_STORE_HEADERS,
-  searchPlanetAgents,
+  searchPlanetEntities,
+  type PlanetDirectoryKind,
+  type PlanetLifecycleFilter,
 } from "@/app/api/planet/planet-store";
 
 function boundedInteger(
@@ -23,13 +25,25 @@ export async function GET(request: Request) {
   try {
     const search = new URL(request.url).searchParams;
     const query = (search.get("query") ?? "").slice(0, 120);
-    const cursor = boundedInteger(search, "cursor", 0, 0, 10_000);
+    const rawKind = search.get("kind") ?? "agent";
+    const rawStatus = search.get("status") ?? (rawKind === "agent" ? "active" : "all");
+    const kinds = ["agent", "settlement", "polity", "belief"] as const;
+    const statuses = ["all", "active", "historical", "declining", "dormant", "revived", "abandoned", "absorbed", "dissolved", "merged"] as const;
+    if (!kinds.includes(rawKind as PlanetDirectoryKind)) throw new Error("kind must identify a searchable planet directory.");
+    if (!statuses.includes(rawStatus as PlanetLifecycleFilter)) throw new Error("status must identify a lifecycle filter.");
+    const cursor = boundedInteger(search, "cursor", 0, 0, 100_000);
     const limit = boundedInteger(search, "limit", 20, 1, 40);
-    return Response.json(await searchPlanetAgents(query, cursor, limit), {
+    return Response.json(await searchPlanetEntities(
+      rawKind as PlanetDirectoryKind,
+      rawStatus as PlanetLifecycleFilter,
+      query,
+      cursor,
+      limit,
+    ), {
       headers: PLANET_NO_STORE_HEADERS,
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("must be between")) {
+    if (error instanceof Error && error.message.includes("must")) {
       return Response.json(
         { error: error.message },
         { status: 400, headers: PLANET_NO_STORE_HEADERS },

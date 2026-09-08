@@ -17,6 +17,7 @@ import {
   Handshake,
   LocateFixed,
   MapPin,
+  MoreHorizontal,
   Minus,
   Orbit,
   Plus,
@@ -60,6 +61,8 @@ const VIEW_SECTIONS = ["overview", "people", "societies", "settlements", "resear
 type LeftPanel = "agents" | "chronicle" | "nearby" | null;
 type ExperienceView = (typeof VIEW_SECTIONS)[number];
 type DetailLoadState = "idle" | "loading" | "ready" | "error";
+type DirectoryStatus = "active" | "historical" | "all";
+const DIRECTORY_PAGE_SIZE = 24;
 
 const VIEW_DETAILS: Record<ExperienceView, { label: string; icon: LucideIcon; description: string }> = {
   overview: { label: "Overview", icon: Globe2, description: "Live field observation" },
@@ -149,6 +152,8 @@ function readInitialUrlState() {
   const kind = url.searchParams.get("kind") as PlanetEntitySelection["kind"] | null;
   const id = url.searchParams.get("id");
   const requestedView = url.searchParams.get("view") as ExperienceView | null;
+  const requestedStatus = url.searchParams.get("status") as DirectoryStatus | null;
+  const requestedPage = Number(url.searchParams.get("page"));
   return {
     camera: hasCamera && Number.isFinite(longitude) && Number.isFinite(latitude) && Number.isFinite(zoom)
       ? { longitude: wrapLongitude(longitude), latitude: clamp(latitude, -82, 82), zoom: clamp(zoom, 0.7, 18) }
@@ -158,6 +163,9 @@ function readInitialUrlState() {
       ? { kind, id } as PlanetEntitySelection
       : null,
     view: requestedView && VIEW_SECTIONS.includes(requestedView) ? requestedView : "overview" as const,
+    directoryQuery: url.searchParams.get("q") ?? "",
+    directoryStatus: requestedStatus && ["active", "historical", "all"].includes(requestedStatus) ? requestedStatus : "active" as const,
+    directoryPage: Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1,
   };
 }
 
@@ -165,12 +173,14 @@ interface PlanetExperienceProps {
   adapter?: PlanetExperienceAdapter;
   archiveHref?: string;
   historyHref?: string;
+  methodHref?: string;
 }
 
 export function PlanetExperience({
   adapter: providedAdapter,
   archiveHref = "/archive",
   historyHref = "/history",
+  methodHref,
 }: PlanetExperienceProps) {
   const adapter = useMemo(() => providedAdapter ?? createPlanetHttpAdapter(), [providedAdapter]);
   const subscribe = useCallback((listener: () => void) => adapter.subscribe?.(() => listener()) ?? (() => undefined), [adapter]);
@@ -188,6 +198,10 @@ export function PlanetExperience({
   const [searchResults, setSearchResults] = useState<PlanetAgent[]>([]);
   const [selectedCompactAgent, setSelectedCompactAgent] = useState<PlanetAgent | null>(null);
   const [showOverlayMenu, setShowOverlayMenu] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [directoryQuery, setDirectoryQuery] = useState("");
+  const [directoryStatus, setDirectoryStatus] = useState<DirectoryStatus>("active");
+  const [directoryPage, setDirectoryPage] = useState(1);
   const initializedUrlRef = useRef(false);
   const mobileDetailRef = useRef<HTMLDialogElement>(null);
   const detailReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -201,6 +215,12 @@ export function PlanetExperience({
       if (initial?.overlay) setOverlay(initial.overlay);
       if (initial?.selection) setSelection(initial.selection);
       if (initial?.view) setView(initial.view);
+      if (initial) {
+        setSearchQuery(initial.directoryQuery);
+        setDirectoryQuery(initial.directoryQuery);
+        setDirectoryStatus(initial.directoryStatus);
+        setDirectoryPage(initial.directoryPage);
+      }
       window.history.replaceState({ wildgrid: true, entry: "initial" }, "", window.location.href);
       initializedUrlRef.current = true;
     }, 0);
@@ -224,6 +244,9 @@ export function PlanetExperience({
       url.searchParams.set("z", camera.zoom.toFixed(2));
       url.searchParams.set("layer", overlay);
       url.searchParams.set("view", view);
+      if (directoryQuery) url.searchParams.set("q", directoryQuery); else url.searchParams.delete("q");
+      if (directoryStatus !== "active") url.searchParams.set("status", directoryStatus); else url.searchParams.delete("status");
+      if (directoryPage > 1) url.searchParams.set("page", String(directoryPage)); else url.searchParams.delete("page");
       if (selection) {
         url.searchParams.set("kind", selection.kind);
         url.searchParams.set("id", selection.id);
@@ -234,7 +257,7 @@ export function PlanetExperience({
       window.history.replaceState(window.history.state ?? { wildgrid: true }, "", url);
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [camera, overlay, selection, view]);
+  }, [camera, directoryPage, directoryQuery, directoryStatus, overlay, selection, view]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -244,6 +267,10 @@ export function PlanetExperience({
       if (state.overlay) setOverlay(state.overlay);
       setSelection(state.selection);
       setView(state.view);
+      setDirectoryQuery(state.directoryQuery);
+      setSearchQuery(state.directoryQuery);
+      setDirectoryStatus(state.directoryStatus);
+      setDirectoryPage(state.directoryPage);
       setLeftPanel(null);
     };
     window.addEventListener("popstate", handlePopState);
@@ -378,7 +405,7 @@ export function PlanetExperience({
 
   const currentOverlay = OVERLAY_DETAILS[overlay];
   const continuityLabel = snapshot.meta.continuity
-    ? `${snapshot.meta.continuity.persistent ? "Persistent shared record" : "Device-local record"} · ${snapshot.meta.continuity.caughtUp ? "caught up to observation time" : `${Math.ceil(snapshot.meta.continuity.pendingSeconds).toLocaleString()} simulated seconds pending`}`
+    ? `${snapshot.meta.continuity.persistent ? "Persistent shared record" : "Device-local record"} · ${snapshot.meta.continuity.caughtUp ? "caught up to observation time" : `${Math.ceil(snapshot.meta.continuity.pendingSeconds).toLocaleString()} simulated seconds pending`}${snapshot.meta.continuity.reconstructionResolution ? ` · ${snapshot.meta.continuity.reconstructionResolution} reconstruction` : ""}`
     : "Continuity status awaiting record metadata";
   const shownAgents = snapshot.coverage?.shown.agents;
   const availableAgents = snapshot.coverage?.available.agents;
@@ -390,6 +417,8 @@ export function PlanetExperience({
     ?? snapshot.agents[0]
     ?? searchResults[0];
   const latestRecord = snapshot.chronicle[0];
+  const activeSocietyCount = snapshot.civilizations.filter((civilization) => (civilization.lifecycleStatus ?? (civilization.population > 0 ? "active" : "historical")) === "active").length;
+  const activeSettlementCount = snapshot.settlements.filter((settlement) => ["active", "declining"].includes(settlement.lifecycleStatus ?? (settlement.population > 0 ? "active" : "abandoned"))).length;
 
   function toggleLeftPanel(panel: Exclude<LeftPanel, null>) {
     setLeftPanel((current) => current === panel ? null : panel);
@@ -401,13 +430,36 @@ export function PlanetExperience({
     setSelection(null);
     setLeftPanel(null);
     setShowOverlayMenu(false);
+    setShowMoreMenu(false);
+    setDirectoryPage(1);
     if (typeof window === "undefined" || !initializedUrlRef.current) return;
     const url = new URL(window.location.href);
     url.searchParams.set("view", nextView);
     url.searchParams.delete("kind");
     url.searchParams.delete("id");
+    url.searchParams.delete("page");
     const method = replace ? "replaceState" : "pushState";
     window.history[method]({ wildgrid: true, entry: replace ? "replace" : "view" }, "", url);
+  }
+
+  function changeDirectory(next: Partial<{ query: string; status: DirectoryStatus; page: number }>, replace = false) {
+    const nextQuery = next.query ?? directoryQuery;
+    const nextStatus = next.status ?? directoryStatus;
+    const nextPage = next.page ?? (next.query !== undefined || next.status !== undefined ? 1 : directoryPage);
+    setDirectoryQuery(nextQuery);
+    setDirectoryStatus(nextStatus);
+    setDirectoryPage(nextPage);
+    if (typeof window === "undefined" || !initializedUrlRef.current) return;
+    const url = new URL(window.location.href);
+    if (nextQuery) url.searchParams.set("q", nextQuery); else url.searchParams.delete("q");
+    if (nextStatus !== "active") url.searchParams.set("status", nextStatus); else url.searchParams.delete("status");
+    if (nextPage > 1) url.searchParams.set("page", String(nextPage)); else url.searchParams.delete("page");
+    window.history[replace ? "replaceState" : "pushState"]({ wildgrid: true, entry: "directory" }, "", url);
+  }
+
+  function changePeopleQuery(nextQuery: string) {
+    setSearchQuery(nextQuery);
+    changeDirectory({ query: nextQuery }, true);
   }
 
   function closeDetail() {
@@ -477,7 +529,9 @@ export function PlanetExperience({
         <SectionTabs view={view} onChange={navigateView} className={styles.sectionTabs} />
 
         <nav className={styles.topActions} aria-label="World navigation">
+          <button type="button" className={styles.textAction} aria-expanded={leftPanel === "agents"} onClick={() => { if (view !== "overview") navigateView("overview"); toggleLeftPanel("agents"); }}><Search size={17} /><span>Search lives</span></button>
           <a href={historyHref} className={styles.textAction}><BookOpen size={17} /><span>Archive</span></a>
+          {methodHref ? <a href={methodHref} className={styles.textAction}><Compass size={17} /><span>Method</span></a> : null}
           <a href={archiveHref} className={styles.textAction}><Telescope size={17} /><span>Prior study</span></a>
           <span className={styles.mobileReadOnlyBadge} aria-label="Observer controls are read-only">Read-only</span>
           <span className={styles.liveBadge} data-status={snapshot.meta.status}>
@@ -486,25 +540,12 @@ export function PlanetExperience({
         </nav>
       </header>
 
-      <nav className={styles.sectionRail} aria-label="Observatory sections">
-        <div className={styles.railEra}><span>Study 03 · planetary habitat</span><strong>Closed-world study</strong><small>Autonomous lives observed continuously. No player or intervention.</small></div>
-        {VIEW_SECTIONS.map((section) => {
-          const detail = VIEW_DETAILS[section];
-          const Icon = detail.icon;
-          return <button type="button" key={section} data-active={view === section} aria-current={view === section ? "page" : undefined} onClick={() => navigateView(section)}><Icon size={18} /><span>{detail.label}</span></button>;
-        })}
-        <div className={styles.railDivider} />
-        <button type="button" data-active={leftPanel === "agents"} onClick={() => { if (view !== "overview") navigateView("overview"); toggleLeftPanel("agents"); }}><Search size={18} /><span>Search</span></button>
-        <button type="button" data-active={leftPanel === "nearby"} onClick={() => { if (view !== "overview") navigateView("overview"); toggleLeftPanel("nearby"); }}><LocateFixed size={18} /><span>Nearby</span></button>
-        <div className={styles.railProtocol}><span>Observation protocol</span><p>Camera, search, and evidence layers are read-only. Inhabitants cannot detect the observer.</p></div>
-      </nav>
-
       {view === "overview" ? (
         <div className={styles.overviewStats} aria-label="Current world statistics">
           <Stat label="Observed day" value={snapshot.meta.day.toLocaleString()} />
           <Stat label="Living population" value={formatNumber(snapshot.meta.population)} />
-          <Stat label="Social formations" value={snapshot.meta.dataMode === "live" && !snapshot.civilizations.length ? "…" : String(snapshot.civilizations.length)} />
-          <Stat label="Habitation sites" value={snapshot.meta.dataMode === "live" && !snapshot.settlements.length ? "…" : String(snapshot.settlements.length)} />
+          <Stat label="Active formations" value={snapshot.meta.dataMode === "live" && !snapshot.civilizations.length ? "…" : String(activeSocietyCount)} />
+          <Stat label="Occupied sites" value={snapshot.meta.dataMode === "live" && !snapshot.settlements.length ? "…" : String(activeSettlementCount)} />
         </div>
       ) : null}
 
@@ -513,6 +554,7 @@ export function PlanetExperience({
           <span>Field view · {currentOverlay.label}</span>
           <strong>World 01 / continuous autonomous run</strong>
           <small>{continuityLabel}</small>
+          {snapshot.meta.continuity?.coverageFromDay !== undefined ? <small>Continuous archive coverage from Day {snapshot.meta.continuity.coverageFromDay.toLocaleString()}{snapshot.meta.continuity.coarseEpochDays ? `; long absences summarized in ${snapshot.meta.continuity.coarseEpochDays}-day epochs` : ""}.</small> : null}
           <small>{coverageLabel}. Navigation changes only the observer&apos;s view.</small>
         </div>
       ) : null}
@@ -618,8 +660,12 @@ export function PlanetExperience({
           snapshot={snapshot}
           historyHref={historyHref}
           query={searchQuery}
-          onQueryChange={setSearchQuery}
+          onQueryChange={changePeopleQuery}
           agents={searchQuery.trim() || searchResults.length ? searchResults : indexedAgents}
+          directoryQuery={directoryQuery}
+          directoryStatus={directoryStatus}
+          directoryPage={directoryPage}
+          onDirectoryChange={changeDirectory}
           onBack={backToOverview}
           onSelect={(next) => selectEntity(next, true)}
         />
@@ -635,7 +681,18 @@ export function PlanetExperience({
         </dialog>
       ) : null}
 
-      <SectionTabs view={view} onChange={navigateView} className={styles.mobileBottomNav} />
+      <MobileNavigation view={view} onChange={navigateView} moreOpen={showMoreMenu} onMore={() => setShowMoreMenu((current) => !current)} />
+
+      {showMoreMenu ? <div className={styles.mobileMoreMenu} role="menu" aria-label="More observatory sections">
+        {(["societies", "settlements", "research"] as const).map((section) => {
+          const detail = VIEW_DETAILS[section];
+          const Icon = detail.icon;
+          return <button type="button" role="menuitem" key={section} onClick={() => navigateView(section)}><Icon size={18} /><span><strong>{detail.label}</strong><small>{detail.description}</small></span></button>;
+        })}
+        <a role="menuitem" href={historyHref}><BookOpen size={18} /><span><strong>Archival chapters</strong><small>Permanent 200-day record</small></span></a>
+        {methodHref ? <a role="menuitem" href={methodHref}><Compass size={18} /><span><strong>Method</strong><small>What autonomy means in this model</small></span></a> : null}
+        <a role="menuitem" href={archiveHref}><Telescope size={18} /><span><strong>Prior study</strong><small>Earlier model retained for comparison</small></span></a>
+      </div> : null}
 
       {view === "overview" ? <div className={styles.mobileOverlayPicker}>
         <button type="button" aria-expanded={showOverlayMenu} onClick={() => setShowOverlayMenu((current) => !current)}><currentOverlay.icon size={18} /><span>{currentOverlay.compactLabel}</span><ChevronDown size={16} /></button>
@@ -675,6 +732,19 @@ function SectionTabs({ view, onChange, className }: { view: ExperienceView; onCh
   );
 }
 
+function MobileNavigation({ view, onChange, moreOpen, onMore }: { view: ExperienceView; onChange: (view: ExperienceView) => void; moreOpen: boolean; onMore: () => void }) {
+  const primary: Array<{ view: ExperienceView; label: string; icon: LucideIcon }> = [
+    { view: "overview", label: "Observe", icon: Globe2 },
+    { view: "people", label: "Lives", icon: Users },
+    { view: "timeline", label: "Record", icon: BookOpen },
+  ];
+  const inMore = ["societies", "settlements", "research"].includes(view);
+  return <nav className={styles.mobileBottomNav} aria-label="Primary observatory views">
+    {primary.map((item) => <button type="button" key={item.view} data-active={view === item.view} aria-current={view === item.view ? "page" : undefined} onClick={() => onChange(item.view)}><item.icon size={18} /><span>{item.label}</span></button>)}
+    <button type="button" data-active={inMore || moreOpen} aria-expanded={moreOpen} onClick={onMore}><MoreHorizontal size={18} /><span>More</span></button>
+  </nav>;
+}
+
 function OverviewInsights({ snapshot, featuredAgent, historyHref, onSelect }: { snapshot: PlanetSnapshot; featuredAgent?: PlanetAgent; historyHref: string; onSelect: (selection: PlanetEntitySelection) => void }) {
   const generationCounts = new Map<number, number>();
   for (const agent of snapshot.agents) generationCounts.set(agent.generation, (generationCounts.get(agent.generation) ?? 0) + 1);
@@ -691,6 +761,7 @@ function OverviewInsights({ snapshot, featuredAgent, historyHref, onSelect }: { 
   const latestRecord = snapshot.chronicle[0];
   const coverage = snapshot.coverage;
   const continuity = snapshot.meta.continuity;
+  const featuredOutcome = featuredAgent ? snapshot.chronicle.find((entry) => entry.actorIds?.includes(featuredAgent.id)) : undefined;
   return (
     <aside className={styles.insightStack} aria-label="World insights">
       <section className={`${styles.insightCard} ${styles.protocolCard}`}>
@@ -702,6 +773,7 @@ function OverviewInsights({ snapshot, featuredAgent, historyHref, onSelect }: { 
           <span>Seed {snapshot.meta.seed.toLocaleString()}</span>
           <span>{continuity ? continuity.persistent ? "Persistent shared record" : "Device-local record" : "Continuity pending"}</span>
           <span>{continuity?.caughtUp ? "Caught up to wall time" : continuity ? `${Math.ceil(continuity.pendingSeconds).toLocaleString()}s pending` : "Timing metadata pending"}</span>
+          {continuity?.reconstructionResolution ? <span>{humanizeCapability(continuity.reconstructionResolution)} reconstruction{continuity.coverageFromDay !== undefined ? ` · coverage from Day ${continuity.coverageFromDay}` : ""}</span> : null}
           {coverage?.sampled ? <span>Sampled viewport · {coverage.shown.agents ?? 0}/{coverage.available.agents ?? "?"} agents shown</span> : <span>Viewport not truncated</span>}
         </div>
       </section>
@@ -711,9 +783,12 @@ function OverviewInsights({ snapshot, featuredAgent, historyHref, onSelect }: { 
         {featuredAgent ? (
           <button type="button" className={styles.compactDecisionTrace} onClick={() => onSelect({ kind: "agent", id: featuredAgent.id })}>
             <span><b>Evidence</b>{featuredAgent.knownFacts[0] ?? "No compact observation excerpt retained."}</span>
+            <span><b>Alternatives</b>Retained in the full private-mind record when available.</span>
             <span><b>Choice</b>{featuredAgent.action}</span>
-            <span><b>Purpose</b>{featuredAgent.currentGoal}</span>
-            <small>Inspect the full record for alternatives, commitments, and learned outcomes.</small>
+            <span><b>Plan</b>{featuredAgent.currentGoal}</span>
+            <span><b>Outcome</b>{featuredOutcome?.title ?? "No consequential outcome is linked in this viewport excerpt."}</span>
+            <span><b>Learning</b>Later choices update from observed results, not a personality assigned at birth.</span>
+            <small>Open {featuredAgent.name}&apos;s evidence file for alternatives, plan steps, confidence, and learned expectations.</small>
           </button>
         ) : <p className={styles.evidenceNote}>A named trace will appear when the first compact agent record reaches this viewport.</p>}
       </section>
@@ -812,6 +887,10 @@ function SectionView({
   query,
   onQueryChange,
   agents,
+  directoryQuery,
+  directoryStatus,
+  directoryPage,
+  onDirectoryChange,
   onBack,
   onSelect,
 }: {
@@ -821,6 +900,10 @@ function SectionView({
   query: string;
   onQueryChange: (query: string) => void;
   agents: PlanetAgent[];
+  directoryQuery: string;
+  directoryStatus: DirectoryStatus;
+  directoryPage: number;
+  onDirectoryChange: (next: Partial<{ query: string; status: DirectoryStatus; page: number }>, replace?: boolean) => void;
   onBack: () => void;
   onSelect: (selection: PlanetEntitySelection) => void;
 }) {
@@ -840,6 +923,25 @@ function SectionView({
       .map(([id, record]) => ({ id, settlements: record.settlements, societies: record.societies.size }))
       .sort((left, right) => right.settlements - left.settlements || left.id.localeCompare(right.id));
   }, [snapshot.settlements]);
+  const normalizedQuery = directoryQuery.trim().toLocaleLowerCase();
+  const recordMatches = (text: string, active: boolean) => {
+    const statusMatch = directoryStatus === "all" || (directoryStatus === "active" ? active : !active);
+    return statusMatch && (!normalizedQuery || text.toLocaleLowerCase().includes(normalizedQuery));
+  };
+  const civilizationStatus = (civilization: PlanetSnapshot["civilizations"][number]) => civilization.lifecycleStatus ?? (civilization.population > 0 ? "active" : "historical");
+  const settlementStatus = (settlement: PlanetSnapshot["settlements"][number]) => settlement.lifecycleStatus ?? (settlement.population > 0 ? "active" : "abandoned");
+  const beliefStatus = (belief: PlanetSnapshot["beliefs"][number]) => belief.lifecycleStatus ?? belief.status ?? (belief.active === false || belief.followers === 0 ? "historical" : "active");
+  const filteredCivilizations = snapshot.civilizations.filter((civilization) => recordMatches(`${civilization.name} ${civilization.summary}`, civilizationStatus(civilization) === "active"));
+  const filteredSettlements = [...snapshot.settlements]
+    .filter((settlement) => recordMatches(`${settlement.name} ${snapshot.civilizations.find((candidate) => candidate.id === settlement.civilizationId)?.name ?? ""}`, ["active", "declining"].includes(settlementStatus(settlement))))
+    .sort((left, right) => right.population - left.population || left.name.localeCompare(right.name));
+  const filteredBeliefs = snapshot.beliefs.filter((belief) => recordMatches(`${belief.name} ${belief.values.join(" ")} ${(belief.tenets ?? []).join(" ")}`, ["active", "revived"].includes(beliefStatus(belief))));
+  const filteredCapabilities = capabilities.filter((capability) => !normalizedQuery || humanizeCapability(capability.id).toLocaleLowerCase().includes(normalizedQuery));
+  const projects = (snapshot.knowledgeProjects ?? []).filter((project) => !normalizedQuery || `${project.title} ${project.capabilityId ?? ""} ${project.originatorName ?? ""} ${project.settlementName ?? ""}`.toLocaleLowerCase().includes(normalizedQuery));
+  const maxRecords = view === "societies" ? Math.max(filteredCivilizations.length, filteredBeliefs.length) : view === "settlements" ? filteredSettlements.length : view === "research" ? Math.max(projects.length, filteredCapabilities.length) : 0;
+  const totalPages = Math.max(1, Math.ceil(maxRecords / DIRECTORY_PAGE_SIZE));
+  const safePage = Math.min(directoryPage, totalPages);
+  const pageSlice = <T,>(records: T[]) => records.slice((safePage - 1) * DIRECTORY_PAGE_SIZE, safePage * DIRECTORY_PAGE_SIZE);
 
   return (
     <section className={styles.sectionView} data-view={view} aria-labelledby={`section-${view}-title`}>
@@ -849,6 +951,7 @@ function SectionView({
         <div className={styles.sectionCount}>{view === "people" ? formatNumber(snapshot.meta.population) : view === "societies" ? snapshot.civilizations.length : view === "settlements" ? snapshot.settlements.length : view === "research" ? capabilities.length : snapshot.chronicle.length}<span>{view === "people" ? " living" : " records"}</span></div>
       </header>
       <div className={styles.sectionBody}>
+        {(["societies", "settlements", "research"] as ExperienceView[]).includes(view) ? <DirectoryControls query={directoryQuery} status={directoryStatus} page={safePage} totalPages={totalPages} resultCount={maxRecords} onChange={onDirectoryChange} showStatus={view !== "research"} /> : null}
         {view === "people" ? (
           <div className={styles.peopleLayout}>
             <PopulationStudySummary snapshot={snapshot} />
@@ -857,49 +960,51 @@ function SectionView({
         ) : view === "societies" ? (
           <div className={styles.societiesSection}>
             <div className={styles.recordGrid}>
-              {snapshot.civilizations.map((civilization) => {
+              {pageSlice(filteredCivilizations).map((civilization) => {
                 const settlementCount = snapshot.settlements.filter((settlement) => settlement.civilizationId === civilization.id).length;
                 const belief = snapshot.beliefs.find((candidate) => candidate.id === civilization.beliefId);
                 const relationCount = snapshot.relations.filter((relation) => relation.fromCivilizationId === civilization.id || relation.toCivilizationId === civilization.id).length;
-                return <button type="button" key={civilization.id} className={styles.recordCard} style={{ "--entity-color": civilization.color } as React.CSSProperties} onClick={() => onSelect({ kind: "civilization", id: civilization.id })}><span className={styles.recordColor} /><div className={styles.recordHeading}><strong>{civilization.name}</strong><small>{formatNumber(civilization.population)} people</small></div><p>{civilization.summary}</p><div className={styles.recordFacts}><span>{settlementCount} habitation sites</span><span>{belief?.name ?? "Plural / secular"}</span><span>{relationCount} recorded external ties</span></div><span className={styles.recordOpen}>Open field record <LocateFixed size={14} /></span></button>;
+                const status = civilizationStatus(civilization);
+                return <button type="button" key={civilization.id} className={styles.recordCard} style={{ "--entity-color": civilization.color } as React.CSSProperties} onClick={() => onSelect({ kind: "civilization", id: civilization.id })}><span className={styles.recordColor} /><div className={styles.recordHeading}><strong>{civilization.name}</strong><small>{formatNumber(civilization.population)} people</small></div><p>{civilization.summary}</p><div className={styles.recordFacts}><span>{humanizeCapability(status)}</span><span>{settlementCount} habitation sites</span><span>{belief?.name ?? "Plural / secular"}</span><span>{relationCount} recorded external ties</span></div><span className={styles.recordOpen}>Open field record <LocateFixed size={14} /></span></button>;
               })}
-              {!snapshot.civilizations.length ? <SectionEmpty icon={Shield} title="No society records in this view" copy="The shared planet may still be connecting." /> : null}
+              {!filteredCivilizations.length ? <SectionEmpty icon={Shield} title="No matching society records" copy="Change the lifecycle filter or search terms to inspect another part of the record." /> : null}
             </div>
             <section className={styles.beliefDirectory} aria-labelledby="belief-directory-title">
               <header><div><span className={styles.eyebrow}>Beliefs emerge; they are never assigned</span><h2 id="belief-directory-title">Belief-system directory</h2></div><strong>{snapshot.beliefs.length} recorded</strong></header>
               <div className={styles.beliefGrid}>
-                {snapshot.beliefs.map((belief) => (
+                {pageSlice(filteredBeliefs).map((belief) => (
                   <article key={belief.id} className={styles.beliefCard} style={{ "--entity-color": belief.color } as React.CSSProperties}>
-                    <div className={styles.beliefHeading}><span /><div><strong>{belief.name}</strong><small>{belief.kind ? humanizeCapability(belief.kind) : "Belief system"} · {belief.active === false ? "historical" : "active"}</small></div><em>{formatNumber(belief.followers)} adherents</em></div>
+                    <div className={styles.beliefHeading}><span /><div><strong>{belief.name}</strong><small>{belief.kind ? humanizeCapability(belief.kind) : "Belief system"} · {humanizeCapability(beliefStatus(belief))}</small></div><em>{formatNumber(belief.followers)} adherents</em></div>
                     <div className={styles.beliefValues}><span>Core values</span>{belief.values.length ? <ul>{belief.values.map((value) => <li key={value}>{humanizeCapability(value)}</li>)}</ul> : <p>No core values have been recorded yet.</p>}</div>
                     {belief.tenets?.length ? <div className={styles.beliefTenets}><span>Tenets</span><p>{belief.tenets.map(humanizeCapability).join(" · ")}</p></div> : null}
                     <dl className={styles.beliefOrigins}>
                       <div><dt>Founded by</dt><dd>{belief.founderName ?? belief.founderAgentId ?? "Not recorded"}</dd></div>
                       <div><dt>Origin</dt><dd>{belief.originName ?? (belief.originSettlementId ? "Settlement record outside this view" : "No settlement recorded")}</dd></div>
                       <div><dt>Founded</dt><dd>{belief.originDay === undefined ? "Day not recorded" : `Day ${belief.originDay.toLocaleString()}`}</dd></div>
-                      <div><dt>Lineage</dt><dd>{belief.parentBeliefId ? "Descended from an earlier belief" : "Original tradition"}{belief.schisms ? ` · ${belief.schisms} schism${belief.schisms === 1 ? "" : "s"}` : ""}</dd></div>
+                      <div><dt>Lineage</dt><dd>{belief.parentBeliefId ? `Descended from ${snapshot.beliefs.find((candidate) => candidate.id === belief.parentBeliefId)?.name ?? "an earlier belief"}` : "Original tradition"}{belief.schisms ? ` · ${belief.schisms} schism${belief.schisms === 1 ? "" : "s"}` : ""}</dd></div>
                     </dl>
                     {belief.reforms?.length ? <div className={styles.latestReform}><span>Latest reform · Day {belief.reforms.at(-1)?.day.toLocaleString()}</span><p>{belief.reforms.at(-1)?.summary}</p></div> : null}
                   </article>
                 ))}
-                {!snapshot.beliefs.length ? <SectionEmpty icon={Sparkles} title="No belief system has formed" copy="The directory will remain empty until agents establish one themselves." /> : null}
+                {!filteredBeliefs.length ? <SectionEmpty icon={Sparkles} title="No matching belief record" copy="Dormant and historical traditions remain available through the lifecycle filter." /> : null}
               </div>
             </section>
           </div>
         ) : view === "settlements" ? (
           <div className={styles.recordGrid}>
-            {[...snapshot.settlements].sort((left, right) => right.population - left.population).map((settlement) => {
+            {pageSlice(filteredSettlements).map((settlement) => {
               const civilization = snapshot.civilizations.find((candidate) => candidate.id === settlement.civilizationId);
-              return <button type="button" key={settlement.id} className={styles.recordCard} style={{ "--entity-color": civilization?.color ?? "#7ecfc7" } as React.CSSProperties} onClick={() => onSelect({ kind: "settlement", id: settlement.id })}><span className={styles.recordColor} /><div className={styles.recordHeading}><strong>{settlement.name}</strong><small>{settlement.kind} · {coordinates(settlement)}</small></div><div className={styles.recordFacts}><span>{formatNumber(settlement.population)} residents</span><span>{settlement.capabilities?.length ?? 0} established capabilities</span><span>{civilization?.name ?? "No polity recorded"}</span></div><span className={styles.recordOpen}>Open site record <LocateFixed size={14} /></span></button>;
+              const status = settlementStatus(settlement);
+              return <button type="button" key={settlement.id} className={styles.recordCard} style={{ "--entity-color": civilization?.color ?? "#7ecfc7" } as React.CSSProperties} onClick={() => onSelect({ kind: "settlement", id: settlement.id })}><span className={styles.recordColor} /><div className={styles.recordHeading}><strong>{settlement.name}</strong><small>{humanizeCapability(status)} · {coordinates(settlement)}</small></div><div className={styles.recordFacts}><span>{status === "abandoned" ? "Ruins · no current residents" : `${formatNumber(settlement.population)} residents`}</span><span>{settlement.capabilities?.length ?? 0} established capabilities</span><span>{civilization?.name ?? "No polity recorded"}</span></div><span className={styles.recordOpen}>Open site record <LocateFixed size={14} /></span></button>;
             })}
-            {!snapshot.settlements.length ? <SectionEmpty icon={Building2} title="No settlements in this view" copy="The shared planet may still be connecting." /> : null}
+            {!filteredSettlements.length ? <SectionEmpty icon={Building2} title="No matching habitation records" copy="Abandoned sites and ruins remain available under Historical." /> : null}
           </div>
         ) : view === "research" ? (
           <div className={styles.researchLayout}>
             <div className={styles.researchIntro}><Atom size={25} /><div><span className={styles.eyebrow}>No prescribed technology tree</span><h2>Knowledge exists where people have learned it.</h2><p>These are capabilities currently established in observed settlements. New experiments, failures, and inventions enter this record only when the simulation produces them.</p></div></div>
             <div className={styles.researchList}>
-              {capabilities.map((capability, index) => <article key={capability.id}><span>R{String(index + 1).padStart(2, "0")}</span><div><strong>{humanizeCapability(capability.id)}</strong><small>Observed in {capability.settlements} settlement{capability.settlements === 1 ? "" : "s"} across {capability.societies} societ{capability.societies === 1 ? "y" : "ies"}</small></div><em>Established by agents</em></article>)}
-              {!capabilities.length ? <SectionEmpty icon={Atom} title="No shared capability observed yet" copy="Founders must discover, teach, and institutionalize knowledge themselves." /> : null}
+              {projects.length ? pageSlice(projects).map((project, index) => <article key={project.id}><span>P{String((safePage - 1) * DIRECTORY_PAGE_SIZE + index + 1).padStart(2, "0")}</span><div><strong>{project.title}</strong><small>{humanizeCapability(project.status)}{project.originatorName ? ` · initiated by ${project.originatorName}` : " · originator not retained"}{project.settlementName ? ` at ${project.settlementName}` : ""}</small><p>{project.evidence?.length ? `Evidence: ${project.evidence.slice(0, 2).join(" · ")}` : project.failureReason ? `Recorded failure: ${project.failureReason}` : "The compact record contains no supporting evidence excerpt."}</p></div><em>{project.completedDay ? `Day ${project.completedDay}` : project.startedDay ? `Since Day ${project.startedDay}` : "Date unrecorded"}</em></article>) : pageSlice(filteredCapabilities).map((capability, index) => <article key={capability.id}><span>R{String((safePage - 1) * DIRECTORY_PAGE_SIZE + index + 1).padStart(2, "0")}</span><div><strong>{humanizeCapability(capability.id)}</strong><small>Observed in {capability.settlements} settlement{capability.settlements === 1 ? "" : "s"} across {capability.societies} societ{capability.societies === 1 ? "y" : "ies"}</small><p>Origin and failed experiments are outside this compact viewport record.</p></div><em>Established by agents</em></article>)}
+              {!projects.length && !filteredCapabilities.length ? <SectionEmpty icon={Atom} title="No matching knowledge record" copy="Projects appear only after agents propose, test, and retain them." /> : null}
             </div>
           </div>
         ) : (
@@ -908,6 +1013,20 @@ function SectionView({
       </div>
     </section>
   );
+}
+
+function DirectoryControls({ query, status, page, totalPages, resultCount, onChange, showStatus }: { query: string; status: DirectoryStatus; page: number; totalPages: number; resultCount: number; onChange: (next: Partial<{ query: string; status: DirectoryStatus; page: number }>, replace?: boolean) => void; showStatus: boolean }) {
+  return <div className={styles.directoryControls} aria-label="Directory filters">
+    <label><Search size={17} aria-hidden="true" /><span className={styles.srOnly}>Search this directory</span><input value={query} onChange={(event) => onChange({ query: event.target.value }, true)} placeholder="Search the observation record…" /></label>
+    {showStatus ? <div className={styles.statusFilters} role="group" aria-label="Lifecycle status">
+      {(["active", "historical", "all"] as DirectoryStatus[]).map((option) => <button type="button" key={option} aria-pressed={status === option} onClick={() => onChange({ status: option })}>{option === "active" ? "Living / active" : option === "historical" ? "Historical / ruins" : "All records"}</button>)}
+    </div> : null}
+    <div className={styles.directoryPager}>
+      <span>{resultCount.toLocaleString()} matching · page {page} of {totalPages}</span>
+      <button type="button" disabled={page <= 1} onClick={() => onChange({ page: page - 1 })} aria-label="Previous directory page">←</button>
+      <button type="button" disabled={page >= totalPages} onClick={() => onChange({ page: page + 1 })} aria-label="Next directory page">→</button>
+    </div>
+  </div>;
 }
 
 function PopulationStudySummary({ snapshot }: { snapshot: PlanetSnapshot }) {
@@ -1264,8 +1383,10 @@ function DetailedEntityInspector({ snapshot, detail, onSelect }: { snapshot: Pla
     const civilization = snapshot.civilizations.find((candidate) => candidate.id === settlement.polityId);
     const publicSettlement = snapshot.settlements.find((candidate) => candidate.id === settlement.id);
     const foundedDay = Math.floor(settlement.createdAt / 60) + 1;
+    const lifecycle = settlement.lifecycleStatus ?? publicSettlement?.lifecycleStatus ?? ((publicSettlement?.population ?? settlement.residentIds.length) ? "active" : "abandoned");
     return (
-      <InspectorFrame icon={<Building2 size={23} />} title={settlement.name} subtitle={`${formatNumber(publicSettlement?.population ?? settlement.residentIds.length)} residents · founded Day ${foundedDay.toLocaleString()}`} color={civilization?.color}>
+      <InspectorFrame icon={<Building2 size={23} />} title={settlement.name} subtitle={`${humanizeCapability(lifecycle)} · ${formatNumber(publicSettlement?.population ?? settlement.residentIds.length)} residents · founded Day ${foundedDay.toLocaleString()}`} color={civilization?.color}>
+        {lifecycle === "abandoned" || lifecycle === "historical" ? <p className={styles.observerNote}>This site is retained as a ruin in the observation record, not counted as a living habitation site.</p> : null}
         <InspectorSection label="Material state"><StockList values={settlement.stocks} empty="No communal stocks recorded." /></InspectorSection>
         <InspectorSection label="Built environment"><StockList values={settlement.facilities} empty="No facilities recorded." /><TagList values={settlement.capabilities} empty="No established capability recorded." /></InspectorSection>
         <InspectorSection label="Founders"><DetailRelations label="Founding agents" ids={settlement.founderIds} resolve={agentName} onSelect={(id) => onSelect({ kind: "agent", id })} /></InspectorSection>
@@ -1280,8 +1401,9 @@ function DetailedEntityInspector({ snapshot, detail, onSelect }: { snapshot: Pla
   const civilization = detail.record;
   const publicCivilization = snapshot.civilizations.find((candidate) => candidate.id === civilization.id);
   const foundedDay = Math.floor(civilization.createdAt / 60) + 1;
+  const lifecycle = civilization.lifecycleStatus ?? publicCivilization?.lifecycleStatus ?? ((publicCivilization?.population ?? civilization.citizenIds.length) ? "active" : "historical");
   return (
-    <InspectorFrame icon={<Shield size={23} />} title={civilization.name} subtitle={`${formatNumber(publicCivilization?.population ?? civilization.citizenIds.length)} citizens · formed Day ${foundedDay.toLocaleString()}`} color={publicCivilization?.color}>
+    <InspectorFrame icon={<Shield size={23} />} title={civilization.name} subtitle={`${humanizeCapability(lifecycle)} · ${formatNumber(publicCivilization?.population ?? civilization.citizenIds.length)} citizens · formed Day ${foundedDay.toLocaleString()}`} color={publicCivilization?.color}>
       <InspectorSection label="Leadership & institutions">
         {civilization.leaderId ? <InspectorLink label="Recorded leader" value={agentName(civilization.leaderId)} onClick={() => onSelect({ kind: "agent", id: civilization.leaderId! })} /> : <InspectorValue label="Recorded leader" value="No sole leader" />}
         <InspectorValue label="Institutions" value={String(civilization.institutionIds.length)} />

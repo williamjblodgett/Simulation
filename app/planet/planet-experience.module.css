@@ -4231,3 +4231,224 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Observatory navigation and bounded mature-world directories. */
+.overviewStats {
+  left: 14px;
+}
+
+.observationPlate {
+  left: 14px;
+}
+
+.leftDrawer {
+  left: 14px;
+}
+
+.sectionView {
+  padding-left: 24px;
+}
+
+.topActions button {
+  cursor: pointer;
+}
+
+.directoryControls {
+  position: sticky;
+  z-index: 3;
+  top: -20px;
+  display: grid;
+  width: min(1180px, 100%);
+  min-height: 58px;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto 16px;
+  padding: 8px;
+  border: 1px solid var(--edge);
+  background: rgba(10, 15, 17, 0.96);
+  backdrop-filter: blur(14px);
+}
+
+.directoryControls > label {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 11px;
+  border: 1px solid var(--edge);
+  color: #83918c;
+  background: rgba(3, 10, 13, 0.52);
+}
+
+.directoryControls input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: #dce4e0;
+  background: transparent;
+  font-size: 14px;
+}
+
+.statusFilters,
+.directoryPager {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.statusFilters button,
+.directoryPager button {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  color: #87948f;
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.statusFilters button[aria-pressed="true"] {
+  border-color: var(--edge);
+  color: #dce4e0;
+  background: rgba(155, 196, 187, 0.08);
+}
+
+.directoryPager span {
+  margin-right: 5px;
+  color: #77837f;
+  font: 9px var(--font-geist-mono), ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.directoryPager button {
+  min-width: 44px;
+  border-color: var(--edge);
+  font-size: 16px;
+}
+
+.directoryPager button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.researchList article p {
+  margin: 5px 0 0;
+  color: #74817d;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.mobileMoreMenu {
+  display: none;
+}
+
+@media (max-width: 1180px) and (min-width: 821px) {
+  .topbar {
+    grid-template-columns: minmax(210px, .8fr) minmax(430px, 1.5fr) auto;
+    gap: 8px;
+  }
+
+  .sectionTabs {
+    display: grid;
+  }
+
+  .sectionTabs button span {
+    display: none;
+  }
+
+  .topActions .textAction span,
+  .topActions .liveBadge {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .sectionView {
+    padding-left: 0;
+  }
+
+  .directoryControls {
+    top: -9px;
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+    margin-bottom: 9px;
+    padding: 6px;
+  }
+
+  .directoryControls > label {
+    grid-column: 1 / -1;
+  }
+
+  .directoryControls input {
+    font-size: 16px;
+  }
+
+  .statusFilters {
+    overflow-x: auto;
+  }
+
+  .statusFilters button {
+    flex: 0 0 auto;
+    padding-inline: 8px;
+  }
+
+  .directoryPager span {
+    display: none;
+  }
+
+  .mobileBottomNav {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .mobileMoreMenu {
+    position: fixed;
+    z-index: 49;
+    right: 8px;
+    bottom: calc(70px + env(safe-area-inset-bottom));
+    display: grid;
+    width: min(330px, calc(100vw - 16px));
+    padding: 6px;
+    border: 1px solid var(--edge);
+    background: rgba(10, 15, 17, 0.98);
+    box-shadow: 0 -16px 46px rgba(0, 0, 0, 0.48);
+  }
+
+  .mobileMoreMenu button,
+  .mobileMoreMenu a {
+    display: grid;
+    min-height: 56px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
+    padding: 7px 10px;
+    border: 0;
+    border-bottom: 1px solid rgba(196, 207, 202, 0.1);
+    color: #aebbb6;
+    background: transparent;
+    text-align: left;
+    text-decoration: none;
+  }
+
+  .mobileMoreMenu button:last-child,
+  .mobileMoreMenu a:last-child {
+    border-bottom: 0;
+  }
+
+  .mobileMoreMenu strong,
+  .mobileMoreMenu small {
+    display: block;
+  }
+
+  .mobileMoreMenu strong {
+    color: #dce4e0;
+    font-size: 12px;
+    font-weight: 580;
+  }
+
+  .mobileMoreMenu small {
+    margin-top: 2px;
+    color: #73807b;
+    font-size: 9px;
+  }
+}

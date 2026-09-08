@@ -279,6 +279,25 @@ export const planetHistoryChapters = sqliteTable(
   ],
 );
 
+/** Resumable catch-up provenance; separated so schema-3 checkpoints stay readable. */
+export const planetReconstructionState = sqliteTable(
+  "planet_reconstruction_state",
+  {
+    worldId: text("world_id").primaryKey(),
+    resolution: text("resolution").notNull().default("exact"),
+    coverageFromDay: real("coverage_from_day").notNull().default(1),
+    coarseEpochDays: real("coarse_epoch_days"),
+    targetSimulatedAtMs: integer("target_simulated_at_ms"),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    check(
+      "planet_reconstruction_resolution",
+      sql`${table.resolution} IN ('exact', 'mixed', 'coarse')`,
+    ),
+  ],
+);
+
 export const planetCatalogs = sqliteTable(
   "planet_catalogs",
   {

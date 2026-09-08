@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/og-era3.png",
+        url: "/og-era3-v2.png",
         width: 1536,
         height: 1024,
         alt: "WildGrid overhead field atlas recording autonomous societies and individual lives",
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
     title: "WildGrid — Autonomous World Observatory",
     description:
       "Observe the evidence, choices, consequences, and history of a persistent world whose inhabitants cannot be commanded.",
-    images: ["/og-era3.png"],
+    images: ["/og-era3-v2.png"],
   },
 };
 

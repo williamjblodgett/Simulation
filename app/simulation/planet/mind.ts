@@ -1,4 +1,5 @@
 import { deterministicUnit, stableId } from "./random";
+import { CAPABILITY_CATALOG } from "./catalog";
 import type {
   AgentDecisionAlternative,
   AgentGoal,
@@ -114,12 +115,15 @@ function buildCandidates(world: PlanetWorldState, agent: PlanetAgent): Candidate
     "wild_grain", "edible_tubers", "orchard_fruit", "tree_nuts", "berries", "wild_legumes",
     "marine_fish", "freshwater_fish", "game_animals", "grazing_herds",
   ]);
-  const hydrationUrgency = Math.max(0, 100 - agent.needs.hydration) / 20;
-  const nutritionUrgency = Math.max(0, 100 - agent.needs.nutrition) / 25;
+  // Routine subsistence should not crowd out every long-horizon choice. Once
+  // stores have restored an agent above 60, research and exploration may win;
+  // genuine deprivation still dominates immediately.
+  const hydrationUrgency = Math.max(0, 60 - agent.needs.hydration) / 8;
+  const nutritionUrgency = Math.max(0, 60 - agent.needs.nutrition) / 9;
   const dangerUrgency = Math.max(0, 100 - agent.needs.safety) / 30;
   candidates.push({
     purpose: "secure_water",
-    score: 2 + hydrationUrgency + learningValue(agent, "secure_water", context),
+    score: 0.72 + hydrationUrgency + learningValue(agent, "secure_water", context),
     targetId: water?.subjectId ?? agent.homeSettlementId,
     rationale: water
       ? `Known water at ${water.subjectId} can restore hydration.`
@@ -132,7 +136,7 @@ function buildCandidates(world: PlanetWorldState, agent: PlanetAgent): Candidate
   });
   candidates.push({
     purpose: "secure_food",
-    score: 1.8 + nutritionUrgency + learningValue(agent, "secure_food", context),
+    score: 0.68 + nutritionUrgency + learningValue(agent, "secure_food", context),
     targetId: food?.subjectId ?? agent.homeSettlementId,
     rationale: food
       ? `Known food at ${food.subjectId} offers the best local supply.`
@@ -163,10 +167,11 @@ function buildCandidates(world: PlanetWorldState, agent: PlanetAgent): Candidate
     factIds: [],
   });
   const settlement = world.settlements.find(({ id }) => id === agent.homeSettlementId);
-  const researchable = agent.capabilities.length < 12 || Object.keys(settlement?.knowledgeEvidence ?? {}).length > 0;
+  const researchable = Boolean(settlement) && agent.capabilities.length < CAPABILITY_CATALOG.length;
   candidates.push({
     purpose: "research",
-    score: (researchable ? 1.35 : 0.5) + learningValue(agent, "research", context) + (agent.mind.skills.research ?? 0) * 0.2,
+    score: (researchable ? 1.62 : 0.5) + Math.min(0.5, world.day / 800)
+      + learningValue(agent, "research", context) + (agent.mind.skills.research ?? 0) * 0.12,
     targetId: settlement?.id ?? null,
     rationale: "Unresolved observations can be tested and combined into a useful technique.",
     steps: [step(agent, 0, "form_hypothesis", settlement?.id ?? null, 35), step(agent, 1, "experiment", settlement?.id ?? null, 90), step(agent, 2, "evaluate", settlement?.id ?? null, 20)],
@@ -206,6 +211,16 @@ function buildCandidates(world: PlanetWorldState, agent: PlanetAgent): Candidate
  * it is identity/decision based, so processing order cannot change the result.
  */
 export function deliberateAgent(world: PlanetWorldState, agent: PlanetAgent): AgentGoal {
+  const continuing = agent.mind.goals.find(({ status, steps }) =>
+    status === "active" && steps.some(({ status: stepStatus }) => stepStatus === "active" || stepStatus === "pending"),
+  );
+  if (continuing && world.time - continuing.lastReconsideredAt < PLAN_RECONSIDER_AFTER_SECONDS) {
+    return continuing;
+  }
+  if (continuing) {
+    continuing.status = "abandoned";
+    continuing.lastReconsideredAt = world.time;
+  }
   const candidates = buildCandidates(world, agent).map((candidate) => ({
     ...candidate,
     score: candidate.score + deterministicUnit(world.seed, agent.id, agent.mind.decisionSequence, candidate.purpose) * 0.18,
@@ -248,6 +263,8 @@ export function deliberateAgent(world: PlanetWorldState, agent: PlanetAgent): Ag
   agent.mind.decisionSequence += 1;
   return goal;
 }
+
+const PLAN_RECONSIDER_AFTER_SECONDS = 60 * 6;
 
 export function learnFromGoalOutcome(
   agent: PlanetAgent,

@@ -123,6 +123,18 @@ interface EventRow {
   eventJson: string;
 }
 
+export interface PlanetReconstructionMetadata {
+  resolution: "exact" | "mixed" | "coarse";
+  coverageFromDay: number;
+  coarseEpochDays: number | null;
+}
+
+interface ReconstructionRow {
+  resolution: PlanetReconstructionMetadata["resolution"];
+  coverageFromDay: number;
+  coarseEpochDays: number | null;
+}
+
 interface EntityIndexRow {
   shardId: string;
 }
@@ -195,6 +207,7 @@ export interface AuthoritativePlanetSnapshot extends CheckpointReference {
   processedSeconds: number;
   pendingSeconds: number;
   caughtUp: boolean;
+  reconstruction: PlanetReconstructionMetadata;
 }
 
 export interface CompactPlanetAgent {
@@ -235,6 +248,9 @@ export interface BoundedViewport {
     polityId: string;
     population: number;
     capabilities: string[];
+    lifecycleStatus: string;
+    endedDay: number | null;
+    successorId: string | null;
   }>;
   territory: PlanetViewportSnapshot["territory"];
   disputes: PlanetViewportSnapshot["disputes"];
@@ -266,6 +282,9 @@ export interface BoundedViewport {
     population: number;
     settlements: number;
     dominantBeliefId: string | null;
+    lifecycleStatus: string;
+    endedDay: number | null;
+    successorId: string | null;
   }>;
   beliefs: Array<{
     id: string;
@@ -283,6 +302,8 @@ export interface BoundedViewport {
     originDay: number;
     parentBeliefId: string | null;
     active: boolean;
+    status: string;
+    endedDay: number | null;
     reforms: Array<{ day: number; summary: string }>;
     schisms: number;
   }>;
@@ -332,6 +353,12 @@ export interface BoundedViewport {
     resourceSites: number;
     resourceCells: number;
     chronicle: number;
+    activeSettlements: number;
+    historicalSettlements: number;
+    activePolities: number;
+    historicalPolities: number;
+    activeBeliefs: number;
+    historicalBeliefs: number;
   };
 }
 
@@ -468,6 +495,41 @@ const INSERT_EVENTS_SQL = `
   )
 `;
 
+const UPSERT_RECONSTRUCTION_SQL = `
+  INSERT INTO planet_reconstruction_state (
+    world_id, resolution, coverage_from_day, coarse_epoch_days,
+    target_simulated_at_ms, updated_at
+  )
+  SELECT ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
+  WHERE EXISTS (
+    SELECT 1 FROM planet_worlds
+    WHERE id = ? AND revision = ? AND current_commit_id = ?
+  )
+  ON CONFLICT(world_id) DO UPDATE SET
+    resolution = CASE
+      WHEN planet_reconstruction_state.resolution = 'coarse' OR excluded.resolution = 'coarse' THEN 'coarse'
+      WHEN planet_reconstruction_state.resolution = 'mixed' OR excluded.resolution = 'mixed' THEN 'mixed'
+      ELSE 'exact'
+    END,
+    coverage_from_day = MIN(planet_reconstruction_state.coverage_from_day, excluded.coverage_from_day),
+    coarse_epoch_days = CASE
+      WHEN planet_reconstruction_state.coarse_epoch_days IS NULL THEN excluded.coarse_epoch_days
+      WHEN excluded.coarse_epoch_days IS NULL THEN planet_reconstruction_state.coarse_epoch_days
+      ELSE MAX(planet_reconstruction_state.coarse_epoch_days, excluded.coarse_epoch_days)
+    END,
+    target_simulated_at_ms = excluded.target_simulated_at_ms,
+    updated_at = CURRENT_TIMESTAMP
+`;
+
+async function reconstructionState(database: Database): Promise<PlanetReconstructionMetadata> {
+  const row = await database.prepare(`
+    SELECT resolution, coverage_from_day AS coverageFromDay,
+      coarse_epoch_days AS coarseEpochDays
+    FROM planet_reconstruction_state WHERE world_id = ?
+  `).bind(PLANET_WORLD_ID).first<ReconstructionRow>();
+  return row ?? { resolution: "exact", coverageFromDay: 1, coarseEpochDays: null };
+}
+
 function finite(value: unknown, fallback = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -568,7 +630,7 @@ function isManifest(value: unknown): value is PersistedManifest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const manifest = value as Partial<PersistedManifest>;
   return manifest.format === "wildgrid-planet-manifest-v1" &&
-    manifest.schemaVersion === PLANET_SCHEMA_VERSION &&
+    (manifest.schemaVersion === 3 || manifest.schemaVersion === PLANET_SCHEMA_VERSION) &&
     Number.isFinite(manifest.seed) &&
     typeof manifest.seedLabel === "string" &&
     Number.isFinite(manifest.time) &&
@@ -837,6 +899,16 @@ async function seedPlanet(database: Database, now: number): Promise<void> {
         ARCHIVE_WORLD_ID,
       ),
     ...eventStatements(database, checkpoint.eventBatches, 0, checkpoint.commitId),
+    database.prepare(UPSERT_RECONSTRUCTION_SQL).bind(
+      PLANET_WORLD_ID,
+      "exact",
+      1,
+      null,
+      now,
+      PLANET_WORLD_ID,
+      0,
+      checkpoint.commitId,
+    ),
   ]);
 }
 
@@ -1002,7 +1074,7 @@ async function loadPlanet(
   row: PlanetWorldRow,
 ): Promise<PlanetWorldState> {
   if (
-    row.schemaVersion !== PLANET_SCHEMA_VERSION ||
+    (row.schemaVersion !== 3 && row.schemaVersion !== PLANET_SCHEMA_VERSION) ||
     !Number.isSafeInteger(row.revision) ||
     row.revision < 0 ||
     !Number.isSafeInteger(row.simulatedAtMs) ||
@@ -1070,10 +1142,13 @@ async function publishCheckpoint(
   previous: PlanetWorldRow,
   world: PlanetWorldState,
   simulatedAtMs: number,
+  generatedEvents: readonly PlanetHistoryEvent[],
+  reconstruction: PlanetReconstructionMetadata,
 ): Promise<boolean> {
   const nextRevision = previous.revision + 1;
   const checkpoint = await prepareCheckpoint(database, world, nextRevision);
   await stageCheckpoint(database, checkpoint);
+  const eventBatches = packEventBinds(generatedEvents, nextRevision);
   const finalStatements = [
     database
       .prepare(CAS_WORLD_SQL)
@@ -1093,7 +1168,17 @@ async function publishCheckpoint(
       ),
     ...eventStatements(
       database,
-      checkpoint.eventBatches,
+      eventBatches,
+      nextRevision,
+      checkpoint.commitId,
+    ),
+    database.prepare(UPSERT_RECONSTRUCTION_SQL).bind(
+      PLANET_WORLD_ID,
+      reconstruction.resolution,
+      reconstruction.coverageFromDay,
+      reconstruction.coarseEpochDays,
+      simulatedAtMs,
+      PLANET_WORLD_ID,
       nextRevision,
       checkpoint.commitId,
     ),
@@ -1148,6 +1233,7 @@ export async function authoritativePlanet(
         processedSeconds: 0,
         pendingSeconds: 0,
         caughtUp: true,
+        reconstruction: await reconstructionState(database),
       };
     }
     const pendingMs = Math.max(0, serverTime - snapshot.row.simulatedAtMs);
@@ -1158,6 +1244,7 @@ export async function authoritativePlanet(
         processedSeconds: 0,
         pendingSeconds: pendingMs / 1_000,
         caughtUp: pendingMs === 0,
+        reconstruction: await reconstructionState(database),
       };
     }
 
@@ -1180,6 +1267,7 @@ export async function authoritativePlanet(
         processedSeconds: 0,
         pendingSeconds: pendingMs / 1_000,
         caughtUp: false,
+        reconstruction: await reconstructionState(database),
       };
     }
     const simulatedAtMs = Math.min(
@@ -1196,12 +1284,16 @@ export async function authoritativePlanet(
     const counselResult = preparedCounsel
       ? applyPreparedPlanetCounsel(snapshot.world, preparedCounsel)
       : null;
+    const resultMetadata = result.reconstruction;
+    const generatedEvents = result.generatedEvents;
     if (
       await publishCheckpoint(
         database,
         snapshot.row,
         snapshot.world,
         simulatedAtMs,
+        generatedEvents,
+        resultMetadata,
       )
     ) {
       const publishedRow = await selectWorld(database);
@@ -1229,6 +1321,7 @@ export async function authoritativePlanet(
         processedSeconds,
         pendingSeconds,
         caughtUp: pendingSeconds === 0,
+        reconstruction: resultMetadata,
       };
     }
   }
@@ -1239,6 +1332,7 @@ export async function authoritativePlanet(
     processedSeconds: 0,
     pendingSeconds: Math.max(0, serverTime - latest.row.simulatedAtMs) / 1_000,
     caughtUp: latest.row.simulatedAtMs >= serverTime,
+    reconstruction: await reconstructionState(database),
   };
 }
 
@@ -1507,6 +1601,12 @@ export function boundedViewport(
     resourceSites: resources.resourceSites.length,
     resourceCells: resources.resourceCells.length,
     chronicle: world.history.length,
+    activeSettlements: world.settlements.filter((value) => lifecycleOf("settlement", value) === "active").length,
+    historicalSettlements: world.settlements.filter((value) => lifecycleOf("settlement", value) !== "active").length,
+    activePolities: world.polities.filter((value) => lifecycleOf("polity", value) === "active").length,
+    historicalPolities: world.polities.filter((value) => lifecycleOf("polity", value) !== "active").length,
+    activeBeliefs: world.beliefs.filter((value) => ["active", "revived"].includes(lifecycleOf("belief", value))).length,
+    historicalBeliefs: world.beliefs.filter((value) => !["active", "revived"].includes(lifecycleOf("belief", value))).length,
   };
   const output: BoundedViewport = {
     revision: storageRevision,
@@ -1523,6 +1623,9 @@ export function boundedViewport(
       polityId: settlement.polityId,
       population: settlement.residentIds.length,
       capabilities: settlement.capabilities.slice(0, 16),
+      lifecycleStatus: lifecycleOf("settlement", settlement),
+      endedDay: Number.isFinite((settlement as unknown as Record<string, unknown>).endedDay) ? Number((settlement as unknown as Record<string, unknown>).endedDay) : null,
+      successorId: typeof (settlement as unknown as Record<string, unknown>).successorId === "string" ? String((settlement as unknown as Record<string, unknown>).successorId) : null,
     })),
     territory: take(source.territory, territoryLimit),
     disputes: take(source.disputes, disputeLimit),
@@ -1537,6 +1640,9 @@ export function boundedViewport(
       population: polity.citizenIds.length,
       settlements: polity.settlementIds.length,
       dominantBeliefId: dominantBelief(polity.id),
+      lifecycleStatus: lifecycleOf("polity", polity),
+      endedDay: Number.isFinite((polity as unknown as Record<string, unknown>).endedDay) ? Number((polity as unknown as Record<string, unknown>).endedDay) : null,
+      successorId: typeof (polity as unknown as Record<string, unknown>).successorId === "string" ? String((polity as unknown as Record<string, unknown>).successorId) : null,
     })),
     beliefs: world.beliefs.slice(0, 256).map((belief) => ({
       id: belief.id,
@@ -1556,6 +1662,8 @@ export function boundedViewport(
       originDay: belief.originDay,
       parentBeliefId: belief.parentBeliefId,
       active: belief.active,
+      status: lifecycleOf("belief", belief),
+      endedDay: Number.isFinite((belief as unknown as Record<string, unknown>).endedDay) ? Number((belief as unknown as Record<string, unknown>).endedDay) : null,
       reforms: belief.reformHistory.slice(-5).map(({ day, summary }) => ({ day, summary })),
       schisms: belief.schismIds.length,
     })),
@@ -1761,20 +1869,83 @@ export function boundsToChunkRanges(bounds: GeographicBounds): Array<{
   ];
 }
 
-export async function searchPlanetAgents(
-  query: string,
-  cursor: number,
-  limit: number,
-): Promise<{
+export type PlanetDirectoryKind = "agent" | "settlement" | "polity" | "belief";
+export type PlanetLifecycleFilter = "all" | "active" | "historical" | "declining" | "dormant" | "revived" | "abandoned" | "absorbed" | "dissolved" | "merged";
+
+export interface PlanetDirectoryRecord {
+  kind: PlanetDirectoryKind;
+  id: string;
+  name: string;
+  status: string;
+  endedDay: number | null;
+  successorId: string | null;
+  population?: number;
+  influence?: number;
+  coordinate?: PlanetCoordinate;
+  agent?: CompactPlanetAgent;
+}
+
+export interface PlanetDirectoryResponse {
   revision: number;
+  kind: PlanetDirectoryKind;
+  status: PlanetLifecycleFilter;
   query: string;
   cursor: number;
   nextCursor: number | null;
   total: number;
-  agents: CompactPlanetAgent[];
-}> {
+  returned: number;
+  sampled: boolean;
+  items: PlanetDirectoryRecord[];
+  agents?: CompactPlanetAgent[];
+}
+
+function lifecycleOf(kind: PlanetDirectoryKind, value: unknown): string {
+  const record = value as Record<string, unknown>;
+  if (kind === "agent") return record.alive === false ? "historical" : "active";
+  if (kind === "belief") {
+    return typeof record.status === "string"
+      ? record.status
+      : record.active === false ? "historical" : "active";
+  }
+  return typeof record.lifecycleStatus === "string" ? record.lifecycleStatus : "active";
+}
+
+function directoryRecord(
+  kind: PlanetDirectoryKind,
+  value: PlanetAgent | SettlementState | PlanetWorldState["polities"][number] | PlanetWorldState["beliefs"][number],
+): PlanetDirectoryRecord {
+  const raw = value as unknown as Record<string, unknown>;
+  const base: PlanetDirectoryRecord = {
+    kind,
+    id: String(raw.id),
+    name: String(raw.name),
+    status: lifecycleOf(kind, raw),
+    endedDay: Number.isFinite(raw.endedDay) ? Number(raw.endedDay) : null,
+    successorId: typeof raw.successorId === "string" ? raw.successorId : null,
+  };
+  if (kind === "agent") {
+    const agent = value as PlanetAgent;
+    return { ...base, influence: agent.influence, coordinate: agent.coordinate, agent: compactAgent(agent) };
+  }
+  if (kind === "settlement") {
+    const settlement = value as SettlementState;
+    return { ...base, population: settlement.residentIds.length, coordinate: settlement.coordinate };
+  }
+  if (kind === "polity") {
+    return { ...base, population: (value as PlanetWorldState["polities"][number]).citizenIds.length };
+  }
+  return { ...base, influence: (value as PlanetWorldState["beliefs"][number]).influence };
+}
+
+export async function searchPlanetEntities(
+  kind: PlanetDirectoryKind,
+  status: PlanetLifecycleFilter,
+  query: string,
+  cursor: number,
+  limit: number,
+): Promise<PlanetDirectoryResponse> {
   const normalizedQuery = query.trim().toLocaleLowerCase().slice(0, 120);
-  const safeCursor = Math.max(0, Math.min(10_000, Math.floor(cursor)));
+  const safeCursor = Math.max(0, Math.min(100_000, Math.floor(cursor)));
   const safeLimit = Math.max(1, Math.min(40, Math.floor(limit)));
   const snapshot = await currentPlanet();
   const polityName = new Map(
@@ -1789,20 +1960,33 @@ export async function searchPlanetAgents(
   const beliefName = new Map(
     snapshot.world.beliefs.map((belief) => [belief.id, belief.name.toLocaleLowerCase()]),
   );
-  const matched = snapshot.world.agents
-    .filter((agent) => {
-      if (!agent.alive) return false;
+  const collections = {
+    agent: snapshot.world.agents,
+    settlement: snapshot.world.settlements,
+    polity: snapshot.world.polities,
+    belief: snapshot.world.beliefs,
+  } as const;
+  const records = collections[kind] as readonly (PlanetAgent | SettlementState | PlanetWorldState["polities"][number] | PlanetWorldState["beliefs"][number])[];
+  const matched = records
+    .filter((value) => {
+      const entityStatus = lifecycleOf(kind, value);
+      if (status !== "all" && status === "historical") {
+        if (!["historical", "abandoned", "absorbed", "dissolved", "merged"].includes(entityStatus)) return false;
+      } else if (status !== "all" && entityStatus !== status) return false;
       if (!normalizedQuery) return true;
-      const observedGoal = observedAgentGoal(agent);
+      const agent = kind === "agent" ? value as PlanetAgent : null;
+      const observedGoal = agent ? observedAgentGoal(agent) : null;
+      const raw = value as unknown as Record<string, unknown>;
       const searchable = [
-        agent.id,
-        agent.name,
-        agent.polityId ? polityName.get(agent.polityId) : "",
-        agent.homeSettlementId ? settlementName.get(agent.homeSettlementId) : "",
-        agent.beliefId ? beliefName.get(agent.beliefId) : "",
+        raw.id,
+        raw.name,
+        entityStatus,
+        agent?.polityId ? polityName.get(agent.polityId) : "",
+        agent?.homeSettlementId ? settlementName.get(agent.homeSettlementId) : "",
+        agent?.beliefId ? beliefName.get(agent.beliefId) : "",
         observedGoal?.purpose,
         observedGoal?.rationale,
-        agent.mind.lastDecision?.explanation,
+        agent?.mind.lastDecision?.explanation,
       ]
         .filter(Boolean)
         .join(" ")
@@ -1812,18 +1996,29 @@ export async function searchPlanetAgents(
     .sort((left, right) =>
       left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
     );
-  const agents = matched
+  const items = matched
     .slice(safeCursor, safeCursor + safeLimit)
-    .map(compactAgent);
-  const nextCursor = safeCursor + agents.length < matched.length
-    ? safeCursor + agents.length
+    .map((value) => directoryRecord(kind, value));
+  const nextCursor = safeCursor + items.length < matched.length
+    ? safeCursor + items.length
     : null;
-  return {
+  const response: PlanetDirectoryResponse = {
     revision: snapshot.row.revision,
+    kind,
+    status,
     query: query.trim().slice(0, 120),
     cursor: safeCursor,
     nextCursor,
     total: matched.length,
-    agents,
+    returned: items.length,
+    sampled: nextCursor !== null || safeCursor > 0,
+    items,
   };
+  if (kind === "agent") response.agents = items.flatMap((item) => item.agent ? [item.agent] : []);
+  return response;
+}
+
+/** Backwards-compatible living-person search used by existing clients. */
+export async function searchPlanetAgents(query: string, cursor: number, limit: number) {
+  return searchPlanetEntities("agent", "active", query, cursor, limit);
 }

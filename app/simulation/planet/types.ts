@@ -345,6 +345,11 @@ export interface SettlementState {
   knowledgeEvidence: Record<string, number>;
   projectIds: EntityId[];
   createdAt: number;
+  lifecycleStatus: "active" | "declining" | "abandoned" | "absorbed" | "historical";
+  statusChangedAt: number;
+  lastOccupiedAt: number;
+  endedDay: number | null;
+  successorId: EntityId | null;
 }
 
 export interface PolityState {
@@ -358,6 +363,10 @@ export interface PolityState {
   beliefIds: EntityId[];
   leaderId: EntityId | null;
   createdAt: number;
+  lifecycleStatus: "active" | "dissolved" | "merged" | "historical";
+  statusChangedAt: number;
+  endedDay: number | null;
+  successorId: EntityId | null;
 }
 
 export interface RenameRecord {
@@ -393,6 +402,9 @@ export interface BeliefState {
   reformHistory: BeliefReformEvent[];
   schismIds: EntityId[];
   active: boolean;
+  status: "active" | "dormant" | "revived" | "historical";
+  statusChangedAt: number;
+  endedDay: number | null;
 }
 
 export interface InstitutionState {
@@ -515,10 +527,16 @@ export type PlanetHistoryEventType =
   | "migration"
   | "breakaway"
   | "settlement_founded"
+  | "settlement_declining"
+  | "settlement_abandoned"
+  | "settlement_revived"
+  | "polity_dissolved"
   | "belief_founded"
   | "belief_adopted"
   | "belief_reformed"
   | "belief_schism"
+  | "belief_dormant"
+  | "belief_revived"
   | "agent_renamed"
   | "settlement_renamed"
   | "polity_renamed"
@@ -550,7 +568,7 @@ export interface PlanetWorldStats {
 }
 
 export interface PlanetWorldState {
-  schemaVersion: 3;
+  schemaVersion: 4;
   seed: number;
   seedLabel: string;
   time: number;
@@ -589,6 +607,12 @@ export interface AdvanceResult {
   reachedTime: number;
   targetTime: number;
   complete: boolean;
+  generatedEvents: PlanetHistoryEvent[];
+  reconstruction: {
+    resolution: "exact" | "mixed" | "coarse";
+    coverageFromDay: number;
+    coarseEpochDays: number | null;
+  };
 }
 
 export interface GeographicBounds {
@@ -619,7 +643,7 @@ export interface PlanetViewportSnapshot {
 }
 
 export interface PlanetSummary {
-  schemaVersion: 3;
+  schemaVersion: 4;
   seedLabel: string;
   day: number;
   revision: number;
@@ -629,6 +653,12 @@ export interface PlanetSummary {
   beliefs: number;
   openProposals: number;
   activeProjects: number;
+  lifecycle: {
+    settlements: Record<SettlementState["lifecycleStatus"], number>;
+    polities: Record<PolityState["lifecycleStatus"], number>;
+    beliefs: Record<BeliefState["status"], number>;
+  };
+  reconstruction: AdvanceResult["reconstruction"];
   observation: {
     windowDays: number;
     ageBands: {

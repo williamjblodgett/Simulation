@@ -610,6 +610,7 @@ function drawMapEntities(
 
   for (const { settlement, point } of projectedSettlements) {
     const civilization = findCivilization(snapshot, settlement.civilizationId);
+    const isRuin = ["abandoned", "absorbed", "historical"].includes(settlement.lifecycleStatus ?? "active");
     const radius = clamp(2.8 + Math.sqrt(settlement.population) * 0.24 + (globe ? 0 : camera.zoom * 0.15), 4, globe ? 10 : 14);
     if (overlay === "technology") {
       context.fillStyle = civilization ? hexToRgba(civilization.color, 0.12 + civilization.technologyScore / 220) : "rgba(120,220,230,.15)";
@@ -622,12 +623,19 @@ function drawMapEntities(
     context.save();
     context.translate(point.x, point.y);
     context.rotate(Math.PI / 4);
-    context.fillStyle = "rgba(224, 231, 226, .9)";
+    context.fillStyle = isRuin ? "rgba(126, 132, 127, .28)" : "rgba(224, 231, 226, .9)";
     context.strokeStyle = civilization ? hexToRgba(civilization.color, 0.82) : "rgba(193, 207, 202, .72)";
     context.lineWidth = settlement.kind === "capital" ? 2 : 1.35;
+    if (isRuin) context.setLineDash([2, 2]);
     const markerSize = radius * 1.32;
     context.fillRect(-markerSize / 2, -markerSize / 2, markerSize, markerSize);
     context.strokeRect(-markerSize / 2, -markerSize / 2, markerSize, markerSize);
+    if (isRuin) {
+      context.beginPath();
+      context.moveTo(-markerSize / 2, 0);
+      context.lineTo(markerSize / 2, 0);
+      context.stroke();
+    }
     context.restore();
     if (settlement.kind === "capital") {
       context.fillStyle = "rgba(43, 67, 69, .92)";

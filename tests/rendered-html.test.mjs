@@ -184,6 +184,9 @@ test("ships the Era III planet and preserves the Era II civilization archive", a
 
   assert.match(page, /PlanetExperience/);
   assert.match(planetExperience, /Overview|People|Societies|Settlements|Research|Timeline/);
+  assert.match(planetExperience, /Named autonomy evidence|Evidence.*Alternatives.*Choice.*Plan.*Outcome.*Learning/is);
+  assert.match(planetExperience, /DIRECTORY_PAGE_SIZE\s*=\s*24|Living \/ active|Historical \/ ruins/i);
+  assert.match(planetExperience, /MobileNavigation|Observe|Lives|Record|More/i);
   assert.match(planetExperience, /Deterministic autonomy only|External counsel active|aiCounsel/i);
   assert.match(planetEngine, /MAX_PLANET_AGENTS\s*=\s*10_000|applyExternalAgentCounsel|natural causes/i);
   assert.match(planetCanvas, /canvas|drawTerrain|drawAgents|drawTerritory/i);
@@ -253,6 +256,8 @@ test("ships a functional device-local GitHub Pages edition", async () => {
   assert.match(router, /PlanetExperience|#\/map|#\/history|#\/about|#\/legacy/i);
   assert.match(router, /10,000-agent ceiling|External OpenAI counsel: unavailable/i);
   assert.match(router, /200-day|chapter|Beliefs|resource catalog/i);
+  assert.match(router, /Record coverage|reconstruction|INCOMPLETE SOURCE/i);
+  assert.match(router, /#\/history\?page=|hashchange/i);
   assert.match(persistence, /indexedDB|localStorage|savePlanetRecord|loadPlanetRecord/i);
   assert.match(runtime, /catchUpPlanet|createPlanetWorldAdapter|auto-save|persistence/i);
   assert.match(builtHtml, /\/Simulation\/assets\/.+\.js/);

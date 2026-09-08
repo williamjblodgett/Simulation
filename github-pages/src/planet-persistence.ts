@@ -2,12 +2,14 @@ import {
   createPlanetWorld,
   normalizePlanetWorld,
   serializePlanetWorld,
+  type PlanetHistoryEvent,
   type PlanetWorldState,
 } from "../../app/simulation/planet";
 
 const DATABASE_NAME = "wildgrid-pages-era3";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const STORE_NAME = "planet-worlds";
+const EVENT_STORE_NAME = "planet-events";
 const RECORD_KEY = "active-world-v3";
 const RECOVERY_RECORD_KEY = "last-unreadable-world-v3";
 const FALLBACK_KEY = "wildgrid:pages:active-world:v3";
@@ -17,10 +19,18 @@ const INITIAL_SEED = "wildgrid-github-pages-era-3";
 export type PlanetPersistenceMode = "indexeddb" | "localstorage" | "memory";
 
 export interface PersistedPlanetWorld {
-  schemaVersion: 3;
+  schemaVersion: 3 | 4;
   serializedWorld: string;
   savedAt: number;
   speed: number;
+  reconstruction?: PlanetReconstructionProgress;
+}
+
+export interface PlanetReconstructionProgress {
+  resolution: "exact" | "mixed" | "coarse";
+  coverageFromDay: number;
+  coarseEpochDays: number | null;
+  targetSavedAt: number | null;
 }
 
 export interface LoadedPlanetWorld {
@@ -29,6 +39,7 @@ export interface LoadedPlanetWorld {
   speed: number;
   catchUpSeconds: number;
   persistence: PlanetPersistenceMode;
+  reconstruction: PlanetReconstructionProgress;
 }
 
 function createFounders(seed: string | number = INITIAL_SEED) {
@@ -44,6 +55,11 @@ function openDatabase(): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE_NAME)) {
         request.result.createObjectStore(STORE_NAME);
+      }
+      if (!request.result.objectStoreNames.contains(EVENT_STORE_NAME)) {
+        const events = request.result.createObjectStore(EVENT_STORE_NAME, { keyPath: "id" });
+        events.createIndex("by-day", ["day", "at", "id"], { unique: false });
+        events.createIndex("by-at", ["at", "id"], { unique: false });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -73,7 +89,7 @@ async function writeIndexedDbValue(key: string, value: unknown): Promise<void> {
   const database = await openDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
-      const transaction = database.transaction(STORE_NAME, "readwrite");
+      const transaction = database.transaction([STORE_NAME, EVENT_STORE_NAME], "readwrite");
       transaction.objectStore(STORE_NAME).put(value, key);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error ?? new Error("The local Era III world could not be saved."));
@@ -111,7 +127,7 @@ function preserveUnreadableLocalRecord(value: string): void {
 function normalizeRecord(value: unknown, persistence: PlanetPersistenceMode): LoadedPlanetWorld | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<PersistedPlanetWorld>;
-  if (candidate.schemaVersion !== 3 || typeof candidate.serializedWorld !== "string") return null;
+  if ((candidate.schemaVersion !== 3 && candidate.schemaVersion !== 4) || typeof candidate.serializedWorld !== "string") return null;
   try {
     const world = normalizePlanetWorld(candidate.serializedWorld);
     const savedAt = Number.isFinite(candidate.savedAt) ? Number(candidate.savedAt) : Date.now();
@@ -122,10 +138,38 @@ function normalizeRecord(value: unknown, persistence: PlanetPersistenceMode): Lo
       speed,
       catchUpSeconds: Math.max(0, (Date.now() - savedAt) / 1_000) * speed,
       persistence,
+      reconstruction: normalizeReconstruction(
+        candidate.reconstruction,
+        world.history[0]?.day ?? world.day,
+      ),
     };
   } catch {
     return null;
   }
+}
+
+function normalizeReconstruction(
+  value: unknown,
+  fallbackDay: number,
+): PlanetReconstructionProgress {
+  const candidate = value && typeof value === "object"
+    ? value as Partial<PlanetReconstructionProgress>
+    : {};
+  const resolution = candidate.resolution === "mixed" || candidate.resolution === "coarse"
+    ? candidate.resolution
+    : "exact";
+  return {
+    resolution,
+    coverageFromDay: Number.isFinite(candidate.coverageFromDay)
+      ? Math.max(1, Number(candidate.coverageFromDay))
+      : Math.max(1, fallbackDay),
+    coarseEpochDays: Number.isFinite(candidate.coarseEpochDays)
+      ? Math.max(1, Number(candidate.coarseEpochDays))
+      : null,
+    targetSavedAt: Number.isFinite(candidate.targetSavedAt)
+      ? Number(candidate.targetSavedAt)
+      : null,
+  };
 }
 
 export async function loadPlanetWorld(): Promise<LoadedPlanetWorld> {
@@ -163,6 +207,12 @@ export async function loadPlanetWorld(): Promise<LoadedPlanetWorld> {
     speed: 8,
     catchUpSeconds: 0,
     persistence: typeof indexedDB === "undefined" ? "memory" : "indexeddb",
+    reconstruction: {
+      resolution: "exact",
+      coverageFromDay: 1,
+      coarseEpochDays: null,
+      targetSavedAt: null,
+    },
   };
 }
 
@@ -170,6 +220,7 @@ export async function savePlanetWorld(
   world: PlanetWorldState,
   speed: number,
   savedAt = Date.now(),
+  reconstruction?: PlanetReconstructionProgress,
 ): Promise<PlanetPersistenceMode> {
   let serializedWorld: string;
   try {
@@ -185,10 +236,16 @@ export async function savePlanetWorld(
     }
   }
   const record: PersistedPlanetWorld = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     serializedWorld,
     savedAt,
     speed,
+    reconstruction: reconstruction ?? {
+      resolution: "exact",
+      coverageFromDay: Math.max(1, world.day),
+      coarseEpochDays: null,
+      targetSavedAt: null,
+    },
   };
 
   if (typeof indexedDB !== "undefined") {
@@ -208,6 +265,49 @@ export async function savePlanetWorld(
   }
 }
 
+/** Append-only device-local chronicle, independent of the world's bounded display tail. */
+export async function appendPlanetHistory(
+  events: readonly PlanetHistoryEvent[],
+): Promise<void> {
+  if (events.length === 0 || typeof indexedDB === "undefined") return;
+  const database = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(EVENT_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(EVENT_STORE_NAME);
+      for (const event of events) store.put(event);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("The local history ledger could not be updated."));
+      transaction.onabort = () => reject(transaction.error ?? new Error("The local history ledger update was interrupted."));
+    });
+  } finally {
+    database.close();
+  }
+}
+
+export async function readPlanetHistory(
+  startDay = 1,
+  endDay = Number.MAX_SAFE_INTEGER,
+): Promise<PlanetHistoryEvent[]> {
+  if (typeof indexedDB === "undefined") return [];
+  const database = await openDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(EVENT_STORE_NAME, "readonly");
+      const index = transaction.objectStore(EVENT_STORE_NAME).index("by-day");
+      const range = IDBKeyRange.bound(
+        [Math.max(1, startDay), Number.MIN_SAFE_INTEGER, ""],
+        [Math.max(startDay, endDay), Number.MAX_SAFE_INTEGER, "\uffff"],
+      );
+      const request = index.getAll(range);
+      request.onsuccess = () => resolve(request.result as PlanetHistoryEvent[]);
+      request.onerror = () => reject(request.error ?? new Error("The local history ledger could not be read."));
+    });
+  } finally {
+    database.close();
+  }
+}
+
 export async function clearPlanetWorld(): Promise<void> {
   try {
     localStorage.removeItem(FALLBACK_KEY);
@@ -220,10 +320,11 @@ export async function clearPlanetWorld(): Promise<void> {
   try {
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const transaction = database.transaction(STORE_NAME, "readwrite");
+      const transaction = database.transaction([STORE_NAME, EVENT_STORE_NAME], "readwrite");
       const store = transaction.objectStore(STORE_NAME);
       store.delete(RECORD_KEY);
       store.delete(RECOVERY_RECORD_KEY);
+      transaction.objectStore(EVENT_STORE_NAME).clear();
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error ?? new Error("The Era III world could not be cleared."));
       transaction.onabort = () => reject(transaction.error ?? new Error("The Era III reset was interrupted."));

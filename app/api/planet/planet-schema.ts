@@ -136,6 +136,18 @@ const CREATE_PLANET_HISTORY_CHAPTERS_SQL = `
   )
 `;
 
+const CREATE_PLANET_RECONSTRUCTION_STATE_SQL = `
+  CREATE TABLE IF NOT EXISTS planet_reconstruction_state (
+    world_id TEXT PRIMARY KEY NOT NULL,
+    resolution TEXT NOT NULL DEFAULT 'exact',
+    coverage_from_day REAL NOT NULL DEFAULT 1,
+    coarse_epoch_days REAL,
+    target_simulated_at_ms INTEGER,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT planet_reconstruction_resolution CHECK (resolution IN ('exact', 'mixed', 'coarse'))
+  )
+`;
+
 const CREATE_PLANET_CATALOGS_SQL = `
   CREATE TABLE IF NOT EXISTS planet_catalogs (
     kind TEXT NOT NULL,
@@ -213,6 +225,7 @@ export function ensurePlanetSchema(database: ReturnType<typeof getD1>): Promise<
       CREATE_PLANET_SETTLEMENT_INDEX_SQL,
       CREATE_PLANET_EVENTS_SQL,
       CREATE_PLANET_HISTORY_CHAPTERS_SQL,
+      CREATE_PLANET_RECONSTRUCTION_STATE_SQL,
       CREATE_PLANET_CATALOGS_SQL,
       CREATE_PLANET_AI_COUNSEL_STATE_SQL,
       CREATE_PLANET_AI_COUNSEL_LOG_SQL,

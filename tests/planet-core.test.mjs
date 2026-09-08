@@ -112,3 +112,37 @@ test("territory cells retain exactly one sovereign owner and record rival claims
   assert.equal(world.territoryOwners[cell], owner);
   assert.deepEqual(world.territoryDisputes[cell].claimantPolityIds, [claimant]);
 });
+
+test("schema 3 checkpoints migrate in place to lifecycle-aware schema 4", () => {
+  const original = createPlanetWorld("schema-three-migration", { initialAgentCount: 10, initialSettlementCount: 2 });
+  catchUpPlanet(original, PLANET_DAY_SECONDS * 3, { maxEvents: 100_000 });
+  const legacy = structuredClone(original);
+  legacy.schemaVersion = 3;
+  for (const settlement of legacy.settlements) {
+    delete settlement.lifecycleStatus;
+    delete settlement.statusChangedAt;
+    delete settlement.lastOccupiedAt;
+    delete settlement.endedDay;
+    delete settlement.successorId;
+  }
+  for (const polity of legacy.polities) {
+    delete polity.lifecycleStatus;
+    delete polity.statusChangedAt;
+    delete polity.endedDay;
+    delete polity.successorId;
+  }
+  for (const belief of legacy.beliefs) {
+    delete belief.status;
+    delete belief.statusChangedAt;
+    delete belief.endedDay;
+  }
+  const migrated = normalizePlanetWorld(legacy);
+  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.time, original.time);
+  assert.equal(migrated.day, original.day);
+  assert.deepEqual(migrated.agents.map(({ id }) => id), original.agents.map(({ id }) => id));
+  assert.deepEqual(migrated.history.map(({ id }) => id), original.history.map(({ id }) => id));
+  assert.ok(migrated.settlements.every(({ lifecycleStatus }) => lifecycleStatus === "active"));
+  assert.ok(migrated.polities.every(({ lifecycleStatus }) => lifecycleStatus === "active"));
+  assert.equal(validatePlanetWorld(migrated), true);
+});

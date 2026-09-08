@@ -58,8 +58,11 @@ export function foundBeliefSystem(
     .slice(0, MAX_BELIEF_TENETS);
   const sequence = world.nextIds.belief++;
   const settlement = world.settlements.find(({ id }) => id === founder.homeSettlementId);
-  const name = input.name?.trim().slice(0, 80)
+  const proposedName = input.name?.trim().slice(0, 80)
     || `${settlement?.name.split(/(?=[A-Z])/)[0] ?? founder.name.split(" ")[1]} ${BELIEF_SUFFIXES[deterministicIndex(world.seed, BELIEF_SUFFIXES.length, founder.id, sequence)]}`;
+  const name = world.beliefs.some((belief) => belief.name === proposedName)
+    ? `${proposedName} ${sequence.toString(36).toUpperCase()}`
+    : proposedName;
   const belief: BeliefState = {
     id: `belief-${sequence}`,
     name,
@@ -76,6 +79,9 @@ export function foundBeliefSystem(
     reformHistory: [],
     schismIds: [],
     active: true,
+    status: "active",
+    statusChangedAt: world.time,
+    endedDay: null,
   };
   world.beliefs.push(belief);
   founder.beliefId = belief.id;

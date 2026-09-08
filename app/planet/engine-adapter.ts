@@ -129,6 +129,9 @@ export function snapshotFromPlanetWorld(world: PlanetWorldState): PlanetSnapshot
       technologyScore: Math.min(100, capabilities.size * 3.5),
       prosperity: Math.min(100, 25 + Math.log2(food + 1) * 8 + settlements.length * 2),
       summary: `${settlements.length} autonomous settlement${settlements.length === 1 ? "" : "s"} connected by named people, proposals, and shared knowledge.`,
+      lifecycleStatus: polity.lifecycleStatus,
+      endedDay: polity.endedDay,
+      successorId: polity.successorId,
     };
   });
 
@@ -145,6 +148,9 @@ export function snapshotFromPlanetWorld(world: PlanetWorldState): PlanetSnapshot
       capabilities: settlement.capabilities,
       longitude: settlement.coordinate.longitude,
       latitude: settlement.coordinate.latitude,
+      lifecycleStatus: settlement.lifecycleStatus,
+      endedDay: settlement.endedDay,
+      successorId: settlement.successorId,
     };
   });
 
@@ -229,6 +235,8 @@ export function snapshotFromPlanetWorld(world: PlanetWorldState): PlanetSnapshot
     originDay: belief.originDay,
     parentBeliefId: belief.parentBeliefId,
     active: belief.active,
+    status: belief.status,
+    lifecycleStatus: belief.status,
     reforms: belief.reformHistory.slice(-5).map(({ day, summary }) => ({ day, summary })),
     schisms: belief.schismIds.length,
   }));
@@ -250,6 +258,31 @@ export function snapshotFromPlanetWorld(world: PlanetWorldState): PlanetSnapshot
     resources,
     relations,
     conflicts,
+    knowledgeProjects: world.projects.map((project) => {
+      const originator = world.agents.find((agent) => agent.id === project.sponsorAgentId);
+      const settlement = project.settlementId ? world.settlements.find((candidate) => candidate.id === project.settlementId) : undefined;
+      const society = settlement ? world.polities.find((candidate) => candidate.id === settlement.polityId) : undefined;
+      return {
+        id: project.id,
+        title: project.name,
+        capabilityId: project.generatedCapabilityId || null,
+        status: project.status === "institutionalized" ? "established" as const : project.status === "failed" ? "failed" as const : project.status === "hypothesis" ? "proposed" as const : "active" as const,
+        originatorAgentId: project.sponsorAgentId,
+        originatorName: originator?.name ?? null,
+        settlementId: project.settlementId,
+        settlementName: settlement?.name ?? null,
+        societyId: society?.id ?? null,
+        societyName: society?.name ?? null,
+        startedDay: Math.floor(project.createdAt / 60) + 1,
+        completedDay: project.status === "institutionalized" || project.status === "failed" ? Math.floor(project.updatedAt / 60) + 1 : null,
+        evidence: [`Evidence strength ${Math.round(project.evidence * 100)}%`, `${project.attempts} recorded attempt${project.attempts === 1 ? "" : "s"}`],
+        prerequisiteIds: project.prerequisiteCapabilities,
+        materialIds: project.materialIds,
+        processIds: project.processIds,
+        failureReason: project.status === "failed" ? "The attempted combination did not meet its evidence threshold." : null,
+        diffusionSettlementIds: project.status === "institutionalized" ? world.settlements.filter((candidate) => candidate.capabilities.includes(project.generatedCapabilityId)).map((candidate) => candidate.id) : [],
+      };
+    }),
     observation: summary.observation,
     chronicle: world.history.slice(-80).reverse().map((event) => ({
       id: event.id,
@@ -269,6 +302,7 @@ class PlanetWorldAdapter implements PlanetExperienceAdapter {
   readonly mode = "live" as const;
   private world: PlanetWorldState;
   private snapshot: PlanetSnapshot;
+  private continuity: PlanetSnapshot["meta"]["continuity"];
   private readonly listeners = new Set<(snapshot: PlanetSnapshot) => void>();
 
   constructor(world: PlanetWorldState) {
@@ -314,12 +348,20 @@ class PlanetWorldAdapter implements PlanetExperienceAdapter {
   update(world: PlanetWorldState) {
     this.world = world;
     this.snapshot = snapshotFromPlanetWorld(this.world);
+    if (this.continuity) this.snapshot = { ...this.snapshot, meta: { ...this.snapshot.meta, continuity: this.continuity } };
+    for (const listener of this.listeners) listener(this.snapshot);
+  }
+
+  setContinuity(continuity: NonNullable<PlanetSnapshot["meta"]["continuity"]>) {
+    this.continuity = continuity;
+    this.snapshot = { ...this.snapshot, meta: { ...this.snapshot.meta, continuity } };
     for (const listener of this.listeners) listener(this.snapshot);
   }
 }
 
 export type UpdatablePlanetExperienceAdapter = PlanetExperienceAdapter & {
   update(world: PlanetWorldState): void;
+  setContinuity(continuity: NonNullable<PlanetSnapshot["meta"]["continuity"]>): void;
 };
 
 export function createPlanetWorldAdapter(world: PlanetWorldState): UpdatablePlanetExperienceAdapter {

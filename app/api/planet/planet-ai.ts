@@ -19,6 +19,8 @@ const FIRST_COUNSEL_DAY = 5;
 const DAILY_CALL_LIMIT = 12;
 const LEASE_MS = 90_000;
 const FAILURE_BACKOFF_MS = 15 * 60_000;
+const CIRCUIT_BREAKER_FAILURES = 3;
+const CIRCUIT_BREAKER_MS = 6 * 60 * 60_000;
 const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_OUTPUT_TOKENS = 900;
 
@@ -363,9 +365,19 @@ export async function preparePlanetAiCounsel(
     await database.batch([
       database.prepare(`
         UPDATE planet_ai_counsel_state
-        SET lease_until_ms = ?, consecutive_failures = MIN(1000, consecutive_failures + 1), updated_at = CURRENT_TIMESTAMP
+        SET lease_until_ms = CASE
+              WHEN consecutive_failures + 1 >= ? THEN ?
+              ELSE ?
+            END,
+            consecutive_failures = MIN(1000, consecutive_failures + 1),
+            updated_at = CURRENT_TIMESTAMP
         WHERE world_id = ?
-      `).bind(serverTime + FAILURE_BACKOFF_MS, WORLD_ID),
+      `).bind(
+        CIRCUIT_BREAKER_FAILURES,
+        serverTime + CIRCUIT_BREAKER_MS,
+        serverTime + FAILURE_BACKOFF_MS,
+        WORLD_ID,
+      ),
       database.prepare(`
         INSERT OR IGNORE INTO planet_ai_counsel_log (
           world_id, run_id, world_revision, day, model, status,

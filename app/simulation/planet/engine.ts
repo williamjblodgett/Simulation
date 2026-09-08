@@ -53,7 +53,7 @@ import type {
   SettlementState,
 } from "./types";
 
-export const PLANET_SCHEMA_VERSION = 3 as const;
+export const PLANET_SCHEMA_VERSION = 4 as const;
 export const PLANET_CATALOG_VERSION = "era-3-catalog-v1" as const;
 export const DEFAULT_PLANET_SEED = "wildgrid-era-3";
 export const PLANET_DAY_SECONDS = 60;
@@ -96,6 +96,7 @@ interface RuntimeIndexes {
 }
 
 const RUNTIME_INDEXES = new WeakMap<PlanetWorldState, RuntimeIndexes>();
+const ACTIVE_EVENT_JOURNALS = new WeakMap<PlanetWorldState, PlanetHistoryEvent[]>();
 
 function runtimeIndexes(world: PlanetWorldState): RuntimeIndexes {
   let indexes = RUNTIME_INDEXES.get(world);
@@ -198,6 +199,7 @@ export function recordPlanetHistory(
     fingerprint: input.fingerprint ?? historyFingerprint(input.type, input.title, input.actorIds),
   };
   world.history.push(event);
+  ACTIVE_EVENT_JOURNALS.get(world)?.push(structuredClone(event));
   if (world.history.length > MAX_PLANET_HISTORY_EVENTS) {
     world.history.splice(0, world.history.length - MAX_PLANET_HISTORY_EVENTS);
   }
@@ -285,6 +287,11 @@ function createSettlement(seed: number, index: number): SettlementState {
     knowledgeEvidence: {},
     projectIds: [],
     createdAt: 0,
+    lifecycleStatus: "active",
+    statusChangedAt: 0,
+    lastOccupiedAt: 0,
+    endedDay: null,
+    successorId: null,
   };
 }
 
@@ -300,6 +307,10 @@ function createPolity(settlement: SettlementState): PolityState {
     beliefIds: [],
     leaderId: null,
     createdAt: 0,
+    lifecycleStatus: "active",
+    statusChangedAt: 0,
+    endedDay: null,
+    successorId: null,
   };
 }
 
@@ -498,7 +509,39 @@ function completeReferenceResearch(world: PlanetWorldState, agent: PlanetAgent, 
   if (!target) return false;
   const definition = getCapabilityDefinition(target);
   if (!definition) return false;
+  let project = world.projects.find(({ settlementId, generatedCapabilityId, status }) =>
+    settlementId === settlement.id && generatedCapabilityId === target && status !== "failed",
+  );
+  if (!project) {
+    const projectSequence = world.nextIds.project++;
+    project = {
+      id: `project-${projectSequence}`,
+      name: `Inquiry into ${definition.name}`,
+      sponsorAgentId: agent.id,
+      settlementId: settlement.id,
+      purpose: `establish_${target}`,
+      materialIds: agent.mind.observations.filter(({ kind }) => kind === "resource").slice(0, 3)
+        .map(({ facts }) => String(facts.resourceId)),
+      processIds: [...definition.prerequisites],
+      prerequisiteCapabilities: [...definition.prerequisites],
+      generatedCapabilityId: target,
+      evidence: 0,
+      difficulty: definition.complexity * 4,
+      attempts: 0,
+      status: "hypothesis",
+      createdAt: world.time,
+      updatedAt: world.time,
+    };
+    world.projects.push(project);
+    settlement.projectIds.push(project.id);
+  }
   settlement.knowledgeEvidence[target] = (settlement.knowledgeEvidence[target] ?? 0) + 1 + (agent.mind.skills.research ?? 0) * 0.1;
+  project.evidence = settlement.knowledgeEvidence[target];
+  project.attempts += 1;
+  project.updatedAt = world.time;
+  const researchRatio = project.evidence / Math.max(1, project.difficulty);
+  project.status = researchRatio >= 1 ? "institutionalized"
+    : researchRatio >= 0.66 ? "practiced" : researchRatio >= 0.35 ? "prototype" : "experiment";
   agent.mind.skills.research = Math.min(10, (agent.mind.skills.research ?? 0) + 0.06);
   if (settlement.knowledgeEvidence[target] < definition.complexity * 4) return true;
   if (!settlement.capabilities.includes(target)) settlement.capabilities.push(target);
@@ -592,6 +635,26 @@ function executeGoal(world: PlanetWorldState, agent: PlanetAgent, goal: AgentGoa
     return 0.2;
   }
   return 0;
+}
+
+/** Advance one observable plan step per wake; consequences occur only after
+ * the final step, making intentions persistent and interruptible. */
+function advanceGoalPlan(world: PlanetWorldState, agent: PlanetAgent, goal: AgentGoal): number | null {
+  if (goal.purpose === "secure_water" || goal.purpose === "secure_food") {
+    for (const planStep of goal.steps) planStep.status = "complete";
+    return executeGoal(world, agent, goal);
+  }
+  const activeIndex = goal.steps.findIndex(({ status }) => status === "active");
+  const index = activeIndex >= 0 ? activeIndex : goal.steps.findIndex(({ status }) => status === "pending");
+  if (index < 0) return executeGoal(world, agent, goal);
+  goal.steps[index].status = "complete";
+  const next = goal.steps.slice(index + 1).find(({ status }) => status === "pending");
+  if (next) {
+    next.status = "active";
+    goal.lastReconsideredAt = world.time;
+    return null;
+  }
+  return executeGoal(world, agent, goal);
 }
 
 function maybeProposeResearch(world: PlanetWorldState, agent: PlanetAgent, settlement: SettlementState): void {
@@ -879,6 +942,23 @@ export function createOffspring(
   return child;
 }
 
+function settlementFoundingViable(world: PlanetWorldState, origin: SettlementState, founderIds: string[]): boolean {
+  const necessities = availableNecessities(origin);
+  const lastWorldFoundingAt = [...world.history].reverse().find(({ type }) => type === "settlement_founded")?.at ?? -Infinity;
+  const viableSettlementCount = world.settlements.filter(({ lifecycleStatus }) =>
+    lifecycleStatus === "active" || lifecycleStatus === "declining").length;
+  const recentFounding = world.history.some(({ type, at, actorIds }) =>
+    type === "settlement_founded" && at > world.time - PLANET_DAY_SECONDS * 30
+      && actorIds.some((id) => founderIds.includes(id)),
+  );
+  return !recentFounding
+    && world.time - lastWorldFoundingAt >= PLANET_DAY_SECONDS * 12
+    && viableSettlementCount < Math.max(10, Math.ceil(world.stats.livingAgents / 5))
+    && origin.residentIds.length >= 4
+    && necessities.food >= origin.residentIds.length * 2
+    && necessities.water >= origin.residentIds.length * 2;
+}
+
 export function foundSettlementFromAgents(
   world: PlanetWorldState,
   founderIds: string[],
@@ -887,8 +967,11 @@ export function foundSettlementFromAgents(
   const founders = [...new Set(founderIds)]
     .map((id) => findAgent(world, id))
     .filter((agent): agent is PlanetAgent => Boolean(agent?.alive));
-  if (founders.length === 0) return null;
+  if (founders.length < 2) return null;
   const sponsor = founders[0];
+  const origin = findSettlement(world, sponsor.homeSettlementId);
+  if (!origin || origin.lifecycleStatus !== "active" || founders.some(({ homeSettlementId }) => homeSettlementId !== origin.id)) return null;
+  if (!settlementFoundingViable(world, origin, founders.map(({ id }) => id))) return null;
   const ordinal = world.nextIds.settlement++;
   let coordinate: PlanetCoordinate | null = null;
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -925,6 +1008,11 @@ export function foundSettlementFromAgents(
     knowledgeEvidence: {},
     projectIds: [],
     createdAt: world.time,
+    lifecycleStatus: "active",
+    statusChangedAt: world.time,
+    lastOccupiedAt: world.time,
+    endedDay: null,
+    successorId: null,
   };
   world.settlements.push(settlement);
   runtimeIndexes(world).settlements.set(settlement.id, settlement);
@@ -940,6 +1028,10 @@ export function foundSettlementFromAgents(
       beliefIds: [],
       leaderId: sponsor.id,
       createdAt: world.time,
+      lifecycleStatus: "active",
+      statusChangedAt: world.time,
+      endedDay: null,
+      successorId: null,
     };
     world.polities.push(newPolity);
     runtimeIndexes(world).polities.set(newPolity.id, newPolity);
@@ -1162,6 +1254,7 @@ export function considerAutonomousProposal(world: PlanetWorldState, agentId: str
     || (agent.beliefId && candidate.beliefId === agent.beliefId)
   ));
   if (supportLinkedAdult && settlement.residentIds.length >= 4
+    && settlementFoundingViable(world, settlement, [agent.id, supportLinkedAdult.id])
     && (dissatisfaction < -0.08 || agent.needs.safety < 52)
     && deterministicUnit(world.seed, agent.id, world.day, agent.mind.decisionSequence, "breakaway") < 0.018 + counselBoost("migration", 0.08)) {
     return sponsorAndResolve(world, agent, {
@@ -1190,13 +1283,15 @@ export function considerAutonomousProposal(world: PlanetWorldState, agentId: str
     });
   }
   const capacity = settlementSupportCapacity(settlement);
-  if (settlement.residentIds.length >= capacity * 0.45 && adults.length >= 2
-    && deterministicUnit(world.seed, agent.id, world.day, "expand-or-build") < 0.34 + counselBoost("migration", 0.2)) {
+  if (settlement.residentIds.length >= capacity * 0.45 && adults.length >= 2) {
     const companion = adults.find(({ id }) => id !== agent.id)!;
-    return sponsorAndResolve(world, agent, {
-      kind: "migration", title: `${agent.name} proposes a new settlement`,
-      requiredDecisionAgentIds: [agent.id, companion.id], payload: { foundSettlement: true, independent: true, benefit: 65, cost: 25 },
-    });
+    if (settlementFoundingViable(world, settlement, [agent.id, companion.id])
+      && deterministicUnit(world.seed, agent.id, world.day, "expand-or-build") < 0.34 + counselBoost("migration", 0.2)) {
+      return sponsorAndResolve(world, agent, {
+        kind: "migration", title: `${agent.name} proposes a new settlement`,
+        requiredDecisionAgentIds: [agent.id, companion.id], payload: { foundSettlement: true, independent: true, benefit: 65, cost: 25 },
+      });
+    }
   }
   if (settlement.residentIds.length >= capacity * 0.62 && (settlement.stocks.hardwood ?? 0) >= 6) {
     const leaderId = findPolity(world, settlement.polityId)?.leaderId;
@@ -1493,10 +1588,16 @@ function processAgentWake(world: PlanetWorldState, event: ScheduledEvent, focuse
     }
   }
   const goal = deliberateAgent(world, agent);
-  const outcome = executeGoal(world, agent, goal);
-  goal.status = outcome >= 0 ? "complete" : "blocked";
-  for (const planStep of goal.steps) planStep.status = outcome >= 0 ? "complete" : "failed";
-  learnFromGoalOutcome(agent, goal, outcome, world.time);
+  const outcome = advanceGoalPlan(world, agent, goal);
+  if (outcome !== null) {
+    goal.status = outcome >= 0 ? "complete" : "blocked";
+    if (outcome < 0) {
+      for (const planStep of goal.steps) {
+        if (planStep.status === "active" || planStep.status === "pending") planStep.status = "failed";
+      }
+    }
+    learnFromGoalOutcome(agent, goal, outcome, world.time);
+  }
   if (!agent.beliefId && deterministicUnit(world.seed, agent.id, agent.mind.decisionSequence, "belief-check") < 0.05) {
     const founded = considerBeliefFormation(world, agent.id);
     if (founded) {
@@ -1527,6 +1628,102 @@ function processAgentWake(world: PlanetWorldState, event: ScheduledEvent, focuse
   schedule(world, "agent_wake", agent.id, agent.nextWakeAt, agent.scheduleToken);
 }
 
+const SETTLEMENT_DECLINE_DAYS = 7;
+const SETTLEMENT_ABANDON_DAYS = 30;
+const BELIEF_ARCHIVE_DAYS = 400;
+
+function updateCivilizationLifecycles(world: PlanetWorldState): void {
+  const livingIds = new Set(world.agents.filter(({ alive }) => alive).map(({ id }) => id));
+  for (const settlement of world.settlements) {
+    settlement.residentIds = settlement.residentIds.filter((id) => livingIds.has(id));
+    if (settlement.residentIds.length > 0) {
+      settlement.lastOccupiedAt = world.time;
+      if (settlement.lifecycleStatus === "declining" || settlement.lifecycleStatus === "abandoned") {
+        settlement.lifecycleStatus = "active";
+        settlement.statusChangedAt = world.time;
+        settlement.endedDay = null;
+        recordPlanetHistory(world, {
+          at: world.time, type: "settlement_revived", title: `${settlement.name} was inhabited again`,
+          summary: `Living residents restored ${settlement.name} as an active habitation site.`, actorIds: settlement.residentIds.slice(0, 4),
+          entityIds: [settlement.id], coordinate: { ...settlement.coordinate }, importance: 44, causalEventIds: [],
+        });
+      }
+      continue;
+    }
+    const emptyDays = Math.floor((world.time - settlement.lastOccupiedAt) / PLANET_DAY_SECONDS);
+    if (settlement.lifecycleStatus === "active" && emptyDays >= SETTLEMENT_DECLINE_DAYS) {
+      settlement.lifecycleStatus = "declining";
+      settlement.statusChangedAt = world.time;
+      recordPlanetHistory(world, {
+        at: world.time, type: "settlement_declining", title: `${settlement.name} entered decline`,
+        summary: `${settlement.name} had no living residents for ${emptyDays} modeled days.`, actorIds: [], entityIds: [settlement.id],
+        coordinate: { ...settlement.coordinate }, importance: 28, causalEventIds: [],
+      });
+    }
+    if (settlement.lifecycleStatus === "declining" && emptyDays >= SETTLEMENT_ABANDON_DAYS) {
+      settlement.lifecycleStatus = "abandoned";
+      settlement.statusChangedAt = world.time;
+      settlement.endedDay = world.day;
+      recordPlanetHistory(world, {
+        at: world.time, type: "settlement_abandoned", title: `${settlement.name} was abandoned`,
+        summary: `${settlement.name} became a historical ruin after ${emptyDays} modeled days without residents.`, actorIds: [], entityIds: [settlement.id],
+        coordinate: { ...settlement.coordinate }, importance: 52, causalEventIds: [],
+      });
+    }
+  }
+  for (const polity of world.polities) {
+    polity.citizenIds = polity.citizenIds.filter((id) => livingIds.has(id));
+    const hasActiveSettlement = polity.settlementIds.some((id) => {
+      const settlement = findSettlement(world, id);
+      return settlement?.lifecycleStatus === "active" || settlement?.lifecycleStatus === "declining";
+    });
+    if (polity.lifecycleStatus === "active" && polity.citizenIds.length === 0 && !hasActiveSettlement) {
+      polity.lifecycleStatus = "dissolved";
+      polity.statusChangedAt = world.time;
+      polity.endedDay = world.day;
+      for (const [cellKey, ownerId] of Object.entries(world.territoryOwners)) {
+        if (ownerId === polity.id) {
+          delete world.territoryOwners[cellKey];
+          delete world.territoryDisputes[cellKey];
+        }
+      }
+      recordPlanetHistory(world, {
+        at: world.time, type: "polity_dissolved", title: `${polity.name} dissolved`,
+        summary: `${polity.name} ceased to be an active polity after losing its living communities.`, actorIds: [], entityIds: [polity.id],
+        coordinate: null, importance: 58, causalEventIds: [],
+      });
+    }
+  }
+  for (const belief of world.beliefs) {
+    belief.adherentIds = belief.adherentIds.filter((id) => livingIds.has(id));
+    if (belief.adherentIds.length === 0 && (belief.status === "active" || belief.status === "revived")) {
+      belief.status = "dormant";
+      belief.active = false;
+      belief.statusChangedAt = world.time;
+      belief.endedDay = world.day;
+      recordPlanetHistory(world, {
+        at: world.time, type: "belief_dormant", title: `${belief.name} became dormant`,
+        summary: `${belief.name} no longer had any living adherents.`, actorIds: [], entityIds: [belief.id], coordinate: null,
+        importance: 40, causalEventIds: [],
+      });
+    } else if (belief.adherentIds.length > 0 && belief.status === "dormant") {
+      belief.status = "revived";
+      belief.active = true;
+      belief.statusChangedAt = world.time;
+      belief.endedDay = null;
+      recordPlanetHistory(world, {
+        at: world.time, type: "belief_revived", title: `${belief.name} was revived`,
+        summary: `Living adherents restored the practice of ${belief.name}.`, actorIds: belief.adherentIds.slice(0, 4), entityIds: [belief.id],
+        coordinate: null, importance: 48, causalEventIds: [],
+      });
+    } else if (belief.status === "dormant" && world.time - belief.statusChangedAt >= BELIEF_ARCHIVE_DAYS * PLANET_DAY_SECONDS) {
+      belief.status = "historical";
+      belief.active = false;
+      belief.statusChangedAt = world.time;
+    }
+  }
+}
+
 function processEcology(world: PlanetWorldState, event: ScheduledEvent): void {
   for (const site of Object.values(world.modifiedResourceSites)) {
     const definition = getResourceDefinition(site.resourceId);
@@ -1534,7 +1731,9 @@ function processEcology(world: PlanetWorldState, event: ScheduledEvent): void {
     if (regeneration > 0) site.reserve = Math.min(site.capacity, site.reserve + regeneration);
   }
   for (const proposal of world.proposals) resolveProposal(world, proposal.id);
+  updateCivilizationLifecycles(world);
   for (const settlement of world.settlements) {
+    if (settlement.lifecycleStatus !== "active") continue;
     const workers = settlement.residentIds
       .map((id) => findAgent(world, id))
       .filter((agent): agent is PlanetAgent => Boolean(agent?.alive && isAdult(world, agent)));
@@ -1561,6 +1760,9 @@ export function advancePlanet(
   const targetTime = world.time + elapsed;
   const maxEvents = Math.max(1, Math.floor(options.maxEvents ?? 50_000));
   const focused = new Set(options.focusedAgentIds ?? []);
+  const coverageFromDay = world.day;
+  const generatedEvents: PlanetHistoryEvent[] = [];
+  ACTIVE_EVENT_JOURNALS.set(world, generatedEvents);
   let processedEvents = 0;
   while (world.scheduler.length > 0 && world.scheduler[0].at <= targetTime && processedEvents < maxEvents) {
     const event = heapPop(world.scheduler)!;
@@ -1587,7 +1789,12 @@ export function advancePlanet(
   }
   compactPlanetAgentRecords(world);
   world.stats.processedEvents += processedEvents;
-  return { processedEvents, reachedTime: world.time, targetTime, complete };
+  ACTIVE_EVENT_JOURNALS.delete(world);
+  return {
+    processedEvents, reachedTime: world.time, targetTime, complete,
+    generatedEvents,
+    reconstruction: { resolution: "exact", coverageFromDay, coarseEpochDays: null },
+  };
 }
 
 /** Mutating event-driven catch-up; all times in the result are simulation seconds. */
@@ -1599,13 +1806,20 @@ export function catchUpPlanet(
   const targetTime = world.time + Math.max(0, elapsedSeconds);
   let processedEvents = 0;
   let complete = false;
+  const coverageFromDay = world.day;
+  const generatedEvents: PlanetHistoryEvent[] = [];
   for (let batch = 0; batch < 64 && !complete; batch += 1) {
     const result = advancePlanet(world, Math.max(0, targetTime - world.time), options);
     processedEvents += result.processedEvents;
+    generatedEvents.push(...result.generatedEvents);
     complete = result.complete;
     if (result.processedEvents === 0 && !complete) break;
   }
-  return { processedEvents, reachedTime: world.time, targetTime, complete };
+  return {
+    processedEvents, reachedTime: world.time, targetTime, complete,
+    generatedEvents,
+    reconstruction: { resolution: "exact", coverageFromDay, coarseEpochDays: null },
+  };
 }
 
 export function getPlanetSummary(world: PlanetWorldState): PlanetSummary {
@@ -1638,6 +1852,12 @@ export function getPlanetSummary(world: PlanetWorldState): PlanetSummary {
   const recentHistory = world.history.filter(({ day }) => day > world.day - windowDays);
   const countRecent = (type: PlanetHistoryEvent["type"]) =>
     recentHistory.reduce((count, event) => count + (event.type === type ? 1 : 0), 0);
+  const settlementLifecycle = { active: 0, declining: 0, abandoned: 0, absorbed: 0, historical: 0 };
+  const polityLifecycle = { active: 0, dissolved: 0, merged: 0, historical: 0 };
+  const beliefLifecycle = { active: 0, dormant: 0, revived: 0, historical: 0 };
+  for (const settlement of world.settlements) settlementLifecycle[settlement.lifecycleStatus] += 1;
+  for (const polity of world.polities) polityLifecycle[polity.lifecycleStatus] += 1;
+  for (const belief of world.beliefs) beliefLifecycle[belief.status] += 1;
   return {
     schemaVersion: PLANET_SCHEMA_VERSION,
     seedLabel: world.seedLabel,
@@ -1649,6 +1869,8 @@ export function getPlanetSummary(world: PlanetWorldState): PlanetSummary {
     beliefs: world.beliefs.length,
     openProposals: world.proposals.filter(({ status }) => status === "open").length,
     activeProjects: world.projects.filter(({ status }) => !["institutionalized", "failed"].includes(status)).length,
+    lifecycle: { settlements: settlementLifecycle, polities: polityLifecycle, beliefs: beliefLifecycle },
+    reconstruction: { resolution: "exact", coverageFromDay: 1, coarseEpochDays: null },
     observation: {
       windowDays,
       ageBands: {
@@ -1927,7 +2149,7 @@ export function getPlanetHistoryChapter(world: PlanetWorldState, chapter: number
 }
 
 export interface PlanetManifest {
-  schemaVersion: 3;
+  schemaVersion: 4;
   catalogVersion: string;
   seed: number;
   seedLabel: string;
@@ -1994,6 +2216,13 @@ export function validatePlanetWorld(value: unknown): value is PlanetWorldState {
   if (livingAgents > MAX_PLANET_AGENTS || deceasedAgents > MAX_PLANET_DECEASED_AGENT_RECORDS) return false;
   if (!world.stats || world.stats.livingAgents !== livingAgents) return false;
   const polityIds = new Set(world.polities.map(({ id }) => id));
+  const settlementStatuses = new Set(["active", "declining", "abandoned", "absorbed", "historical"]);
+  const polityStatuses = new Set(["active", "dissolved", "merged", "historical"]);
+  const beliefStatuses = new Set(["active", "dormant", "revived", "historical"]);
+  if (world.settlements.some(({ lifecycleStatus }) => !settlementStatuses.has(lifecycleStatus))) return false;
+  if (world.polities.some(({ lifecycleStatus }) => !polityStatuses.has(lifecycleStatus))) return false;
+  if (!Array.isArray(world.beliefs) || world.beliefs.some(({ status, active }) =>
+    !beliefStatuses.has(status) || active !== (status === "active" || status === "revived"))) return false;
   if (Object.values(world.territoryOwners).some((owner) => !polityIds.has(owner))) return false;
   return true;
 }
@@ -2004,7 +2233,10 @@ export function normalizePlanetWorld(value: unknown): PlanetWorldState {
   // added. Hydrate that optional field before strict validation so a planet
   // checkpoint created by an earlier Era III build is never mistaken for a
   // corrupt world and reset.
-  if (parsed && typeof parsed === "object" && Array.isArray((parsed as { agents?: unknown }).agents)) {
+  if (parsed && typeof parsed === "object" && ((parsed as { schemaVersion?: unknown }).schemaVersion === 3
+    || (parsed as { schemaVersion?: unknown }).schemaVersion === PLANET_SCHEMA_VERSION)
+    && Array.isArray((parsed as { agents?: unknown }).agents)) {
+    const candidateWorld = parsed as PlanetWorldState & { schemaVersion: 3 | 4 };
     for (const candidate of (parsed as { agents: unknown[] }).agents) {
       if (!candidate || typeof candidate !== "object") continue;
       const mind = (candidate as { mind?: unknown }).mind;
@@ -2012,9 +2244,41 @@ export function normalizePlanetWorld(value: unknown): PlanetWorldState {
         (mind as { advisory: null }).advisory = null;
       }
     }
+    const livingIds = new Set(candidateWorld.agents.filter(({ alive }) => alive).map(({ id }) => id));
+    for (const settlement of candidateWorld.settlements ?? []) {
+      const occupied = (settlement.residentIds ?? []).some((id) => livingIds.has(id));
+      settlement.lifecycleStatus ??= occupied ? "active" : "abandoned";
+      settlement.statusChangedAt ??= occupied ? settlement.createdAt : candidateWorld.time;
+      settlement.lastOccupiedAt ??= occupied ? candidateWorld.time : settlement.createdAt;
+      settlement.endedDay ??= occupied ? null : candidateWorld.day;
+      settlement.successorId ??= null;
+    }
+    const dissolvedPolityIds = new Set<string>();
+    for (const polity of candidateWorld.polities ?? []) {
+      const living = (polity.citizenIds ?? []).some((id) => livingIds.has(id));
+      polity.lifecycleStatus ??= living ? "active" : "dissolved";
+      polity.statusChangedAt ??= living ? polity.createdAt : candidateWorld.time;
+      polity.endedDay ??= living ? null : candidateWorld.day;
+      polity.successorId ??= null;
+      if (polity.lifecycleStatus === "dissolved") dissolvedPolityIds.add(polity.id);
+    }
+    for (const belief of candidateWorld.beliefs ?? []) {
+      belief.adherentIds = (belief.adherentIds ?? []).filter((id) => livingIds.has(id));
+      belief.status ??= belief.adherentIds.length > 0 && belief.active !== false ? "active" : "dormant";
+      belief.active = belief.status === "active" || belief.status === "revived";
+      belief.statusChangedAt ??= belief.active ? belief.originDay * PLANET_DAY_SECONDS : candidateWorld.time;
+      belief.endedDay ??= belief.active ? null : candidateWorld.day;
+    }
+    for (const [cellKey, polityId] of Object.entries(candidateWorld.territoryOwners ?? {})) {
+      if (dissolvedPolityIds.has(polityId)) {
+        delete candidateWorld.territoryOwners[cellKey];
+        delete candidateWorld.territoryDisputes[cellKey];
+      }
+    }
+    candidateWorld.schemaVersion = PLANET_SCHEMA_VERSION;
     // Schema 3 originally validated the 10,000 living cap against all lifetime
     // records. Migrate those checkpoints in place before strict validation.
-    compactPlanetAgentRecords(parsed as PlanetWorldState);
+    compactPlanetAgentRecords(candidateWorld);
   }
   if (!validatePlanetWorld(parsed)) throw new Error("Invalid or unsupported Era III planet world.");
   heapify(parsed.scheduler);

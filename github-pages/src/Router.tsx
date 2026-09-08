@@ -86,10 +86,6 @@ function LocalWorldBar({ runtime }: { runtime: LocalPlanetRuntime }) {
           <option value={16}>16×</option>
         </select>
       </label>
-      <nav aria-label="Observation resources">
-        <a className="pages-history-link" href="#/history">Record</a>
-        <a className="pages-about-link" href="#/about">Method</a>
-      </nav>
       <em>{storageLabel}</em>
     </aside>
   );
@@ -152,11 +148,12 @@ interface HistoryChapterView {
   totals: { events: number; people: number; advances: number; politics: number };
 }
 
-function buildHistoryChapters(world: PlanetWorldState, firstChapter: number, lastChapter: number): HistoryChapterView[] {
+function buildHistoryChapters(world: PlanetWorldState, history: readonly PlanetHistoryEvent[], firstChapter: number, lastChapter: number, coverageFromDay = 1): HistoryChapterView[] {
   const priorFingerprints = new Set<string>();
   const chapters: HistoryChapterView[] = [];
   for (let number = firstChapter; number <= lastChapter; number += 1) {
-    const chapter = getPlanetHistoryChapter(world, number);
+    const baseChapter = getPlanetHistoryChapter(world, number);
+    const chapter = { ...baseChapter, events: history.filter((event) => event.day >= baseChapter.startDay && event.day <= baseChapter.endDay) };
     const moments = selectDistinctMoments(chapter.events, priorFingerprints);
     const defining = moments.slice().sort((left, right) => right.importance - left.importance || left.day - right.day)[0];
     const title = number === 1
@@ -166,7 +163,7 @@ function buildHistoryChapters(world: PlanetWorldState, firstChapter: number, las
       number,
       startDay: chapter.startDay,
       endDay: Math.min(chapter.endDay, world.day),
-      complete: world.day >= chapter.endDay,
+      complete: world.day >= chapter.endDay && chapter.startDay >= coverageFromDay,
       title,
       moments,
       totals: {
@@ -182,15 +179,27 @@ function buildHistoryChapters(world: PlanetWorldState, firstChapter: number, las
 
 function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
   const world = runtime.world!;
+  const history = runtime.historyLedger.length ? runtime.historyLedger : world.history;
   const chaptersPerPage = 8;
   const totalChapters = Math.max(1, Math.ceil(world.day / 200));
   const totalPages = Math.max(1, Math.ceil(totalChapters / chaptersPerPage));
-  const [page, setPage] = useState(0);
+  const pageFromHash = () => {
+    const query = location.hash.split("?")[1] ?? "";
+    const requested = Number(new URLSearchParams(query).get("page"));
+    return Number.isInteger(requested) && requested > 0 ? requested - 1 : 0;
+  };
+  const [page, setPage] = useState(pageFromHash);
+  useEffect(() => {
+    const update = () => setPage(pageFromHash());
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+
   const safePage = Math.min(page, totalPages - 1);
   const lastChapter = Math.max(1, totalChapters - safePage * chaptersPerPage);
   const firstChapter = Math.max(1, lastChapter - chaptersPerPage + 1);
-  const chapters = useMemo(() => buildHistoryChapters(world, firstChapter, lastChapter), [firstChapter, lastChapter, world]);
-  const eventById = useMemo(() => new Map(world.history.map((event) => [event.id, event])), [world]);
+  const chapters = useMemo(() => buildHistoryChapters(world, history, firstChapter, lastChapter, runtime.reconstruction.coverageFromDay), [firstChapter, history, lastChapter, runtime.reconstruction.coverageFromDay, world]);
+  const eventById = useMemo(() => new Map(history.map((event) => [event.id, event])), [history]);
   return (
     <div className="planet-reading-shell">
       <ReadingHeader route="history" runtime={runtime} />
@@ -198,13 +207,15 @@ function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
         <section className="planet-hero">
           <p>CAUSAL ARCHIVE · 200-DAY OBSERVATION INTERVALS</p>
           <h1>A causal record of an autonomous world.</h1>
-          <div><p>Routine state changes are omitted. Each interval preserves distinct demographic, material, institutional, and ideological changes, with recorded causes where the simulation has them.</p><span>{totalChapters} interval{totalChapters === 1 ? "" : "s"}<br />{formatNumber(world.history.length)} recorded events</span></div>
+          <div><p>Routine state changes are omitted. Each interval preserves distinct demographic, material, institutional, and ideological changes, with recorded causes where the simulation has them.</p><span>{totalChapters} interval{totalChapters === 1 ? "" : "s"}<br />{formatNumber(history.length)} recorded events<br />{runtime.reconstruction.resolution === "exact" ? "Exact reconstruction" : `${runtime.reconstruction.resolution} reconstruction`}</span></div>
         </section>
 
+        <aside className="archive-coverage" aria-label="Archive coverage"><strong>Record coverage</strong><span>Continuous from Day {runtime.reconstruction.coverageFromDay.toLocaleString()}{runtime.reconstruction.coarseEpochDays ? ` · earlier absence reconstructed in ${runtime.reconstruction.coarseEpochDays}-day epochs` : " · exact event resolution"}</span></aside>
+
         <nav className="chapter-pager" aria-label="History chapter pages">
-          <button type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}>← Older chapters</button>
+          <button type="button" disabled={safePage >= totalPages - 1} onClick={() => { location.hash = `#/history?page=${Math.min(totalPages, safePage + 2)}`; }}>← Older chapters</button>
           <span>Showing chapters {firstChapter}–{lastChapter} of {totalChapters}</span>
-          <button type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>Newer chapters →</button>
+          <button type="button" disabled={safePage === 0} onClick={() => { const next = Math.max(1, safePage); location.hash = next === 1 ? "#/history" : `#/history?page=${next}`; }}>Newer chapters →</button>
         </nav>
 
         <div className="chapter-list">
@@ -212,7 +223,7 @@ function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
             <article className="planet-chapter" key={chapter.number}>
               <header>
                 <div><p>CHAPTER {String(chapter.number).padStart(2, "0")} · DAYS {chapter.startDay}–{chapter.endDay}</p><h2>{chapter.title}</h2></div>
-                <span data-complete={chapter.complete}>{chapter.complete ? "SEALED" : "IN PROGRESS"}</span>
+                <span data-complete={chapter.complete}>{chapter.complete ? "SEALED" : chapter.startDay < runtime.reconstruction.coverageFromDay ? "INCOMPLETE SOURCE" : "IN PROGRESS"}</span>
               </header>
               <div className="chapter-metrics">
                 <span><strong>{chapter.totals.events}</strong> recorded changes</span>
@@ -302,6 +313,19 @@ export function Router() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
+  useEffect(() => {
+    runtime.adapter?.setContinuity({
+      persistent: false,
+      serverTimeMs: Date.now(),
+      simulatedAtMs: Date.now() - runtime.catchUpSeconds * 1_000,
+      pendingSeconds: runtime.catchUpSeconds,
+      caughtUp: !runtime.catchingUp,
+      reconstructionResolution: runtime.reconstruction.resolution,
+      coverageFromDay: runtime.reconstruction.coverageFromDay,
+      coarseEpochDays: runtime.reconstruction.coarseEpochDays,
+    });
+  }, [runtime.adapter, runtime.catchUpSeconds, runtime.catchingUp, runtime.reconstruction]);
+
   if (!runtime.adapter || !runtime.world || runtime.error) return <LoadingWorld error={runtime.error} />;
 
   if (route === "legacy") {
@@ -314,7 +338,7 @@ export function Router() {
     <div className="planet-pages-route">
       <LocalWorldBar runtime={runtime} />
       <div className="pages-experience">
-        <PlanetExperience adapter={runtime.adapter} archiveHref="#/legacy" historyHref="#/history" />
+        <PlanetExperience adapter={runtime.adapter} archiveHref="#/legacy" historyHref="#/history" methodHref="#/about" />
       </div>
     </div>
   );

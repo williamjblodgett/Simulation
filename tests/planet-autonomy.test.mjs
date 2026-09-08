@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  MAX_PLANET_HISTORY_EVENTS,
   PLANET_DAY_SECONDS,
   advancePlanet,
   applyAcceptedProposal,
@@ -14,6 +15,7 @@ import {
   decideOnProposal,
   killPlanetAgent,
   resolveProposal,
+  recordPlanetHistory,
   submitProposal,
   validatePlanetWorld,
 } from "../app/simulation/planet/index.ts";
@@ -197,4 +199,48 @@ test("external counsel is bounded, provenance-labelled, local, temporary, and no
   assert.deepEqual(world.diplomacy, {});
   advancePlanet(world, PLANET_DAY_SECONDS * 3, { maxEvents: 10_000 });
   assert.equal(world.agents[0].mind.advisory.status, "expired");
+});
+
+test("mature worlds retire empty formations and sustain autonomous research across seeds", { timeout: 30_000 }, () => {
+  for (const seed of ["maturity-a", "maturity-b", "maturity-c"]) {
+    const world = createPlanetWorld(seed, { initialAgentCount: 10, initialSettlementCount: 10 });
+    const result = catchUpPlanet(world, PLANET_DAY_SECONDS * 200, { maxEvents: 1_000_000 });
+    assert.equal(result.complete, true, `${seed} should reach the observation boundary`);
+    assert.ok(world.settlements
+      .filter(({ lifecycleStatus }) => lifecycleStatus === "active")
+      .every(({ residentIds, lastOccupiedAt }) => residentIds.length > 0
+        || world.time - lastOccupiedAt < PLANET_DAY_SECONDS * 7), `${seed} has an overdue empty active settlement`);
+    assert.ok(world.beliefs
+      .filter(({ status }) => status === "active" || status === "revived")
+      .every(({ adherentIds }) => adherentIds.length > 0), `${seed} has an empty active belief`);
+    assert.ok(world.projects.length > 0, `${seed} should generate named research projects`);
+    assert.ok(new Set(world.settlements.flatMap(({ capabilities }) => capabilities)).size > 4,
+      `${seed} should advance beyond foundational capabilities`);
+    assert.ok(world.settlements.length <= 28, `${seed} founding should remain bounded over 200 days`);
+  }
+});
+
+test("multi-wake plans expose incremental steps and advance results return a complete event journal", () => {
+  const world = createPlanetWorld("persistent-plans-and-journal", { initialAgentCount: 1, initialSettlementCount: 1 });
+  const first = advancePlanet(world, world.agents[0].nextWakeAt + 1, { maxEvents: 100 });
+  const active = world.agents[0].mind.goals.find(({ status }) => status === "active");
+  assert.ok(active, "a non-subsistence plan should remain active after its first wake");
+  assert.ok(active.steps.some(({ status }) => status === "complete"));
+  assert.ok(active.steps.some(({ status }) => status === "active" || status === "pending"));
+  assert.ok(first.generatedEvents.every(({ id }) => world.history.some((event) => event.id === id)));
+  assert.deepEqual(first.reconstruction, { resolution: "exact", coverageFromDay: 1, coarseEpochDays: null });
+
+  for (let index = world.history.length; index < MAX_PLANET_HISTORY_EVENTS; index += 1) {
+    recordPlanetHistory(world, {
+      at: world.time, type: "production", title: `Archive filler ${index}`, summary: "Bounded display record.",
+      actorIds: [], entityIds: [], coordinate: null, importance: 1, causalEventIds: [],
+    });
+  }
+  world.agents[0].needs.health = 1;
+  world.agents[0].needs.hydration = 0;
+  world.agents[0].lastWakeAt = -PLANET_DAY_SECONDS;
+  const terminal = advancePlanet(world, Math.max(0, world.agents[0].nextWakeAt - world.time) + 1, { maxEvents: 100 });
+  assert.equal(world.history.length, MAX_PLANET_HISTORY_EVENTS);
+  assert.ok(terminal.generatedEvents.some(({ type }) => type === "death"),
+    "the advance journal must retain a generated event when the bounded display tail evicts an older record");
 });

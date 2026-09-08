@@ -29,6 +29,9 @@ export interface PlanetCivilization {
   technologyScore: number;
   prosperity: number;
   summary: string;
+  lifecycleStatus?: "active" | "dissolved" | "merged" | "historical";
+  endedDay?: number | null;
+  successorId?: string | null;
 }
 
 export interface PlanetBelief {
@@ -46,6 +49,8 @@ export interface PlanetBelief {
   originDay?: number;
   parentBeliefId?: string | null;
   active?: boolean;
+  lifecycleStatus?: "active" | "dormant" | "revived" | "historical";
+  status?: "active" | "dormant" | "revived" | "historical";
   reforms?: Array<{ day: number; summary: string }>;
   schisms?: number;
 }
@@ -66,6 +71,9 @@ export interface PlanetSettlement extends GeoPoint {
   kind: "camp" | "village" | "town" | "city" | "capital";
   prosperity: number;
   capabilities?: string[];
+  lifecycleStatus?: "active" | "declining" | "abandoned" | "absorbed" | "historical";
+  endedDay?: number | null;
+  successorId?: string | null;
 }
 
 export interface PlanetAgent extends GeoPoint {
@@ -152,6 +160,9 @@ export interface PlanetSnapshot {
       simulatedAtMs: number;
       pendingSeconds: number;
       caughtUp: boolean;
+      reconstructionResolution?: "exact" | "mixed" | "coarse";
+      coverageFromDay?: number;
+      coarseEpochDays?: number | null;
     };
   };
   civilizations: PlanetCivilization[];
@@ -199,6 +210,28 @@ export interface PlanetSnapshot {
     shown: Partial<Record<string, number>>;
     available: Partial<Record<string, number>>;
   };
+  knowledgeProjects?: PlanetKnowledgeProject[];
+}
+
+export interface PlanetKnowledgeProject {
+  id: string;
+  title: string;
+  capabilityId?: string | null;
+  status: "proposed" | "active" | "failed" | "established" | "abandoned";
+  originatorAgentId?: string | null;
+  originatorName?: string | null;
+  settlementId?: string | null;
+  settlementName?: string | null;
+  societyId?: string | null;
+  societyName?: string | null;
+  startedDay?: number;
+  completedDay?: number | null;
+  evidence?: string[];
+  prerequisiteIds?: string[];
+  materialIds?: string[];
+  processIds?: string[];
+  failureReason?: string | null;
+  diffusionSettlementIds?: string[];
 }
 
 export interface PlanetTerrainCell extends GeoPoint {
@@ -307,6 +340,10 @@ export interface PlanetSettlementDetailRecord {
   knownResourceSiteIds: string[];
   projectIds: string[];
   createdAt: number;
+  lifecycleStatus?: PlanetSettlement["lifecycleStatus"];
+  statusChangedAt?: number;
+  endedDay?: number | null;
+  successorId?: string | null;
 }
 
 export interface PlanetCivilizationDetailRecord {
@@ -318,6 +355,10 @@ export interface PlanetCivilizationDetailRecord {
   beliefIds: string[];
   leaderId: string | null;
   createdAt: number;
+  lifecycleStatus?: PlanetCivilization["lifecycleStatus"];
+  statusChangedAt?: number;
+  endedDay?: number | null;
+  successorId?: string | null;
 }
 
 export type PlanetEntityDetail =

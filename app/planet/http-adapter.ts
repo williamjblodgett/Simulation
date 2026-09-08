@@ -52,6 +52,9 @@ interface ApiViewport {
     polityId: string;
     population: number;
     capabilities: string[];
+    lifecycleStatus?: PlanetSettlement["lifecycleStatus"];
+    endedDay?: number | null;
+    successorId?: string | null;
   }>;
   territory: Array<{ cellKey: string; ownerPolityId: string }>;
   disputes: Array<{ cellKey: string; ownerPolityId: string; claimantPolityIds: string[] }>;
@@ -88,7 +91,7 @@ interface ApiViewport {
     coordinate: { longitude: number; latitude: number };
     resources: Record<string, number>;
   }>;
-  polities: Array<{ id: string; name: string; color: string; population: number; settlements: number; dominantBeliefId: string | null }>;
+  polities: Array<{ id: string; name: string; color: string; population: number; settlements: number; dominantBeliefId: string | null; lifecycleStatus?: PlanetCivilization["lifecycleStatus"]; endedDay?: number | null; successorId?: string | null }>;
   beliefs: Array<{
     id: string;
     name: string;
@@ -105,6 +108,7 @@ interface ApiViewport {
     originDay?: number;
     parentBeliefId?: string | null;
     active?: boolean;
+    status?: PlanetBelief["status"];
     reforms?: Array<{ day: number; summary: string }>;
     schisms?: number;
   }>;
@@ -150,6 +154,9 @@ interface SummaryResponse {
     serverTime?: number;
     simulatedAtMs?: number;
     persistent?: boolean;
+    reconstructionResolution?: "exact" | "mixed" | "coarse";
+    coverageFromDay?: number;
+    coarseEpochDays?: number | null;
   };
   aiCounsel?: {
     configured: boolean;
@@ -169,7 +176,7 @@ interface RegionsResponse {
   stateRevision?: number;
   day?: number;
   viewport?: ApiViewport;
-  sync?: { catchUpPendingSeconds?: number; caughtUp?: boolean; serverTime?: number; simulatedAtMs?: number; persistent?: boolean };
+  sync?: { catchUpPendingSeconds?: number; caughtUp?: boolean; serverTime?: number; simulatedAtMs?: number; persistent?: boolean; reconstructionResolution?: "exact" | "mixed" | "coarse"; coverageFromDay?: number; coarseEpochDays?: number | null };
 }
 
 const EMPTY_SNAPSHOT: PlanetSnapshot = {
@@ -508,6 +515,9 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
       technologyScore: Math.min(100, capabilityCount * 3.5),
       prosperity: Math.min(100, 24 + Math.log2(polity.population + 1) * 7),
       summary: `${polity.settlements} autonomous settlement${polity.settlements === 1 ? "" : "s"} held together by proposals, relationships, and shared knowledge.`,
+      lifecycleStatus: polity.lifecycleStatus,
+      endedDay: polity.endedDay,
+      successorId: polity.successorId,
     };
   });
   const settlements: PlanetSettlement[] = viewport.settlements.map((settlement) => ({
@@ -520,6 +530,9 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
     capabilities: settlement.capabilities,
     longitude: settlement.coordinate.longitude,
     latitude: settlement.coordinate.latitude,
+    lifecycleStatus: settlement.lifecycleStatus,
+    endedDay: settlement.endedDay,
+    successorId: settlement.successorId,
   }));
   const beliefs: PlanetBelief[] = viewport.beliefs.map((belief) => ({
     id: belief.id,
@@ -536,6 +549,8 @@ function mapViewport(current: PlanetSnapshot, viewport: ApiViewport, sync?: Regi
     originDay: belief.originDay,
     parentBeliefId: belief.parentBeliefId,
     active: belief.active,
+    status: belief.status,
+    lifecycleStatus: belief.status,
     reforms: belief.reforms ?? [],
     schisms: belief.schisms ?? 0,
   }));
@@ -783,6 +798,9 @@ export class PlanetHttpAdapter implements PlanetExperienceAdapter {
             simulatedAtMs: payload.sync?.simulatedAtMs ?? Date.now(),
             pendingSeconds: pending,
             caughtUp: payload.sync?.caughtUp ?? pending <= 0,
+            reconstructionResolution: payload.sync?.reconstructionResolution,
+            coverageFromDay: payload.sync?.coverageFromDay,
+            coarseEpochDays: payload.sync?.coarseEpochDays,
           },
         },
       });
