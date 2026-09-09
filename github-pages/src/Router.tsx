@@ -1,17 +1,34 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { PlanetExperience } from "../../app/planet-experience";
-import {
-  getPlanetHistoryChapter,
-  validatePlanetCatalogs,
-  type PlanetHistoryEvent,
-  type PlanetHistoryEventType,
-  type PlanetWorldState,
+import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { SurvivalExperience } from "../../app/survival/survival-experience";
+import type {
+  PlanetHistoryEvent,
+  PlanetHistoryEventType,
+  PlanetWorldState,
 } from "../../app/simulation/planet";
-import { useLocalPlanetRuntime, type LocalPlanetRuntime } from "./planet-runtime";
+import type { LocalPlanetRuntime } from "./planet-runtime";
 
 const LegacyEraTwoApp = lazy(() => import("./App").then(({ App }) => ({ default: App })));
 
-type Route = "map" | "history" | "legacy" | "about";
+let getLoadedPlanetHistoryChapter: typeof import("../../app/simulation/planet")["getPlanetHistoryChapter"];
+let validateLoadedPlanetCatalogs: typeof import("../../app/simulation/planet")["validatePlanetCatalogs"];
+let useLoadedLocalPlanetRuntime: typeof import("./planet-runtime")["useLocalPlanetRuntime"];
+let LoadedPlanetExperience: typeof import("../../app/planet-experience")["PlanetExperience"];
+
+const LazyPlanetRoutes = lazy(async () => {
+  const [planet, runtime, experience] = await Promise.all([
+    import("../../app/simulation/planet"),
+    import("./planet-runtime"),
+    import("../../app/planet-experience"),
+  ]);
+  getLoadedPlanetHistoryChapter = planet.getPlanetHistoryChapter;
+  validateLoadedPlanetCatalogs = planet.validatePlanetCatalogs;
+  useLoadedLocalPlanetRuntime = runtime.useLocalPlanetRuntime;
+  LoadedPlanetExperience = experience.PlanetExperience;
+  return { default: PlanetRoutesLoaded };
+});
+
+type Route = "survival" | "about" | "planet" | "planetHistory" | "planetAbout" | "legacy";
+type PlanetRoute = Extract<Route, "planet" | "planetHistory" | "planetAbout" | "legacy">;
 
 const HISTORY_TYPE_LABELS: Partial<Record<PlanetHistoryEventType, string>> = {
   world_started: "Origin",
@@ -42,9 +59,12 @@ const HISTORY_TYPE_LABELS: Partial<Record<PlanetHistoryEventType, string>> = {
 
 function routeFromHash(): Route {
   const route = location.hash.replace(/^#\/?/, "").split("?")[0];
-  if (route === "history" || route === "about") return route;
-  if (route === "legacy" || route === "archive") return "legacy";
-  return "map";
+  if (route === "about") return "about";
+  if (route === "planet") return "planet";
+  if (route === "planet-history") return "planetHistory";
+  if (route === "planet-method") return "planetAbout";
+  if (route === "legacy" || route === "archive" || route === "history") return "legacy";
+  return "survival";
 }
 
 function formatNumber(value: number) {
@@ -91,15 +111,16 @@ function LocalWorldBar({ runtime }: { runtime: LocalPlanetRuntime }) {
   );
 }
 
-function ReadingHeader({ route, runtime }: { route: Route; runtime: LocalPlanetRuntime }) {
+function ReadingHeader({ route, runtime }: { route: PlanetRoute; runtime: LocalPlanetRuntime }) {
   return (
     <>
       <header className="planet-reading-header">
-        <a className="planet-wordmark" href="#/map"><span>W</span><div><strong>WILDGRID</strong><small>AUTONOMOUS WORLD STUDY</small></div></a>
-        <nav aria-label="Observatory sections">
-          <a className={route === "map" ? "active" : ""} href="#/map">World</a>
-          <a className={route === "history" ? "active" : ""} href="#/history">Record</a>
-          <a className={route === "about" ? "active" : ""} href="#/about">Method</a>
+        <a className="planet-wordmark" href="#/"><span>S</span><div><strong>SIMULATION</strong><small>PRIOR PLANETARY STUDY</small></div></a>
+        <nav aria-label="Prior planetary study sections">
+          <a href="#/">Current study</a>
+          <a className={route === "planet" ? "active" : ""} href="#/planet">World</a>
+          <a className={route === "planetHistory" ? "active" : ""} href="#/planet-history">Record</a>
+          <a className={route === "planetAbout" ? "active" : ""} href="#/planet-method">Method</a>
           <a className={route === "legacy" ? "active" : ""} href="#/legacy">Prior model</a>
         </nav>
         <div className="planet-reading-status"><span />Observing · Day {runtime.world?.day.toLocaleString() ?? "—"}</div>
@@ -152,7 +173,7 @@ function buildHistoryChapters(world: PlanetWorldState, history: readonly PlanetH
   const priorFingerprints = new Set<string>();
   const chapters: HistoryChapterView[] = [];
   for (let number = firstChapter; number <= lastChapter; number += 1) {
-    const baseChapter = getPlanetHistoryChapter(world, number);
+    const baseChapter = getLoadedPlanetHistoryChapter(world, number);
     const chapter = { ...baseChapter, events: history.filter((event) => event.day >= baseChapter.startDay && event.day <= baseChapter.endDay) };
     const moments = selectDistinctMoments(chapter.events, priorFingerprints);
     const defining = moments.slice().sort((left, right) => right.importance - left.importance || left.day - right.day)[0];
@@ -202,7 +223,7 @@ function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
   const eventById = useMemo(() => new Map(history.map((event) => [event.id, event])), [history]);
   return (
     <div className="planet-reading-shell">
-      <ReadingHeader route="history" runtime={runtime} />
+      <ReadingHeader route="planetHistory" runtime={runtime} />
       <main className="planet-reading-main history-reading-main">
         <section className="planet-hero">
           <p>CAUSAL ARCHIVE · 200-DAY OBSERVATION INTERVALS</p>
@@ -213,9 +234,9 @@ function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
         <aside className="archive-coverage" aria-label="Archive coverage"><strong>Record coverage</strong><span>Continuous from Day {runtime.reconstruction.coverageFromDay.toLocaleString()}{runtime.reconstruction.coarseEpochDays ? ` · earlier absence reconstructed in ${runtime.reconstruction.coarseEpochDays}-day epochs` : " · exact event resolution"}</span></aside>
 
         <nav className="chapter-pager" aria-label="History chapter pages">
-          <button type="button" disabled={safePage >= totalPages - 1} onClick={() => { location.hash = `#/history?page=${Math.min(totalPages, safePage + 2)}`; }}>← Older chapters</button>
+          <button type="button" disabled={safePage >= totalPages - 1} onClick={() => { location.hash = `#/planet-history?page=${Math.min(totalPages, safePage + 2)}`; }}>← Older chapters</button>
           <span>Showing chapters {firstChapter}–{lastChapter} of {totalChapters}</span>
-          <button type="button" disabled={safePage === 0} onClick={() => { const next = Math.max(1, safePage); location.hash = next === 1 ? "#/history" : `#/history?page=${next}`; }}>Newer chapters →</button>
+          <button type="button" disabled={safePage === 0} onClick={() => { const next = Math.max(1, safePage); location.hash = next === 1 ? "#/planet-history" : `#/planet-history?page=${next}`; }}>Newer chapters →</button>
         </nav>
 
         <div className="chapter-list">
@@ -254,7 +275,7 @@ function PlanetHistoryPage({ runtime }: { runtime: LocalPlanetRuntime }) {
 
 function AboutPage({ runtime }: { runtime: LocalPlanetRuntime }) {
   const world = runtime.world!;
-  const catalog = validatePlanetCatalogs();
+  const catalog = validateLoadedPlanetCatalogs();
   const livingAgents = world.agents.filter(({ alive }) => alive).length;
   const cards = [
     ["OBSERVER BOUNDARY", "No interface action orders a person, society, or settlement. The observer can navigate the evidence and alter only the rate at which simulation time is evaluated."],
@@ -267,11 +288,11 @@ function AboutPage({ runtime }: { runtime: LocalPlanetRuntime }) {
   async function reset() {
     if (!window.confirm("Erase this on-device observation record and initialize a new simulation run? This cannot be undone.")) return;
     await runtime.reset();
-    location.hash = "#/map";
+    location.hash = "#/planet";
   }
   return (
     <div className="planet-reading-shell">
-      <ReadingHeader route="about" runtime={runtime} />
+      <ReadingHeader route="planetAbout" runtime={runtime} />
       <main className="planet-reading-main">
         <section className="planet-hero">
           <p>SIMULATION METHODOLOGY · OBSERVATION WITHOUT INTERVENTION</p>
@@ -299,19 +320,47 @@ function AboutPage({ runtime }: { runtime: LocalPlanetRuntime }) {
 }
 
 function LoadingWorld({ error }: { error: string }) {
-  return <main className="planet-boot"><span>W</span><p>AUTONOMOUS WORLD OBSERVATORY · ERA III</p><h1>{error ? "The observation record could not open." : "Restoring the local world record…"}</h1><small>{error || "Initializing agents, material conditions, and the event archive."}</small>{error ? <button type="button" onClick={() => location.reload()}>Try again</button> : null}</main>;
+  return <main className="planet-boot"><span>S</span><p>SIMULATION · PRIOR PLANETARY STUDY</p><h1>{error ? "The observation record could not open." : "Restoring the planetary record…"}</h1><small>{error || "Initializing societies, material conditions, and the event archive."}</small>{error ? <button type="button" onClick={() => location.reload()}>Try again</button> : null}</main>;
 }
 
-export function Router() {
-  const [route, setRoute] = useState<Route>(routeFromHash);
-  const runtime = useLocalPlanetRuntime();
+const AUTONOMY_CYCLE = [
+  ["01", "Observe", "Each agent receives nearby evidence, current conditions, encounters, and the outcomes it remembers."],
+  ["02", "Compare", "It weighs feasible actions against hydration, nutrition, energy, warmth, safety, uncertainty, and experience."],
+  ["03", "Act", "It selects and attempts a plan. Cooperation can be requested, but another agent may refuse."],
+  ["04", "Learn", "Confirmed outcomes update expectations, so later choices can change without a preset personality."],
+] as const;
 
-  useEffect(() => {
-    const onHashChange = () => setRoute(routeFromHash());
-    window.addEventListener("hashchange", onHashChange);
-    if (!location.hash) window.history.replaceState(null, "", `${location.pathname}${location.search}#/map`);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
+function SurvivalMethodPage() {
+  return <main className="survival-method-page">
+    <header><a href="#/">← Back to Simulation</a><span>Method · read-only</span></header>
+    <section className="survival-method-hero"><p>HOW THE EXPERIMENT WORKS</p><h1>The environment is supplied.<br />The decisions are not.</h1><div><p>The observer configures a run, moves the camera, changes playback speed, and inspects evidence. The observer cannot tell an agent where to walk, what to gather, whom to trust, or which technique to pursue.</p><a href="#/">Observe the current run</a></div></section>
+    <section className="survival-method-goal"><span>THE ONLY PRE-GIVEN OBJECTIVE</span><h2>Survive as long as possible.</h2><p>Every agent starts from this same broad objective. No agent receives a preset personality, profession, job, faction, preferred strategy, enemy, or scripted life story.</p></section>
+    <section className="survival-method-cycle"><p>ONE DECISION CYCLE</p><h2>What autonomy means here</h2><div>{AUTONOMY_CYCLE.map(([number, title, copy]) => <article key={number}><span>{number}</span><h3>{title}</h3><p>{copy}</p></article>)}</div></section>
+    <section className="survival-method-research"><p>RESEARCH IS AN ACTION, NOT AN UNLOCK BUTTON</p><h2>Agents can choose to test a hypothesis.</h2><p>After observing useful materials or a recurring problem, an agent may gather inputs, run an experiment, record a failure, repeat a promising result, and establish a technique. Discoveries require local evidence and repeatable tests; they do not unlock merely because time passed.</p><p>The experiment procedures come from a bounded, authored catalog. Autonomy lies in whether, when, and how an agent pursues an available test—not in inventing knowledge outside the model.</p></section>
+    <section className="survival-method-boundary"><h2>Autonomous does not mean conscious.</h2><p>These are deterministic simulation agents with bounded perception, planning, uncertainty, memory, and outcome learning—not sentient beings and not hidden chatbots. Recorded intent reports the factors used by the model; it is not private chain-of-thought.</p><p>Death is permanent. The simulation never silently replaces an agent. A user may explicitly introduce a new independent agent after a death and below the run cap. If exactly one survivor remains, that survivor alone may decide whether to request one companion.</p><a href="#/planet">Open the preserved planetary study</a></section>
+  </main>;
+}
+
+function SurvivalPagesExperience() {
+  function interceptAppLinks(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const anchor = (event.target as Element).closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute("download")) return;
+    const destination = new URL(anchor.href, window.location.href);
+    if (destination.origin !== window.location.origin) return;
+    if (destination.pathname === "/about" || destination.pathname.endsWith("/Simulation/about")) {
+      event.preventDefault();
+      window.location.hash = "#/about";
+    } else if (destination.pathname === "/planet" || destination.pathname.endsWith("/Simulation/planet")) {
+      event.preventDefault();
+      window.location.hash = "#/planet";
+    }
+  }
+  return <div className="pages-survival-root" onClickCapture={interceptAppLinks}><SurvivalExperience /></div>;
+}
+
+function PlanetRoutesLoaded({ route }: { route: PlanetRoute }) {
+  const runtime = useLoadedLocalPlanetRuntime();
 
   useEffect(() => {
     runtime.adapter?.setContinuity({
@@ -329,17 +378,32 @@ export function Router() {
   if (!runtime.adapter || !runtime.world || runtime.error) return <LoadingWorld error={runtime.error} />;
 
   if (route === "legacy") {
-    return <div className="legacy-route"><Suspense fallback={<LoadingWorld error="" />}><LegacyEraTwoApp /></Suspense><a className="return-era-three" href="#/map">Return to current observatory</a></div>;
+    return <div className="legacy-route"><Suspense fallback={<LoadingWorld error="" />}><LegacyEraTwoApp /></Suspense><a className="return-era-three" href="#/">Return to current study</a></div>;
   }
-  if (route === "history") return <PlanetHistoryPage runtime={runtime} />;
-  if (route === "about") return <AboutPage runtime={runtime} />;
+  if (route === "planetHistory") return <PlanetHistoryPage runtime={runtime} />;
+  if (route === "planetAbout") return <AboutPage runtime={runtime} />;
 
   return (
     <div className="planet-pages-route">
       <LocalWorldBar runtime={runtime} />
       <div className="pages-experience">
-        <PlanetExperience adapter={runtime.adapter} archiveHref="#/legacy" historyHref="#/history" methodHref="#/about" />
+        <LoadedPlanetExperience adapter={runtime.adapter} archiveHref="#/legacy" historyHref="#/planet-history" methodHref="#/planet-method" />
       </div>
     </div>
   );
+}
+
+export function Router() {
+  const [route, setRoute] = useState<Route>(routeFromHash);
+
+  useEffect(() => {
+    const onHashChange = () => setRoute(routeFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    if (!location.hash) window.history.replaceState(null, "", `${location.pathname}${location.search}#/`);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  if (route === "survival") return <SurvivalPagesExperience />;
+  if (route === "about") return <SurvivalMethodPage />;
+  return <Suspense fallback={<LoadingWorld error="" />}><LazyPlanetRoutes route={route} /></Suspense>;
 }

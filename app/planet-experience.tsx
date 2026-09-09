@@ -521,7 +521,7 @@ export function PlanetExperience({
         <div className={styles.brandLockup}>
           <span className={styles.brandMark} aria-hidden="true"><Orbit size={21} strokeWidth={1.7} /></span>
           <div>
-            <div className={styles.brandLine}><strong>WildGrid</strong><span>Autonomous world observatory</span></div>
+            <div className={styles.brandLine}><strong>Simulation</strong><span>Prior planetary study</span></div>
             <div className={styles.eraLine}>Longitudinal study 03 <span>· Seed {snapshot.meta.seed.toLocaleString()}</span></div>
           </div>
         </div>
@@ -1235,7 +1235,7 @@ function EntityInspector({
           <InspectorValue label="Worldview" value={belief?.name ?? "No declared system"} />
           <InspectorValue label="Location" value={coordinates(agent)} />
         </InspectorSection>
-        <p className={styles.observerNote}>WildGrid exposes the evidence behind this choice. It never supplies the choice.</p>
+        <p className={styles.observerNote}>Simulation exposes the evidence behind this choice. It never supplies the choice.</p>
       </InspectorFrame>,
     );
   }

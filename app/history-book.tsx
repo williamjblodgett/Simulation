@@ -528,7 +528,7 @@ function ChapterArticle({ chapter, previous, historyIndex, query, category, focu
     </section>
 
     <footer className="history-chapter-footer">
-      <span>Wildgrid historical ledger</span><b>{chapter.startDay} — {chapter.endDay}</b><span>Folio {String(chapter.index).padStart(2, "0")}</span>
+      <span>Simulation historical ledger</span><b>{chapter.startDay} — {chapter.endDay}</b><span>Folio {String(chapter.index).padStart(2, "0")}</span>
     </footer>
   </article>;
 }
@@ -686,8 +686,8 @@ export function HistoryBook() {
 
   return <main className="history-page">
     <header className="history-topbar">
-      <Link href="/" className="history-brand" aria-label="Wildgrid Sovereignty live map">
-        <span><Leaf /></span><div><b>WILDGRID <em>SOVEREIGNTY</em></b><small>The living history</small></div>
+      <Link href="/" className="history-brand" aria-label="Simulation current study">
+        <span><Leaf /></span><div><b>SIMULATION <em>ARCHIVE</em></b><small>Prior living history</small></div>
       </Link>
       <nav className="site-section-nav" aria-label="Site pages">
         <Link href="/"><Activity /><span>Map</span></Link>
@@ -700,7 +700,7 @@ export function HistoryBook() {
     <section className="history-hero" aria-labelledby="history-title">
       <div>
         <span className="history-kicker"><ScrollText /> A chronicle written by the world</span>
-        <h1 id="history-title">The annals of Wildgrid</h1>
+        <h1 id="history-title">The annals of the prior world</h1>
         <p>Every 200 days becomes a chapter: an evidence-based account of the powers that rose, the names that changed, the knowledge gained, the beliefs formed, and the lives caught between them.</p>
       </div>
       <dl>

@@ -129,7 +129,7 @@ export function PlanetHistoryClient() {
         {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a className={styles.brand} href="/">
           <span className={styles.brandMark}><Globe2 size={21} /></span>
-          <span><strong>WildGrid</strong><small>Era III living history</small></span>
+          <span><strong>Simulation</strong><small>Prior planetary history</small></span>
         </a>
         <nav aria-label="World sections">
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}

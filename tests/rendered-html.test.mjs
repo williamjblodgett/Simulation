@@ -91,16 +91,27 @@ async function render(pathname = "/") {
   );
 }
 
-test("server-renders the WildGrid autonomous world observatory", async () => {
+test("server-renders the focused Simulation survival observer", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>WildGrid — Autonomous World Observatory<\/title>/i);
-  assert.match(html, /Autonomous world observatory|persistent, inspectable simulation/i);
-  assert.match(html, /planet-experience/i);
+  assert.match(html, /<title>Simulation · Autonomous survival experiment<\/title>/i);
+  assert.match(html, /Preparing the survival habitat and restoring its observation record/i);
+  assert.doesNotMatch(html, /WildGrid — Autonomous World Observatory/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
+});
+
+test("server-renders the simple autonomy method page and preserved planet study", async () => {
+  const [aboutResponse, planetResponse] = await Promise.all([render("/about"), render("/planet")]);
+  assert.equal(aboutResponse.status, 200);
+  assert.equal(planetResponse.status, 200);
+  const [aboutHtml, planetHtml] = await Promise.all([aboutResponse.text(), planetResponse.text()]);
+  assert.match(aboutHtml, /How agent autonomy works · Simulation/i);
+  assert.match(aboutHtml, /The only pre-given objective|Survive as long as possible/i);
+  assert.match(aboutHtml, /Autonomous does not mean conscious/i);
+  assert.match(planetHtml, /Prior planetary study · Simulation/i);
 });
 
 test("server-renders the map-free World Archive", async () => {
@@ -109,7 +120,7 @@ test("server-renders the map-free World Archive", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>World Archive \| Wildgrid: Sovereignty<\/title>/i);
+  assert.match(html, /<title>Prior World Archive \| Simulation<\/title>/i);
   assert.match(html, /Opening the living chronicle/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
@@ -120,7 +131,7 @@ test("server-renders the map-free 200-day history book", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>The Living History \| Wildgrid: Sovereignty<\/title>/i);
+  assert.match(html, /<title>Prior Living History \| Simulation<\/title>/i);
   assert.match(html, /Opening the annals/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
@@ -160,9 +171,19 @@ test("lays out deterministic, map-contained, mutually exclusive political territ
   ], { halfSize: 30, edgeInset: 1.4, segments: 48 });
 });
 
-test("ships the Era III planet and preserves the Era II civilization archive", async () => {
-  const [page, planetExperience, planetEngine, planetCanvas, planetSummaryRoute, experience, archivePage, archive, historyPage, historyBook, styles, engine, scene, territoryLayout, route, hosting, packageJson, resetMigration] = await Promise.all([
+test("ships the focused survival observer and preserves the prior planet and civilization studies", async () => {
+  const [page, planetPage, survivalExperience, survivalRuntime, survivalWorld, survivalInspector, survivalTimeline, survivalRunView, survivalStyles, survivalEngine, survivalScene, planetExperience, planetEngine, planetCanvas, planetSummaryRoute, experience, archivePage, archive, historyPage, historyBook, styles, engine, scene, territoryLayout, route, hosting, packageJson, resetMigration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/planet/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/survival/survival-experience.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/survival/use-survival-runtime.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/survival/survival-world.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/survival/agent-inspector.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/survival/timeline-view.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/survival/run-view.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/survival/survival-experience.module.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/simulation/survival/engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/survival/scene/survival-habitat-scene.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/planet-experience.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/simulation/planet/engine.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/planet/planet-canvas.tsx", import.meta.url), "utf8"),
@@ -182,7 +203,20 @@ test("ships the Era III planet and preserves the Era II civilization archive", a
     readFile(new URL("../drizzle/0001_reset_world_history.sql", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /PlanetExperience/);
+  assert.match(page, /SurvivalExperience/);
+  assert.doesNotMatch(page, /PlanetExperience/);
+  assert.match(planetPage, /PlanetExperience/);
+  assert.match(survivalExperience, /"world"\s*\|\s*"agents"\s*\|\s*"timeline"\s*\|\s*"run"/);
+  assert.match(survivalExperience, /Simulation views|AgentRail|AgentInspector|Overview|Follow/);
+  assert.match(survivalRuntime, /simulation:survival-run:v1|setSurvivalRunPaused|advanceSurvivalRun/);
+  assert.match(survivalWorld, /createSurvivalHabitatScene|focusPosition|setActive/);
+  assert.match(survivalInspector, /Recorded intent|Latest confirmed outcome|Needs, higher is better/);
+  assert.match(survivalTimeline, /newEventCount|Historical state replay is unavailable/);
+  assert.match(survivalRunView, /\[1,2,3,4,5\][\s\S]*Start simulation/);
+  assert.match(survivalRunView, /Survive as long as possible|prior planetary study/i);
+  assert.match(survivalStyles, /safe-area-inset-bottom|prefers-reduced-motion|orientation:\s*landscape|min-width:\s*1024px/);
+  assert.match(survivalEngine, /replacement_not_available|sole_survivor_decides|requiredSuccessfulTrials/);
+  assert.match(survivalScene, /WebGLRenderer|webglcontextlost|pointerdown|setActive|focusAt/);
   assert.match(planetExperience, /Overview|People|Societies|Settlements|Research|Timeline/);
   assert.match(planetExperience, /Named autonomy evidence|Evidence.*Alternatives.*Choice.*Plan.*Outcome.*Learning/is);
   assert.match(planetExperience, /DIRECTORY_PAGE_SIZE\s*=\s*24|Living \/ active|Historical \/ ruins/i);

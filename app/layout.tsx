@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -14,30 +14,31 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://wildgrid-ai-habitat.williamjblodgett.chatgpt.site"),
-  title: "WildGrid — Autonomous World Observatory",
+  title: {
+    default: "Simulation · Autonomous survival experiment",
+    template: "%s",
+  },
   description:
-    "A persistent, inspectable simulation of autonomous lives forming families, settlements, knowledge, institutions, beliefs, and causal history without player control.",
+    "Observe up to five autonomous agents attempt to survive, learn, cooperate, and research in a shared 3D habitat.",
   openGraph: {
-    title: "WildGrid — Autonomous World Observatory",
+    title: "Simulation · Autonomous survival experiment",
     description:
-      "Observe the evidence, choices, consequences, and history of a persistent world whose inhabitants cannot be commanded.",
+      "Set the environment and one goal. The agents make the survival decisions.",
     type: "website",
-    images: [
-      {
-        url: "/og-era3-v2.png",
-        width: 1536,
-        height: 1024,
-        alt: "WildGrid overhead field atlas recording autonomous societies and individual lives",
-      },
-    ],
   },
   twitter: {
-    card: "summary_large_image",
-    title: "WildGrid — Autonomous World Observatory",
+    card: "summary",
+    title: "Simulation · Autonomous survival experiment",
     description:
-      "Observe the evidence, choices, consequences, and history of a persistent world whose inhabitants cannot be commanded.",
-    images: ["/og-era3-v2.png"],
+      "Set the environment and one goal. The agents make the survival decisions.",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#080d12",
 };
 
 export default function RootLayout({

@@ -1,5 +1,5 @@
-import { PlanetExperience } from "./planet-experience";
+import { SurvivalExperience } from "./survival/survival-experience";
 
 export default function Home() {
-  return <PlanetExperience archiveHref="/legacy" historyHref="/planet-history" />;
+  return <SurvivalExperience />;
 }

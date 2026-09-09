@@ -676,7 +676,7 @@ function SimulationApp({ initial }: { initial: LoadedWorld }) {
   };
 
   return <div className="app-shell">
-    <header className="site-header"><a className="brand" href="#/map"><span>W</span><div><b>WILDGRID</b><small>AUTONOMOUS CIVILIZATION</small></div></a><Nav route={route} />
+    <header className="site-header"><a className="brand" href="#/"><span>S</span><div><b>SIMULATION</b><small>PRIOR CIVILIZATION STUDY</small></div></a><Nav route={route} />
       <div className="header-actions"><label>Speed<select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={0}>Paused</option><option value={1}>1×</option><option value={4}>4×</option><option value={12}>12×</option></select></label><button onClick={() => void reset()}>New world</button></div>
     </header>
     <div className="local-banner"><span>●</span><b>{persistence === "memory" ? "Temporary world" : "Saved on this device"}</b><p>This GitHub Pages edition has no shared server. It keeps running while open and catches up when this browser returns.</p><em>{saved ? "SAVED" : "SAVING"}</em></div>
@@ -690,6 +690,6 @@ export function App() {
   const [error, setError] = useState("");
   useEffect(() => { loadWorld().then(setInitial).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "World could not be opened")); }, []);
   if (error) return <div className="boot"><span>!</span><h1>World unavailable</h1><p>{error}</p><button onClick={() => location.reload()}>Try again</button></div>;
-  if (!initial) return <div className="boot"><span>W</span><h1>Opening the frontier</h1><p>Restoring this device’s autonomous civilization…</p></div>;
+  if (!initial) return <div className="boot"><span>S</span><h1>Opening the prior study</h1><p>Restoring this device’s autonomous civilization record…</p></div>;
   return <SimulationApp initial={initial} />;
 }

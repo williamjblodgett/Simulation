@@ -573,8 +573,8 @@ export function CivilizationArchive() {
 
   return <main className="archive-page">
     <header className="archive-topbar">
-      <Link href="/" className="archive-brand" aria-label="Wildgrid Sovereignty live map">
-        <span><Leaf size={16} /></span><div><b>WILDGRID <em>SOVEREIGNTY</em></b><small>World archive</small></div>
+      <Link href="/" className="archive-brand" aria-label="Simulation current study">
+        <span><Leaf size={16} /></span><div><b>SIMULATION <em>ARCHIVE</em></b><small>Prior world record</small></div>
       </Link>
       <nav className="site-section-nav" aria-label="Site pages">
         <Link href="/"><Activity /><span>Map</span></Link>
@@ -592,7 +592,7 @@ export function CivilizationArchive() {
       <div className="archive-hero-copy">
         <span className="archive-kicker"><BookOpen size={12} /> The living chronicle</span>
         <h1>Every power leaves a record.</h1>
-        <p>Study the civilizations shaping Wildgrid without the map: who founded them, what they believe, how they survive, and the moments that changed their place in history.</p>
+        <p>Study the civilizations in this preserved world without the map: who founded them, what they believe, how they survive, and the moments that changed their place in history.</p>
       </div>
       <div className="archive-world-clock"><small>Current world time</small><b>{getWorldTimeLabel(world)}</b><span>History continues while this page is open.</span></div>
     </section>
@@ -667,6 +667,6 @@ export function CivilizationArchive() {
       </div> : <div className="archive-no-beliefs"><Sparkles /><h3>No shared belief has formed yet.</h3><p>The founders are free to remain secular. This archive will document any movement they choose to create.</p></div>}
     </section>
 
-    <footer className="archive-footer"><span>Wildgrid records autonomous outcomes, not predetermined destinies.</span><div><Link href="/history"><ScrollText />Read the history<ChevronRight /></Link><Link href="/"><Activity />Watch the world live<ChevronRight /></Link></div></footer>
+    <footer className="archive-footer"><span>Simulation records autonomous outcomes, not predetermined destinies.</span><div><Link href="/history"><ScrollText />Read the history<ChevronRight /></Link><Link href="/"><Activity />Open the current study<ChevronRight /></Link></div></footer>
   </main>;
 }

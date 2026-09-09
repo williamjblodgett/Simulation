@@ -1,0 +1,412 @@
+/**
+ * JSON-safe contracts for the focused survival experiment.
+ *
+ * The observer may change playback and add an agent through the explicit
+ * intervention API. Everything else in this file is simulation state. There
+ * are deliberately no personality, profession, job, or assigned-strategy
+ * fields on an agent.
+ */
+
+export type SurvivalSeed = number | string;
+export type AgentLimit = 1 | 2 | 3 | 4 | 5;
+export type ResourceAbundance = "scarce" | "balanced" | "plentiful";
+export type ClimateVolatility = "stable" | "variable" | "harsh";
+export type RunStatus = "running" | "paused" | "completed" | "extinct";
+export type WeatherKind = "clear" | "overcast" | "rain" | "storm" | "cold_snap" | "heat_wave";
+
+export interface SurvivalPosition {
+  x: number;
+  z: number;
+}
+
+export interface SurvivalObjective {
+  kind: "survive";
+  statement: "Survive as long as possible.";
+}
+
+export interface SurvivalRunOptions {
+  agentCount?: AgentLimit;
+  agentCap?: AgentLimit;
+  durationHours?: number | null;
+  resourceAbundance?: ResourceAbundance;
+  climateVolatility?: ClimateVolatility;
+  worldSize?: number;
+}
+
+export interface SurvivalRunConfig {
+  initialAgentCount: AgentLimit;
+  agentCap: AgentLimit;
+  durationHours: number | null;
+  resourceAbundance: ResourceAbundance;
+  climateVolatility: ClimateVolatility;
+  worldSize: number;
+  stepMinutes: 10;
+  objective: SurvivalObjective;
+}
+
+export type SurvivalResourceKind =
+  | "freshwater"
+  | "food"
+  | "wood"
+  | "stone"
+  | "fiber"
+  | "herbs"
+  | "clay";
+
+export type SurvivalInventory = Record<SurvivalResourceKind, number>;
+
+export interface SurvivalResourceSite {
+  id: string;
+  kind: SurvivalResourceKind;
+  position: SurvivalPosition;
+  quantity: number;
+  capacity: number;
+  regenerationPerDay: number;
+  contaminated: boolean;
+}
+
+export type SurvivalStructureKind = "shelter" | "fire" | "storage";
+
+export interface SurvivalStructure {
+  id: string;
+  kind: SurvivalStructureKind;
+  position: SurvivalPosition;
+  builtAt: number;
+  builderIds: string[];
+  condition: number;
+  stored: SurvivalInventory;
+}
+
+export interface SurvivalEnvironment {
+  size: number;
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+  daylight: number;
+  temperatureC: number;
+  weather: WeatherKind;
+  weatherChangedAt: number;
+  resources: SurvivalResourceSite[];
+  structures: SurvivalStructure[];
+}
+
+/** All values use one direction: 100 is best and 0 is worst. */
+export interface SurvivalNeeds {
+  health: number;
+  hydration: number;
+  nutrition: number;
+  energy: number;
+  warmth: number;
+  safety: number;
+}
+
+export type AgentObservationKind = "resource" | "agent" | "weather" | "structure" | "outcome";
+export type FactValue = string | number | boolean | null;
+
+export interface AgentObservation {
+  id: string;
+  observerId: string;
+  kind: AgentObservationKind;
+  subjectId: string;
+  observedAt: number;
+  position: SurvivalPosition | null;
+  confidence: number;
+  facts: Record<string, FactValue>;
+}
+
+export interface AgentMemory {
+  id: string;
+  recordedAt: number;
+  action: SurvivalActionKind;
+  targetId: string | null;
+  result: "helpful" | "neutral" | "harmful" | "failed";
+  utility: number;
+  summary: string;
+}
+
+export interface AgentLearning {
+  context: string;
+  attempts: number;
+  expectedUtility: number;
+  updatedAt: number;
+}
+
+export interface AgentRelationship {
+  agentId: string;
+  trust: number;
+  encounters: number;
+  aidGiven: number;
+  aidReceived: number;
+  lastInteractionAt: number;
+}
+
+export type AgentGoalKind =
+  | "secure_water"
+  | "secure_food"
+  | "recover"
+  | "stay_warm"
+  | "seek_safety"
+  | "explore"
+  | "gather_material"
+  | "build_shelter"
+  | "research"
+  | "share"
+  | "request_help"
+  | "cooperate"
+  | "wait";
+
+export type SurvivalActionKind =
+  | "move"
+  | "collect"
+  | "drink"
+  | "eat"
+  | "rest"
+  | "warm"
+  | "shelter"
+  | "explore"
+  | "gather"
+  | "build"
+  | "prepare_experiment"
+  | "test_hypothesis"
+  | "review_evidence"
+  | "share"
+  | "request"
+  | "cooperate"
+  | "wait";
+
+export interface AgentDecisionCandidate {
+  goal: AgentGoalKind;
+  targetId: string | null;
+  score: number;
+  expectedBenefit: number;
+  risk: number;
+  knownObservationIds: string[];
+  summary: string;
+}
+
+/** A factual decision record, not hidden chain-of-thought or consciousness. */
+export interface AgentDeliberation {
+  id: string;
+  decidedAt: number;
+  selectedGoal: AgentGoalKind;
+  candidates: AgentDecisionCandidate[];
+  knownObservationIds: string[];
+  uncertainty: number;
+  recordedIntent: string;
+}
+
+export type PlanStepStatus = "pending" | "active" | "complete" | "failed";
+
+export interface SurvivalPlanStep {
+  id: string;
+  action: SurvivalActionKind;
+  targetId: string | null;
+  destination: SurvivalPosition | null;
+  remainingSteps: number;
+  status: PlanStepStatus;
+}
+
+export interface SurvivalPlan {
+  id: string;
+  formedAt: number;
+  goal: AgentGoalKind;
+  targetId: string | null;
+  targetPosition: SurvivalPosition | null;
+  status: "active" | "complete" | "failed" | "abandoned";
+  rationale: string;
+  activeStepIndex: number;
+  steps: SurvivalPlanStep[];
+}
+
+export interface SurvivalCurrentAction {
+  kind: SurvivalActionKind;
+  status: "moving" | "acting" | "resting" | "awaiting_decision" | "blocked" | "complete";
+  targetId: string | null;
+  startedAt: number;
+  updatedAt: number;
+}
+
+export interface SurvivalActionOutcome {
+  tick: number;
+  action: SurvivalActionKind;
+  targetId: string | null;
+  success: boolean;
+  utility: number;
+  summary: string;
+}
+
+export type TechnologyId =
+  | "controlled_fire"
+  | "knapped_edge"
+  | "twisted_cordage"
+  | "fired_vessel"
+  | "water_boiling"
+  | "food_smoking"
+  | "herbal_poultice";
+
+export interface ResearchDefinition {
+  id: TechnologyId;
+  discoveryName: string;
+  hypothesisTemplate: string;
+  /** Small modeled consequence used by the survival loop after confirmation. */
+  survivalEffect: string;
+  inputs: Partial<SurvivalInventory>;
+  prerequisiteTechnologies: TechnologyId[];
+  requiredObservations: SurvivalResourceKind[];
+  procedure: string[];
+  requiredSuccessfulTrials: number;
+  difficulty: number;
+}
+
+export interface ResearchAttempt {
+  id: string;
+  attemptedAt: number;
+  agentId: string;
+  hypothesis: string;
+  materialsConsumed: Partial<SurvivalInventory>;
+  procedure: string[];
+  observationIds: string[];
+  result: "supported" | "not_supported";
+  evidence: string;
+  utility: number;
+}
+
+export interface AgentResearchProject {
+  id: string;
+  technologyId: TechnologyId;
+  hypothesis: string;
+  startedAt: number;
+  status: "testing" | "confirmed";
+  attempts: ResearchAttempt[];
+  successfulTrials: number;
+  requiredSuccessfulTrials: number;
+  confidence: number;
+  discoveredAt: number | null;
+}
+
+export interface SurvivalAgent {
+  id: string;
+  label: `A${AgentLimit}`;
+  slot: AgentLimit;
+  /** Increments when a deceased occupant's visual slot is reused. */
+  slotGeneration: number;
+  name: string;
+  spawnSource: "initial" | "observer" | "autonomous_companion";
+  spawnedAt: number;
+  alive: boolean;
+  diedAt: number | null;
+  causeOfDeath: string | null;
+  position: SurvivalPosition;
+  needs: SurvivalNeeds;
+  inventory: SurvivalInventory;
+  observations: AgentObservation[];
+  memory: AgentMemory[];
+  learning: AgentLearning[];
+  relationships: AgentRelationship[];
+  technologies: TechnologyId[];
+  research: AgentResearchProject[];
+  currentDeliberation: AgentDeliberation | null;
+  currentPlan: SurvivalPlan | null;
+  currentAction: SurvivalCurrentAction;
+  lastOutcome: SurvivalActionOutcome | null;
+}
+
+export type SurvivalEventType =
+  | "run_started"
+  | "agent_added"
+  | "agent_died"
+  | "decision_recorded"
+  | "action_outcome"
+  | "resource_observed"
+  | "structure_built"
+  | "social_proposal"
+  | "social_accepted"
+  | "social_refused"
+  | "experiment"
+  | "discovery"
+  | "sole_survivor_decision"
+  | "run_completed"
+  | "run_extinct";
+
+export type SurvivalEventCategory = "run" | "agent" | "survival" | "social" | "research" | "environment";
+
+export interface SurvivalEvent {
+  id: string;
+  tick: number;
+  day: number;
+  type: SurvivalEventType;
+  category: SurvivalEventCategory;
+  agentIds: string[];
+  summary: string;
+  outcome: string;
+  position: SurvivalPosition | null;
+  facts: Record<string, FactValue>;
+  intervention: boolean;
+}
+
+export interface SoleSurvivorState {
+  epoch: number;
+  previousLivingCount: number;
+  agentId: string | null;
+  decidedAt: number | null;
+  decision: "requested" | "declined" | null;
+  rationale: string | null;
+  companionAgentId: string | null;
+}
+
+export interface SurvivalRunStats {
+  livingAgents: number;
+  peakLivingAgents: number;
+  totalAgentsIntroduced: number;
+  deaths: number;
+  decisions: number;
+  experiments: number;
+  discoveries: number;
+  observerInterventions: number;
+  /** Exact high-water counts used to validate deterministic ID sequences. */
+  planSteps: number;
+  memories: number;
+}
+
+export interface SurvivalEventWindow {
+  /** Maximum number of recent events retained inside the run checkpoint. */
+  capacity: number;
+  /** Total events emitted since the run began, including archived/dropped rows. */
+  totalEvents: number;
+  /** Oldest events no longer held in `events`; archive `advance.events` externally if needed. */
+  droppedEvents: number;
+  firstRetainedTick: number | null;
+}
+
+export interface SurvivalRunState {
+  schemaVersion: 1;
+  id: string;
+  seed: number;
+  seedLabel: string;
+  config: SurvivalRunConfig;
+  status: RunStatus;
+  tick: number;
+  elapsedMinutes: number;
+  day: number;
+  timeOfDay: number;
+  environment: SurvivalEnvironment;
+  agents: SurvivalAgent[];
+  /** Bounded, chronological recent-event window. */
+  events: SurvivalEvent[];
+  eventWindow: SurvivalEventWindow;
+  stats: SurvivalRunStats;
+  nextIds: Record<"agent" | "event" | "decision" | "plan" | "step" | "memory" | "project" | "attempt" | "structure", number>;
+  soleSurvivor: SoleSurvivorState;
+}
+
+export interface SurvivalAdvanceResult {
+  state: SurvivalRunState;
+  events: SurvivalEvent[];
+  stepsProcessed: number;
+}
+
+export interface AddObserverAgentResult {
+  ok: boolean;
+  state: SurvivalRunState;
+  agent: SurvivalAgent | null;
+  event: SurvivalEvent | null;
+  reason?: "agent_cap_reached" | "run_completed" | "replacement_not_available" | "sole_survivor_decides";
+}

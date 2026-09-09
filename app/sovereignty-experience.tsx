@@ -1481,7 +1481,7 @@ export function SovereigntyExperience() {
       <header className="sov-topbar">
         <div className="sov-brand">
           <span className="sov-brand-mark"><Leaf size={16} /></span>
-          <div><div className="sov-brand-name">WILDGRID <span>SOVEREIGNTY</span></div><div className="sov-brand-sub">200 × 200 autonomous frontier</div></div>
+          <div><div className="sov-brand-name">SIMULATION <span>ARCHIVE</span></div><div className="sov-brand-sub">Prior autonomous frontier</div></div>
         </div>
         <div className="sov-top-stats" aria-label="World status">
           <div className="sov-stat"><span>World time</span><b>{getWorldTimeLabel(hud)}</b></div>

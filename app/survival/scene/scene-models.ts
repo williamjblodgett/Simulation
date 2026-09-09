@@ -1,0 +1,745 @@
+import * as THREE from "three";
+import {
+  SURVIVAL_AGENT_COLORS,
+  SURVIVAL_AGENT_IDS,
+  type HabitatAgentVisual,
+  type HabitatCarriedItemKind,
+  type HabitatPoint,
+  type HabitatResourceKind,
+  type HabitatResourceVisual,
+  type HabitatShelterVisual,
+  type HabitatToolKind,
+  type SurvivalAgentId,
+} from "./types";
+
+type HeightAt = (point: HabitatPoint) => number;
+
+export function disposeObject(root: THREE.Object3D) {
+  root.traverse((object) => {
+    if (
+      !(
+        object instanceof THREE.Mesh ||
+        object instanceof THREE.Sprite ||
+        object instanceof THREE.Points ||
+        object instanceof THREE.Line
+      )
+    ) {
+      return;
+    }
+    object.geometry?.dispose();
+    const materialOrMaterials = object.material;
+    const materials = Array.isArray(materialOrMaterials) ? materialOrMaterials : [materialOrMaterials];
+    for (const material of materials) {
+      for (const value of Object.values(material)) {
+        if (value instanceof THREE.Texture) value.dispose();
+      }
+      material.dispose();
+    }
+  });
+}
+
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+const RESOURCE_COLORS: Record<HabitatResourceKind, string> = {
+  freshwater: "#4fa9c5",
+  food: "#d96c58",
+  timber: "#846044",
+  stone: "#818b8c",
+  fiber: "#b6bd6d",
+  medicine: "#d58fc8",
+  clay: "#b96d51",
+  ore: "#8ea6ad",
+};
+
+function resourceGeometry(kind: HabitatResourceKind): THREE.BufferGeometry {
+  switch (kind) {
+    case "freshwater":
+      return new THREE.CylinderGeometry(0.58, 0.58, 0.11, 20);
+    case "food":
+      return new THREE.IcosahedronGeometry(0.38, 1);
+    case "timber":
+      return new THREE.CylinderGeometry(0.22, 0.27, 1.05, 7);
+    case "stone":
+      return new THREE.DodecahedronGeometry(0.48, 0);
+    case "fiber":
+      return new THREE.ConeGeometry(0.4, 1.05, 7);
+    case "medicine":
+      return new THREE.OctahedronGeometry(0.4, 0);
+    case "clay":
+      return new THREE.SphereGeometry(0.43, 10, 7);
+    case "ore":
+      return new THREE.TetrahedronGeometry(0.5, 1);
+  }
+}
+
+export interface ResourceCollection {
+  group: THREE.Group;
+  sync(nodes: HabitatResourceVisual[], heightAt: HeightAt): void;
+  dispose(): void;
+}
+
+export function createResourceCollection(): ResourceCollection {
+  const group = new THREE.Group();
+  group.name = "authoritative-resource-nodes";
+  const meshes = new Map<HabitatResourceKind, THREE.InstancedMesh>();
+
+  const sync = (nodes: HabitatResourceVisual[], heightAt: HeightAt) => {
+    const byKind = new Map<HabitatResourceKind, HabitatResourceVisual[]>();
+    for (const node of nodes) {
+      if (node.visible === false || node.available <= 0) continue;
+      const list = byKind.get(node.kind) ?? [];
+      list.push(node);
+      byKind.set(node.kind, list);
+    }
+
+    for (const kind of Object.keys(RESOURCE_COLORS) as HabitatResourceKind[]) {
+      const visibleNodes = byKind.get(kind) ?? [];
+      let mesh = meshes.get(kind);
+      if (!mesh || mesh.instanceMatrix.count < Math.max(1, visibleNodes.length)) {
+        if (mesh) {
+          group.remove(mesh);
+          disposeObject(mesh);
+        }
+        mesh = new THREE.InstancedMesh(
+          resourceGeometry(kind),
+          new THREE.MeshStandardMaterial({
+            color: RESOURCE_COLORS[kind],
+            roughness: kind === "freshwater" ? 0.26 : 0.82,
+            metalness: kind === "ore" ? 0.32 : 0.02,
+            emissive: RESOURCE_COLORS[kind],
+            emissiveIntensity: 0.025,
+          }),
+          Math.max(1, visibleNodes.length),
+        );
+        mesh.name = `instanced-resource-${kind}`;
+        mesh.castShadow = kind !== "freshwater";
+        mesh.receiveShadow = true;
+        meshes.set(kind, mesh);
+        group.add(mesh);
+      }
+      const dummy = new THREE.Object3D();
+      visibleNodes.forEach((node, index) => {
+        const scale = THREE.MathUtils.lerp(0.48, 1.05, clamp01(node.available));
+        const y = heightAt(node.position);
+        dummy.position.set(node.position.x, y + (kind === "freshwater" ? 0.48 : 0.5 * scale), node.position.z);
+        dummy.rotation.set(
+          kind === "timber" ? Math.PI / 2 : 0,
+          ((index * 2.399963 + node.position.x * 0.1) % (Math.PI * 2)),
+          kind === "timber" ? 0.24 : 0,
+        );
+        dummy.scale.setScalar(scale);
+        dummy.updateMatrix();
+        mesh?.setMatrixAt(index, dummy.matrix);
+      });
+      mesh.count = visibleNodes.length;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    }
+  };
+
+  return {
+    group,
+    sync,
+    dispose: () => disposeObject(group),
+  };
+}
+
+interface ShelterModel {
+  root: THREE.Group;
+  stage: HabitatShelterVisual["stage"];
+  fire: THREE.Group | null;
+  shellMaterials: THREE.MeshStandardMaterial[];
+}
+
+function addLog(
+  parent: THREE.Object3D,
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  radius = 0.1,
+  material = new THREE.MeshStandardMaterial({ color: "#76563c", roughness: 1 }),
+) {
+  const direction = new THREE.Vector3().subVectors(to, from);
+  const length = direction.length();
+  const log = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 1.08, length, 7), material);
+  log.position.copy(from).add(to).multiplyScalar(0.5);
+  log.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  log.castShadow = true;
+  log.receiveShadow = true;
+  parent.add(log);
+  return log;
+}
+
+function createFire() {
+  const fire = new THREE.Group();
+  fire.name = "lit-fire";
+  const stoneMaterial = new THREE.MeshStandardMaterial({ color: "#5f625e", roughness: 0.95 });
+  for (let index = 0; index < 7; index += 1) {
+    const stone = new THREE.Mesh(new THREE.DodecahedronGeometry(0.12, 0), stoneMaterial);
+    const angle = (index / 7) * Math.PI * 2;
+    stone.position.set(Math.cos(angle) * 0.38, 0.1, Math.sin(angle) * 0.38);
+    fire.add(stone);
+  }
+  const flameMaterial = new THREE.MeshBasicMaterial({ color: "#f6a84d" });
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.64, 7), flameMaterial);
+  flame.name = "flame";
+  flame.position.y = 0.38;
+  fire.add(flame);
+  const glow = new THREE.PointLight("#ffac55", 0.8, 8, 2);
+  glow.position.y = 0.55;
+  fire.add(glow);
+  return fire;
+}
+
+function createShelterModel(shelter: HabitatShelterVisual): ShelterModel {
+  const root = new THREE.Group();
+  root.name = `shelter-${shelter.id}`;
+  const wood = new THREE.MeshStandardMaterial({ color: "#76563c", roughness: 0.96 });
+  const fabric = new THREE.MeshStandardMaterial({ color: "#807763", roughness: 0.93, side: THREE.DoubleSide });
+  const wall = new THREE.MeshStandardMaterial({ color: "#846c4d", roughness: 0.94 });
+  const roof = new THREE.MeshStandardMaterial({ color: "#475743", roughness: 1, side: THREE.DoubleSide });
+  const shellMaterials = [wood, fabric, wall, roof];
+
+  if (shelter.stage !== "fire") {
+    addLog(root, new THREE.Vector3(-1.15, 0.1, -0.75), new THREE.Vector3(1.15, 0.1, -0.75), 0.1, wood);
+    addLog(root, new THREE.Vector3(-1.15, 0.1, 0.75), new THREE.Vector3(1.15, 0.1, 0.75), 0.1, wood);
+  }
+
+  if (shelter.stage === "lean-to") {
+    addLog(root, new THREE.Vector3(-1, 0.05, -0.7), new THREE.Vector3(-1, 1.55, 0.5), 0.1, wood);
+    addLog(root, new THREE.Vector3(1, 0.05, -0.7), new THREE.Vector3(1, 1.55, 0.5), 0.1, wood);
+    addLog(root, new THREE.Vector3(-1, 1.55, 0.5), new THREE.Vector3(1, 1.55, 0.5), 0.1, wood);
+    const cover = new THREE.Mesh(new THREE.PlaneGeometry(2.35, 1.85), fabric);
+    cover.position.set(0, 0.93, -0.08);
+    cover.rotation.x = -0.89;
+    cover.castShadow = true;
+    root.add(cover);
+  } else if (shelter.stage === "shelter" || shelter.stage === "cabin") {
+    const height = shelter.stage === "cabin" ? 1.8 : 1.45;
+    const building = new THREE.Mesh(new THREE.BoxGeometry(2.35, height, 1.8), wall);
+    building.position.y = height * 0.5;
+    building.castShadow = true;
+    building.receiveShadow = true;
+    root.add(building);
+    const roofSideA = new THREE.Mesh(new THREE.BoxGeometry(2.65, 0.12, 1.35), roof);
+    roofSideA.position.set(0, height + 0.48, -0.52);
+    roofSideA.rotation.x = -0.65;
+    roofSideA.castShadow = true;
+    root.add(roofSideA);
+    const roofSideB = roofSideA.clone();
+    roofSideB.position.z = 0.52;
+    roofSideB.rotation.x = 0.65;
+    root.add(roofSideB);
+    const door = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.55, 0.92),
+      new THREE.MeshStandardMaterial({ color: "#3f332a", roughness: 1 }),
+    );
+    door.position.set(0, 0.48, 0.906);
+    root.add(door);
+    if (shelter.stage === "cabin") {
+      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.9, 0.32), wall);
+      chimney.position.set(0.65, height + 0.45, -0.28);
+      chimney.castShadow = true;
+      root.add(chimney);
+    }
+  }
+
+  const primaryOwner = shelter.ownerIds.find((id) => SURVIVAL_AGENT_IDS.includes(id));
+  if (primaryOwner) {
+    const flag = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.55, 0.32),
+      new THREE.MeshBasicMaterial({ color: SURVIVAL_AGENT_COLORS[primaryOwner], side: THREE.DoubleSide }),
+    );
+    const pole = addLog(root, new THREE.Vector3(-1.15, 0, -0.72), new THREE.Vector3(-1.15, 2.35, -0.72), 0.035, wood);
+    pole.castShadow = false;
+    flag.position.set(-0.86, 2.13, -0.72);
+    root.add(flag);
+  }
+
+  const fire = shelter.fireLit || shelter.stage === "fire" ? createFire() : null;
+  if (fire) {
+    fire.position.set(0, 0, shelter.stage === "fire" ? 0 : 1.35);
+    root.add(fire);
+  }
+  return { root, stage: shelter.stage, fire, shellMaterials };
+}
+
+export interface ShelterCollection {
+  group: THREE.Group;
+  sync(shelters: HabitatShelterVisual[], heightAt: HeightAt): void;
+  animate(timeSeconds: number, reducedMotion: boolean): void;
+  dispose(): void;
+}
+
+export function createShelterCollection(): ShelterCollection {
+  const group = new THREE.Group();
+  group.name = "authoritative-shelters";
+  const models = new Map<string, ShelterModel>();
+
+  const sync = (shelters: HabitatShelterVisual[], heightAt: HeightAt) => {
+    const incomingIds = new Set(shelters.map((shelter) => shelter.id));
+    for (const [id, model] of models) {
+      if (incomingIds.has(id)) continue;
+      group.remove(model.root);
+      disposeObject(model.root);
+      models.delete(id);
+    }
+
+    for (const shelter of shelters) {
+      let model = models.get(shelter.id);
+      const fireMismatch = Boolean(model?.fire) !== Boolean(shelter.fireLit);
+      if (!model || model.stage !== shelter.stage || fireMismatch) {
+        if (model) {
+          group.remove(model.root);
+          disposeObject(model.root);
+        }
+        model = createShelterModel(shelter);
+        models.set(shelter.id, model);
+        group.add(model.root);
+      }
+      model.root.position.set(
+        shelter.position.x,
+        heightAt(shelter.position) + 0.03,
+        shelter.position.z,
+      );
+      model.root.rotation.y = -shelter.heading;
+      const constructionScale = THREE.MathUtils.lerp(0.35, 1, clamp01(shelter.progress));
+      model.root.scale.set(1, constructionScale, 1);
+      const integrity = clamp01(shelter.integrity);
+      for (const material of model.shellMaterials) {
+        material.roughness = THREE.MathUtils.lerp(1, 0.82, integrity);
+      }
+    }
+  };
+
+  const animate = (timeSeconds: number, reducedMotion: boolean) => {
+    if (reducedMotion) return;
+    for (const model of models.values()) {
+      const flame = model.fire?.getObjectByName("flame");
+      if (flame) {
+        const flicker = 0.92 + Math.sin(timeSeconds * 11 + model.root.position.x) * 0.08;
+        flame.scale.set(flicker, 0.9 + Math.sin(timeSeconds * 8.3) * 0.12, flicker);
+      }
+    }
+  };
+
+  return {
+    group,
+    sync,
+    animate,
+    dispose: () => disposeObject(group),
+  };
+}
+
+function createLabelTexture(id: SurvivalAgentId, color: string) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 160;
+  canvas.height = 80;
+  const context = canvas.getContext("2d");
+  if (context) {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "rgba(8, 13, 18, 0.88)";
+    context.beginPath();
+    context.roundRect(22, 12, 116, 56, 22);
+    context.fill();
+    context.strokeStyle = color;
+    context.lineWidth = 6;
+    context.stroke();
+    context.font = "700 34px system-ui, sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillStyle = "#f3f6fa";
+    context.fillText(id, 80, 40);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  return texture;
+}
+
+function makeLimb(material: THREE.MeshStandardMaterial, length = 0.62) {
+  const limb = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.105, length, 7), material);
+  limb.geometry.translate(0, -length * 0.5, 0);
+  limb.castShadow = true;
+  return limb;
+}
+
+function createTool(kind: HabitatToolKind) {
+  const group = new THREE.Group();
+  group.name = `tool-${kind}`;
+  if (kind === "none") return group;
+  const wood = new THREE.MeshStandardMaterial({ color: "#77543a", roughness: 0.95 });
+  const metal = new THREE.MeshStandardMaterial({ color: "#9aa5a8", roughness: 0.38, metalness: 0.5 });
+  const paper = new THREE.MeshStandardMaterial({ color: "#d7cba7", roughness: 0.9 });
+  const glass = new THREE.MeshPhysicalMaterial({ color: "#73b9c8", roughness: 0.12, transparent: true, opacity: 0.72 });
+  if (["axe", "pick", "hammer", "knife", "torch"].includes(kind)) {
+    const handleLength = kind === "knife" ? 0.34 : 0.78;
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, handleLength, 7), wood);
+    handle.position.y = -handleLength * 0.45;
+    group.add(handle);
+    if (kind === "axe") {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.25, 0.08), metal);
+      blade.position.set(0.13, 0, 0);
+      blade.rotation.z = -0.25;
+      group.add(blade);
+    } else if (kind === "pick") {
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.6, 6), metal);
+      head.rotation.z = Math.PI / 2;
+      group.add(head);
+    } else if (kind === "hammer") {
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.18, 0.18), metal);
+      group.add(head);
+    } else if (kind === "knife") {
+      const blade = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.38, 5), metal);
+      blade.position.y = 0.25;
+      group.add(blade);
+    } else {
+      const flame = new THREE.Mesh(
+        new THREE.ConeGeometry(0.12, 0.36, 7),
+        new THREE.MeshBasicMaterial({ color: "#ffad52" }),
+      );
+      flame.position.y = 0.18;
+      group.add(flame);
+    }
+  } else if (kind === "notebook") {
+    const notebook = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.54), paper);
+    notebook.rotation.x = 0.42;
+    group.add(notebook);
+  } else if (kind === "test-vessel") {
+    const vessel = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.17, 0.43, 10), glass);
+    group.add(vessel);
+  } else if (kind === "container") {
+    const container = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.19, 0.42, 10), wood);
+    group.add(container);
+  } else if (kind === "medicine") {
+    const bundle = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2, 0), new THREE.MeshStandardMaterial({ color: "#d58fc8" }));
+    group.add(bundle);
+  }
+  group.traverse((object) => {
+    if (object instanceof THREE.Mesh) object.castShadow = true;
+  });
+  return group;
+}
+
+function createCarriedItem(kind: HabitatCarriedItemKind, customColor?: string) {
+  const color = customColor ?? RESOURCE_COLORS[kind === "water" ? "freshwater" : kind === "unknown" ? "stone" : kind];
+  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.78 });
+  if (kind === "timber") {
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.72, 7), material);
+    log.rotation.z = Math.PI / 2;
+    return log;
+  }
+  if (kind === "water") return new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.42, 10), material);
+  if (kind === "fiber") return new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.62, 7), material);
+  if (kind === "food" || kind === "medicine") return new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), material);
+  return new THREE.Mesh(new THREE.DodecahedronGeometry(0.23, 0), material);
+}
+
+interface AgentModel {
+  id: SurvivalAgentId;
+  root: THREE.Group;
+  actor: THREE.Group;
+  leftArm: THREE.Mesh;
+  rightArm: THREE.Mesh;
+  selection: THREE.Mesh;
+  statusDisc: THREE.Mesh;
+  label: THREE.Sprite;
+  target: THREE.Vector3;
+  desiredHeading: number;
+  data: HabitatAgentVisual;
+  toolAnchor: THREE.Group;
+  toolKind: HabitatToolKind;
+  carryAnchor: THREE.Group;
+  carriedKind: HabitatCarriedItemKind | null;
+  carriedColor: string | undefined;
+  intentLine: THREE.Line<THREE.BufferGeometry, THREE.LineDashedMaterial>;
+}
+
+function createAgentModel(agent: HabitatAgentVisual): AgentModel {
+  const color = SURVIVAL_AGENT_COLORS[agent.id];
+  const root = new THREE.Group();
+  root.name = `agent-${agent.id}`;
+  root.userData.agentId = agent.id;
+  const actor = new THREE.Group();
+  root.add(actor);
+
+  const clothing = new THREE.MeshStandardMaterial({ color: "#273844", roughness: 0.88 });
+  const identity = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.08,
+    roughness: 0.72,
+  });
+  const skin = new THREE.MeshStandardMaterial({ color: "#b78363", roughness: 0.86 });
+  const boots = new THREE.MeshStandardMaterial({ color: "#24272a", roughness: 0.96 });
+
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.45, 0.9, 7), clothing);
+  torso.position.y = 1.25;
+  torso.castShadow = true;
+  actor.add(torso);
+  const mantle = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.34, 0.26, 7), identity);
+  mantle.position.y = 1.65;
+  mantle.castShadow = true;
+  actor.add(mantle);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 14, 10), skin);
+  head.position.y = 2.02;
+  head.castShadow = true;
+  actor.add(head);
+  const headband = new THREE.Mesh(new THREE.TorusGeometry(0.275, 0.045, 7, 18), identity);
+  headband.position.y = 2.08;
+  headband.rotation.x = Math.PI / 2;
+  actor.add(headband);
+
+  for (const side of [-1, 1]) {
+    const leg = makeLimb(boots, 0.68);
+    leg.position.set(side * 0.19, 0.86, 0);
+    actor.add(leg);
+  }
+  const leftArm = makeLimb(clothing, 0.64);
+  leftArm.position.set(-0.42, 1.57, 0);
+  leftArm.rotation.z = -0.13;
+  actor.add(leftArm);
+  const rightArm = makeLimb(clothing, 0.64);
+  rightArm.position.set(0.42, 1.57, 0);
+  rightArm.rotation.z = 0.13;
+  actor.add(rightArm);
+
+  const toolAnchor = new THREE.Group();
+  toolAnchor.position.set(0, -0.62, 0);
+  rightArm.add(toolAnchor);
+  const carryAnchor = new THREE.Group();
+  carryAnchor.position.set(-0.52, 1.24, 0.15);
+  actor.add(carryAnchor);
+
+  const selection = new THREE.Mesh(
+    new THREE.RingGeometry(0.65, 0.79, 32),
+    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }),
+  );
+  selection.rotation.x = -Math.PI / 2;
+  selection.position.y = 0.035;
+  selection.visible = false;
+  root.add(selection);
+  const statusDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(0.58, 28),
+    new THREE.MeshBasicMaterial({ color: "#17232f", transparent: true, opacity: 0.46, depthWrite: false }),
+  );
+  statusDisc.rotation.x = -Math.PI / 2;
+  statusDisc.position.y = 0.02;
+  root.add(statusDisc);
+
+  const intentGeometry = new THREE.BufferGeometry();
+  intentGeometry.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
+  const intentLine = new THREE.Line(
+    intentGeometry,
+    new THREE.LineDashedMaterial({
+      color,
+      transparent: true,
+      opacity: 0.64,
+      dashSize: 0.42,
+      gapSize: 0.28,
+      depthWrite: false,
+    }),
+  );
+  intentLine.name = `recorded-target-${agent.id}`;
+  intentLine.visible = false;
+
+  const labelMaterial = new THREE.SpriteMaterial({
+    map: createLabelTexture(agent.id, color),
+    transparent: true,
+    depthTest: false,
+  });
+  const label = new THREE.Sprite(labelMaterial);
+  label.name = `agent-label-${agent.id}`;
+  const identityIndex = Math.max(0, SURVIVAL_AGENT_IDS.indexOf(agent.id));
+  // Agents can truthfully converge on the same resource or conversation.
+  // Stagger only their screen-facing ID plates so every co-located record
+  // remains identifiable without moving the simulated bodies.
+  label.position.y = 2.72 + identityIndex * 0.28;
+  label.scale.set(1.5, 0.75, 1);
+  label.renderOrder = 12;
+  root.add(label);
+
+  root.traverse((object) => {
+    object.userData.agentId = agent.id;
+  });
+  return {
+    id: agent.id,
+    root,
+    actor,
+    leftArm,
+    rightArm,
+    selection,
+    statusDisc,
+    label,
+    target: new THREE.Vector3(),
+    desiredHeading: agent.heading,
+    data: agent,
+    toolAnchor,
+    toolKind: "none",
+    carryAnchor,
+    carriedKind: null,
+    carriedColor: undefined,
+    intentLine,
+  };
+}
+
+function replaceTool(model: AgentModel, kind: HabitatToolKind) {
+  if (model.toolKind === kind) return;
+  for (const child of [...model.toolAnchor.children]) {
+    model.toolAnchor.remove(child);
+    disposeObject(child);
+  }
+  if (kind !== "none") model.toolAnchor.add(createTool(kind));
+  model.toolKind = kind;
+}
+
+function replaceCarriedItem(model: AgentModel, agent: HabitatAgentVisual) {
+  const kind = agent.carriedItem?.kind ?? null;
+  const color = agent.carriedItem?.color;
+  if (model.carriedKind === kind && model.carriedColor === color) return;
+  for (const child of [...model.carryAnchor.children]) {
+    model.carryAnchor.remove(child);
+    disposeObject(child);
+  }
+  if (kind) {
+    const item = createCarriedItem(kind, color);
+    item.castShadow = true;
+    model.carryAnchor.add(item);
+  }
+  model.carriedKind = kind;
+  model.carriedColor = color;
+}
+
+export interface AgentCollection {
+  group: THREE.Group;
+  sync(agents: HabitatAgentVisual[], selectedId: SurvivalAgentId | null, heightAt: HeightAt): void;
+  animate(timeSeconds: number, reducedMotion: boolean): void;
+  positionOf(id: SurvivalAgentId): THREE.Vector3 | null;
+  raycast(raycaster: THREE.Raycaster): SurvivalAgentId | null;
+  dispose(): void;
+}
+
+export function createAgentCollection(): AgentCollection {
+  const group = new THREE.Group();
+  group.name = "survival-agents";
+  const models = new Map<SurvivalAgentId, AgentModel>();
+
+  const sync = (
+    agents: HabitatAgentVisual[],
+    selectedId: SurvivalAgentId | null,
+    heightAt: HeightAt,
+  ) => {
+    const uniqueAgents = agents
+      .filter((agent, index, list) =>
+        SURVIVAL_AGENT_IDS.includes(agent.id) && list.findIndex((candidate) => candidate.id === agent.id) === index,
+      )
+      .slice(0, 5);
+    const incomingIds = new Set(uniqueAgents.map((agent) => agent.id));
+    for (const [id, model] of models) {
+      if (incomingIds.has(id)) continue;
+      group.remove(model.root);
+      group.remove(model.intentLine);
+      disposeObject(model.root);
+      disposeObject(model.intentLine);
+      models.delete(id);
+    }
+
+    for (const agent of uniqueAgents) {
+      let model = models.get(agent.id);
+      if (!model) {
+        model = createAgentModel(agent);
+        models.set(agent.id, model);
+        group.add(model.root, model.intentLine);
+        const initialY = heightAt(agent.position);
+        model.root.position.set(agent.position.x, initialY, agent.position.z);
+      }
+      model.data = agent;
+      model.target.set(agent.position.x, heightAt(agent.position), agent.position.z);
+      model.desiredHeading = -agent.heading;
+      model.selection.visible = agent.alive && selectedId === agent.id;
+      model.label.renderOrder = selectedId === agent.id
+        ? 30
+        : 12 + Math.max(0, SURVIVAL_AGENT_IDS.indexOf(agent.id));
+      model.statusDisc.visible = agent.alive;
+      model.actor.visible = true;
+      const showRecordedTarget = agent.alive && selectedId === agent.id && Boolean(agent.action.targetPosition);
+      model.intentLine.visible = showRecordedTarget;
+      if (showRecordedTarget && agent.action.targetPosition) {
+        const target = agent.action.targetPosition;
+        const attribute = model.intentLine.geometry.getAttribute("position") as THREE.BufferAttribute;
+        attribute.setXYZ(0, agent.position.x, heightAt(agent.position) + 0.1, agent.position.z);
+        attribute.setXYZ(1, target.x, heightAt(target) + 0.1, target.z);
+        attribute.needsUpdate = true;
+        model.intentLine.geometry.computeBoundingSphere();
+        model.intentLine.computeLineDistances();
+      }
+      replaceTool(model, agent.alive ? (agent.action.tool ?? "none") : "none");
+      replaceCarriedItem(model, agent);
+    }
+  };
+
+  const animate = (timeSeconds: number, reducedMotion: boolean) => {
+    for (const model of models.values()) {
+      const { data } = model;
+      const motionFactor = reducedMotion ? 1 : 0.16;
+      model.root.position.lerp(model.target, motionFactor);
+      const deltaHeading = Math.atan2(
+        Math.sin(model.desiredHeading - model.root.rotation.y),
+        Math.cos(model.desiredHeading - model.root.rotation.y),
+      );
+      model.root.rotation.y += deltaHeading * motionFactor;
+
+      model.leftArm.rotation.x = 0;
+      model.rightArm.rotation.x = 0;
+      model.actor.rotation.z = 0;
+      model.actor.position.y = 0;
+      model.actor.position.x = 0;
+      const action = data.action.kind;
+      if (!data.alive || data.status === "dead") {
+        model.actor.rotation.z = -Math.PI / 2;
+        model.actor.position.set(-0.15, 0.55, 0);
+        model.statusDisc.visible = false;
+        continue;
+      }
+      if (reducedMotion) continue;
+
+      if (["move", "explore", "relocate"].includes(action) || data.status === "moving") {
+        const stride = Math.sin(timeSeconds * 7 + Number(model.id.slice(1))) * 0.7;
+        model.leftArm.rotation.x = stride;
+        model.rightArm.rotation.x = -stride;
+        model.actor.position.y = Math.abs(Math.sin(timeSeconds * 7)) * 0.055;
+      } else if (["gather", "build", "craft", "defend"].includes(action)) {
+        model.rightArm.rotation.x = -0.75 + Math.sin(timeSeconds * 5.4) * 0.75;
+        model.leftArm.rotation.x = -0.32;
+      } else if (["research", "test"].includes(action)) {
+        model.leftArm.rotation.x = -1.05;
+        model.rightArm.rotation.x = -1.16 + Math.sin(timeSeconds * 2.1) * 0.1;
+      } else if (["drink", "eat"].includes(action)) {
+        model.rightArm.rotation.x = -1.65;
+      } else if (["communicate", "share", "trade", "rescue"].includes(action)) {
+        model.rightArm.rotation.x = -1.1 + Math.sin(timeSeconds * 2.4) * 0.18;
+      } else if (["rest", "sleep"].includes(action) || data.status === "resting") {
+        model.actor.position.y = action === "sleep" ? 0.22 : -0.38;
+        model.actor.rotation.z = action === "sleep" ? -1.15 : 0;
+      }
+    }
+  };
+
+  const raycast = (raycaster: THREE.Raycaster) => {
+    const candidates = [...models.values()].filter((model) => model.data.alive).map((model) => model.root);
+    const intersections = raycaster.intersectObjects(candidates, true);
+    for (const intersection of intersections) {
+      const id = intersection.object.userData.agentId as SurvivalAgentId | undefined;
+      if (id && models.has(id)) return id;
+    }
+    return null;
+  };
+
+  return {
+    group,
+    sync,
+    animate,
+    positionOf: (id) => models.get(id)?.root.position.clone() ?? null,
+    raycast,
+    dispose: () => disposeObject(group),
+  };
+}
