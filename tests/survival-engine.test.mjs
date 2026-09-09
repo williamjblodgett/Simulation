@@ -19,6 +19,16 @@ import {
 
 const living = (state) => state.agents.filter(({ alive }) => alive);
 
+// Protocol tests supply an affordable opportunity, not a prescribed action or discovery date.
+function researchOpportunity() {
+  const run = createSurvivalRun("research-opportunity-fixture", { agentCount: 3, agentCap: 3, durationHours: null, resourceAbundance: "plentiful", climateVolatility: "stable" });
+  for (const agent of run.agents) {
+    agent.needs = { health:95, hydration:95, nutrition:95, energy:95, warmth:95, safety:95 };
+    agent.inventory = { freshwater:4, food:4, wood:8, stone:8, fiber:8, herbs:0, clay:0 };
+  }
+  return run;
+}
+
 function setForcedStep(state, action, targetId = null, destination = null, goal = "wait", remainingSteps = 1) {
   const agent = state.agents[0];
   agent.currentPlan = {
@@ -339,11 +349,7 @@ test("social actions record independent consent and never treat refusal as a com
 });
 
 test("autonomous research preserves hypotheses, failures, provenance, and repeatability before discovery", () => {
-  const state = advanceSurvivalRun(createSurvivalRun("x", {
-    agentCount: 3,
-    agentCap: 3,
-    durationHours: null,
-  }), 160).state;
+  const state = advanceSurvivalRun(researchOpportunity(), 160).state;
   const projects = state.agents.flatMap((agent) => agent.research.map((project) => ({ agent, project })));
   const attempts = projects.flatMap(({ agent, project }) => project.attempts.map((attempt) => ({ agent, project, attempt })));
   assert.ok(attempts.length > 0, "agents should autonomously choose material testing when survival conditions allow");
@@ -495,11 +501,7 @@ test("checkpoint validation requires catalog-backed research evidence for every 
   assert.equal(validateSurvivalRun(forgedUnlock), false, "an unlock cannot exist without a confirmed project");
   assert.throws(() => serializeSurvivalRun(forgedUnlock), /invalid survival run/i);
 
-  const researched = advanceSurvivalRun(createSurvivalRun("x", {
-    agentCount: 3,
-    agentCap: 3,
-    durationHours: null,
-  }), 160).state;
+  const researched = advanceSurvivalRun(researchOpportunity(), 160).state;
   const researchedAgentIndex = researched.agents.findIndex((agent) => agent.research.some(({ status }) => status === "confirmed"));
   const confirmedProjectIndex = researched.agents[researchedAgentIndex].research.findIndex(({ status }) => status === "confirmed");
   assert.notEqual(researchedAgentIndex, -1);
@@ -548,13 +550,9 @@ test("checkpoint validation requires catalog-backed research evidence for every 
   wrongCatalogThreshold.stats.experiments += 1;
   assert.equal(validateSurvivalRun(wrongCatalogThreshold), false, "the project threshold must match its catalog definition");
 
-  const prerequisiteOrder = advanceSurvivalRun(createSurvivalRun("a", {
-    agentCount: 5,
-    agentCap: 5,
-    durationHours: null,
-    resourceAbundance: "plentiful",
-    climateVolatility: "stable",
-  }), 1_000).state;
+  const advancedOpportunity = researchOpportunity();
+  for (const agent of advancedOpportunity.agents) Object.assign(agent.inventory, { wood:12, stone:12, fiber:12, clay:12 });
+  const prerequisiteOrder = advanceSurvivalRun(advancedOpportunity, 400).state;
   const dependentEntry = prerequisiteOrder.agents.flatMap((agent) => agent.research.map((project) => ({ agent, project })))
     .find(({ project }) => RESEARCH_CATALOG.find(({ id }) => id === project.technologyId)?.prerequisiteTechnologies.length);
   assert.ok(dependentEntry);
@@ -660,7 +658,7 @@ test("the in-state timeline is bounded while advance returns a complete archive 
     resourceAbundance: "plentiful",
     climateVolatility: "stable",
   });
-  const direct = advanceSurvivalRun(initial, 220);
+  const direct = advanceSurvivalRun(initial, 440);
   assert.ok(direct.events.length > SURVIVAL_EVENT_RING_LIMIT);
   assert.equal(direct.state.events.length, SURVIVAL_EVENT_RING_LIMIT);
   assert.equal(direct.state.eventWindow.capacity, SURVIVAL_EVENT_RING_LIMIT);
@@ -675,7 +673,7 @@ test("the in-state timeline is bounded while advance returns a complete archive 
   assert.deepEqual(restored.eventWindow, direct.state.eventWindow);
   let sliced = initial;
   const archived = [];
-  for (let index = 0; index < 22; index += 1) {
+  for (let index = 0; index < 44; index += 1) {
     const result = advanceSurvivalRun(sliced, 10);
     sliced = result.state;
     archived.push(...result.events);

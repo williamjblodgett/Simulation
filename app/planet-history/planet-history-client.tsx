@@ -132,8 +132,7 @@ export function PlanetHistoryClient() {
           <span><strong>Simulation</strong><small>Prior planetary history</small></span>
         </a>
         <nav aria-label="World sections">
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a href="/"><Globe2 size={16} /> Planet</a>
+          <a href="/planet"><Globe2 size={16} /> Planet</a>
           <a href="/history"><BookOpen size={16} /> Era II history</a>
         </nav>
       </header>

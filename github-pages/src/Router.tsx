@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { SurvivalExperience } from "../../app/survival/survival-experience";
 import type {
   PlanetHistoryEvent,
@@ -336,27 +336,13 @@ function SurvivalMethodPage() {
     <section className="survival-method-hero"><p>HOW THE EXPERIMENT WORKS</p><h1>The environment is supplied.<br />The decisions are not.</h1><div><p>The observer configures a run, moves the camera, changes playback speed, and inspects evidence. The observer cannot tell an agent where to walk, what to gather, whom to trust, or which technique to pursue.</p><a href="#/">Observe the current run</a></div></section>
     <section className="survival-method-goal"><span>THE ONLY PRE-GIVEN OBJECTIVE</span><h2>Survive as long as possible.</h2><p>Every agent starts from this same broad objective. No agent receives a preset personality, profession, job, faction, preferred strategy, enemy, or scripted life story.</p></section>
     <section className="survival-method-cycle"><p>ONE DECISION CYCLE</p><h2>What autonomy means here</h2><div>{AUTONOMY_CYCLE.map(([number, title, copy]) => <article key={number}><span>{number}</span><h3>{title}</h3><p>{copy}</p></article>)}</div></section>
-    <section className="survival-method-research"><p>RESEARCH IS AN ACTION, NOT AN UNLOCK BUTTON</p><h2>Agents can choose to test a hypothesis.</h2><p>After observing useful materials or a recurring problem, an agent may gather inputs, run an experiment, record a failure, repeat a promising result, and establish a technique. Discoveries require local evidence and repeatable tests; they do not unlock merely because time passed.</p><p>The experiment procedures come from a bounded, authored catalog. Autonomy lies in whether, when, and how an agent pursues an available test—not in inventing knowledge outside the model.</p></section>
+    <section className="survival-method-research"><p>RESEARCH IS AN ACTION, NOT AN UNLOCK BUTTON</p><h2>Agents can choose to test a hypothesis.</h2><p>After observing useful materials or a recurring problem, an agent may gather inputs, run an experiment, record a failure, repeat a promising result, and establish a technique. Discoveries require local evidence and repeatable tests; they do not unlock merely because time passed.</p><p>New studies compare composed action sequences using private observations and learned outcomes. Agents vary test parameters, compare treated and control samples, and repeat supported effects. Bodies, senses, material laws and seven research domains are supplied by the simulation. This is bounded local intelligence, not unrestricted invention. Earlier saves retain their original policy; start a new study to use policy 2.</p></section>
     <section className="survival-method-boundary"><h2>Autonomous does not mean conscious.</h2><p>These are deterministic simulation agents with bounded perception, planning, uncertainty, memory, and outcome learning—not sentient beings and not hidden chatbots. Recorded intent reports the factors used by the model; it is not private chain-of-thought.</p><p>Death is permanent. The simulation never silently replaces an agent. A user may explicitly introduce a new independent agent after a death and below the run cap. If exactly one survivor remains, that survivor alone may decide whether to request one companion.</p><a href="#/planet">Open the preserved planetary study</a></section>
   </main>;
 }
 
 function SurvivalPagesExperience() {
-  function interceptAppLinks(event: ReactMouseEvent<HTMLDivElement>) {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    const anchor = (event.target as Element).closest("a[href]");
-    if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute("download")) return;
-    const destination = new URL(anchor.href, window.location.href);
-    if (destination.origin !== window.location.origin) return;
-    if (destination.pathname === "/about" || destination.pathname.endsWith("/Simulation/about")) {
-      event.preventDefault();
-      window.location.hash = "#/about";
-    } else if (destination.pathname === "/planet" || destination.pathname.endsWith("/Simulation/planet")) {
-      event.preventDefault();
-      window.location.hash = "#/planet";
-    }
-  }
-  return <div className="pages-survival-root" onClickCapture={interceptAppLinks}><SurvivalExperience /></div>;
+  return <div className="pages-survival-root"><SurvivalExperience methodHref="#/about" planetHref="#/planet" /></div>;
 }
 
 function PlanetRoutesLoaded({ route }: { route: PlanetRoute }) {

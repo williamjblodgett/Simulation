@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function PlanetStudyPage() {
-  return <PlanetExperience archiveHref="/legacy" historyHref="/planet-history" methodHref="/about" />;
+  return <PlanetExperience archiveHref="/legacy" historyHref="/planet-history" methodHref="/planet/about" />;
 }

@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    ".gh-pages-publish/**",
+    ".github-pages-publish/**",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

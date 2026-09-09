@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, CloudRain, Eye, List, Map, Maximize2, Pause, Play, RotateCcw, Settings2, Users, X } from "lucide-react";
+import { Camera, Cloud, CloudRain, Eye, List, Map, Maximize2, Minus, Orbit, Pause, Play, Plus, RotateCcw, Settings2, Snowflake, Sun, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SurvivalAgent, SurvivalEvent, SurvivalRunState } from "../simulation/survival";
 import { AgentInspector, type InspectorLevel } from "./agent-inspector";
@@ -10,6 +10,7 @@ import { RunView } from "./run-view";
 import type { HabitatCameraMode, SurvivalAgentId } from "./scene";
 import { SurvivalWorld } from "./survival-world";
 import { TimelineView } from "./timeline-view";
+import { useObserverSelection } from "./observer-selection";
 import { useSurvivalRuntime, type PlaybackSpeed } from "./use-survival-runtime";
 import styles from "./survival-experience.module.css";
 
@@ -43,7 +44,7 @@ function WorldHeader({ world, speed, onSpeed, onPause }: { world: SurvivalRunSta
   const isPaused = world.status === "paused";
   const isTerminal = world.status === "completed" || world.status === "extinct";
   return <header className={styles.appHeader}>
-    <div className={styles.appTitle}><strong>Simulation</strong><span><i data-status={world.status} />{world.status === "running" ? "Run active" : humanize(world.status)}</span></div>
+    <div className={styles.brand}><Orbit size={29} aria-hidden="true" /><div className={styles.appTitle}><strong>Simulation</strong><span><i data-status={world.status} />{world.status === "running" ? "Observing" : humanize(world.status)}</span></div></div>
     <div className={styles.clock}><span>Day {world.day}</span><strong>{formatClock(world.elapsedMinutes)}</strong></div>
     <div className={styles.playback} aria-label="Observer playback controls">
       <button type="button" onClick={onPause} disabled={isTerminal} aria-label={isTerminal ? "Playback unavailable for an ended run" : isPaused ? "Resume simulation" : "Pause simulation"}>{isPaused ? <Play size={18} /> : <Pause size={18} />}</button>
@@ -57,16 +58,17 @@ function BottomNavigation({ view, onChange }: { view: AppView; onChange(view: Ap
   return <nav className={styles.bottomNav} aria-label="Simulation views">{items.map(({ id, icon: Icon }) => <button type="button" key={id} data-active={view === id} aria-current={view === id ? "page" : undefined} onClick={() => onChange(id)}><Icon size={20} /><span>{VIEW_LABELS[id]}</span></button>)}</nav>;
 }
 
-export function SurvivalExperience() {
+function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }: { methodHref?: string; planetHref?: string }) {
   const runtime = useSurvivalRuntime();
   const [view, setView] = useState<AppView>("world");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { selectedId, setSelectedId } = useObserverSelection(runtime.runInstanceId);
   const [sheetLevel, setSheetLevel] = useState<InspectorLevel>("peek");
   const [cameraMode, setCameraMode] = useState<HabitatCameraMode>("overview");
   const [manualCamera, setManualCamera] = useState(false);
   const [miniMapOpen, setMiniMapOpen] = useState(false);
   const [rendererFailed, setRendererFailed] = useState(false);
   const [rendererRetry, setRendererRetry] = useState(0);
+  const [zoomRequest, setZoomRequest] = useState<{ direction: -1 | 1; sequence: number } | null>(null);
   const [focusPosition, setFocusPosition] = useState<{ x: number; z: number } | null>(null);
   const [directoryInspectorOpen, setDirectoryInspectorOpen] = useState(false);
   const directoryDialogRef = useRef<HTMLDialogElement>(null);
@@ -74,8 +76,9 @@ export function SurvivalExperience() {
   const initializedHistoryRef = useRef(false);
   const world = runtime.world;
 
+
   const slotAgents = useMemo(() => world ? currentSlotAgents(world) : [], [world]);
-  const effectiveSelectedId = selectedId ?? (slotAgents.find((agent) => agent?.alive) ?? slotAgents.find(Boolean))?.id ?? null;
+  const effectiveSelectedId = (world?.agents.some(a => a.id === selectedId) ? selectedId : null) ?? (slotAgents.find((agent) => agent?.alive) ?? slotAgents.find(Boolean))?.id ?? null;
   const selectedAgent = useMemo(() => {
     if (!world || !effectiveSelectedId) return null;
     return world.agents.find((agent) => agent.id === effectiveSelectedId) ?? null;
@@ -116,7 +119,7 @@ export function SurvivalExperience() {
       setCameraMode("follow");
       setManualCamera(false);
     }
-  }, []);
+  }, [setSelectedId]);
 
   const handleSceneSelect = useCallback((label: SurvivalAgentId) => {
     const agent = slotAgents.find((candidate) => candidate?.alive && candidate.label === label);
@@ -176,21 +179,24 @@ export function SurvivalExperience() {
     setSheetLevel(levels[Math.max(0, Math.min(levels.length - 1, current + (delta < 0 ? 1 : -1)))]);
   }
 
-  if (!runtime.ready || !world) return <main className={styles.loading}><div><span /><strong>Simulation</strong><p>Preparing the survival habitat and restoring its observation record…</p></div></main>;
+  if (!runtime.ready || !world) return <main className={styles.loading}><div><span /><strong>Simulation</strong><p>{runtime.recoveryNotice ?? "Preparing the survival habitat and restoring its observation record…"}</p>{runtime.ready ? <><button type="button" onClick={() => void runtime.retry()}>Retry saved study</button><button type="button" onClick={() => void runtime.recoverBackup()}>Recover last good save</button></> : null}</div></main>;
 
   const weatherLabel = world.environment.weather === "overcast" ? "Cloud cover" : humanize(world.environment.weather);
+  const WeatherIcon = world.environment.weather === "cold_snap" ? Snowflake : ["rain", "storm"].includes(world.environment.weather) ? CloudRain : world.environment.weather === "overcast" ? Cloud : Sun;
   return <main className={styles.shell} data-view={view}>
-    <WorldHeader world={world} speed={runtime.speed} onSpeed={runtime.setSpeed} onPause={() => runtime.setPaused(world.status !== "paused")} />
+    <WorldHeader world={world} speed={runtime.speed} onSpeed={runtime.setSpeed} onPause={() => { if (!runtime.busy) void runtime.setPaused(world.status !== "paused").catch(() => {}); }} />
 
-    {runtime.recoveryNotice ? <div className={styles.recoveryBanner} role="alert"><span>{runtime.recoveryNotice}</span><button type="button" onClick={runtime.dismissRecoveryNotice} aria-label="Dismiss checkpoint recovery notice"><X size={17} /></button></div> : null}
+    {runtime.recoveryNotice ? <div className={styles.recoveryBanner} role="alert"><span>{runtime.recoveryNotice}</span><button type="button" onClick={() => void runtime.retry()}>Retry</button><button type="button" onClick={() => void runtime.recoverBackup()}>Recover last good save</button><button type="button" onClick={runtime.dismissRecoveryNotice} aria-label="Dismiss checkpoint recovery notice"><X size={17} /></button></div> : null}
 
     <div className={styles.content}>
-      <section className={styles.worldView} aria-label="Live survival world" hidden={view !== "world"}>
+      <section className={styles.worldView} data-level={sheetLevel} aria-label="Live survival world" hidden={view !== "world"}>
         <div className={styles.worldCanvas} data-failed={rendererFailed}>
-          {!rendererFailed ? <SurvivalWorld world={world} selectedId={selectedAgent?.alive ? selectedAgent.label as SurvivalAgentId : null} cameraMode={cameraMode} onSelectAgent={handleSceneSelect} onManualCamera={handleManualCamera} onContextLost={handleContextLost} retryKey={rendererRetry} active={view === "world"} focusPosition={focusPosition} inspectorLevel={sheetLevel} /> : <div className={styles.rendererFallback}><Camera size={27} /><h2>3D view unavailable</h2><p>The run is still active. Agent records and the timeline remain available.</p><button type="button" onClick={() => { setRendererFailed(false); setRendererRetry((current) => current + 1); }}><RotateCcw size={16} /> Retry renderer</button></div>}
+          {!rendererFailed ? <SurvivalWorld world={world} selectedId={selectedAgent?.alive ? selectedAgent.label as SurvivalAgentId : null} cameraMode={cameraMode} onSelectAgent={handleSceneSelect} onManualCamera={handleManualCamera} onContextLost={handleContextLost} retryKey={rendererRetry} active={view === "world"} focusPosition={focusPosition} inspectorLevel={sheetLevel} zoomRequest={zoomRequest} /> : <div className={styles.rendererFallback}><Camera size={27} /><h2>3D view unavailable</h2><p>The saved run, agent records and timeline remain available.</p><button type="button" onClick={() => { setRendererFailed(false); setRendererRetry((current) => current + 1); }}><RotateCcw size={16} /> Retry renderer</button></div>}
         </div>
 
-        <div className={styles.weatherChip}><CloudRain size={16} /><span><strong>{weatherLabel}</strong><small>{Math.round(world.environment.temperatureC)}°C</small></span></div>
+        <div className={styles.weatherChip}><WeatherIcon size={18} /><span><strong>{Math.round(world.environment.temperatureC)}°</strong><small>{weatherLabel}</small></span></div>
+        <div className={styles.habitatCaption}><span>Shared habitat</span><strong>{world.stats.livingAgents} {world.stats.livingAgents === 1 ? "life" : "lives"} · No commands</strong></div>
+        <div className={styles.zoomControls} aria-label="Camera zoom"><button type="button" disabled={rendererFailed} aria-label="Zoom in" onClick={() => setZoomRequest(value => ({direction: -1, sequence: (value?.sequence ?? 0) + 1}))}><Plus size={18}/></button><button type="button" disabled={rendererFailed} aria-label="Zoom out" onClick={() => setZoomRequest(value => ({direction: 1, sequence: (value?.sequence ?? 0) + 1}))}><Minus size={18}/></button></div>
         <div className={styles.cameraControls} aria-label="Camera controls">
           <button type="button" aria-label={rendererFailed ? "Overview unavailable while the 3D view is unavailable" : "Show habitat overview"} data-active={!rendererFailed && cameraMode === "overview" && !manualCamera && !focusPosition} disabled={rendererFailed} onClick={() => { setFocusPosition(null); setCameraMode("overview"); setManualCamera(false); }} aria-pressed={!rendererFailed && cameraMode === "overview" && !manualCamera && !focusPosition}><Maximize2 size={17} /><span>Overview</span></button>
           <button type="button" aria-label={rendererFailed ? "Follow unavailable while the 3D view is unavailable" : selectedAgent ? `Follow ${selectedAgent.label}` : "Follow selected agent"} data-active={!rendererFailed && cameraMode === "follow" && Boolean(selectedAgent?.alive)} disabled={rendererFailed || !selectedAgent?.alive} onClick={() => { setFocusPosition(null); setCameraMode("follow"); setManualCamera(false); }} aria-pressed={!rendererFailed && cameraMode === "follow" && Boolean(selectedAgent?.alive)}><Eye size={17} /><span>Follow</span></button>
@@ -207,8 +213,8 @@ export function SurvivalExperience() {
       </section>
 
       <div className={styles.viewLayer} hidden={view !== "agents"}><AgentsView world={world} selectedId={effectiveSelectedId} onInspect={(agent) => { setSelectedId(agent.id); setDirectoryInspectorOpen(true); }} onViewInWorld={(agent) => { selectAgent(agent.id, true); setSheetLevel("half"); navigate("world"); }} /></div>
-      <div className={styles.viewLayer} hidden={view !== "timeline"}><TimelineView world={world} onLocate={locateEvent} /></div>
-      <div className={styles.viewLayer} hidden={view !== "run"}><RunView world={world} storageStatus={runtime.storageStatus} onStart={(options, seed) => { runtime.start(options, seed); setSelectedId(null); setFocusPosition(null); setSheetLevel("peek"); setCameraMode("overview"); setManualCamera(false); navigate("world"); }} onAddAgent={runtime.addAgent} /></div>
+      <div className={styles.viewLayer} hidden={view !== "timeline"}><TimelineView key={runtime.runInstanceId} world={world} onLocate={locateEvent} events={runtime.historyEvents} archiveStatus={runtime.archiveStatus} hasOlderEvents={runtime.hasOlderEvents} historyFrozen={runtime.historyFrozen} onFreezeHistory={runtime.freezeHistory} onReturnLive={runtime.returnLiveHistory} onLoadOlder={runtime.loadOlderEvents} onExport={runtime.exportHistory} /></div>
+      <div className={styles.viewLayer} hidden={view !== "run"}><RunView methodHref={methodHref} planetHref={planetHref} world={world} storageStatus={runtime.storageStatus} onStart={async (options, seed) => { await runtime.start(options, seed); setSelectedId(null); setFocusPosition(null); setSheetLevel("peek"); setCameraMode("overview"); setManualCamera(false); navigate("world"); }} onAddAgent={runtime.addAgent} /></div>
     </div>
 
     <BottomNavigation view={view} onChange={navigate} />
@@ -221,4 +227,9 @@ export function SurvivalExperience() {
 
     <div className={styles.srStatus} aria-live="polite">{runtime.lastEvents.join(" ")}</div>
   </main>;
+}
+
+export function SurvivalExperience(props: { methodHref?: string; planetHref?: string }) {
+  const runtime = useSurvivalRuntime();
+  return <ObservedRunExperience key={runtime.runInstanceId} {...props} />;
 }

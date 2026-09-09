@@ -177,6 +177,7 @@ export interface HabitatNeedsVisual {
 }
 
 export interface HabitatAgentVisual {
+  lifeId?: string;
   id: SurvivalAgentId;
   displayName?: string;
   position: HabitatPoint;
@@ -190,6 +191,7 @@ export interface HabitatAgentVisual {
 }
 
 export interface HabitatVisualSnapshot {
+  simulationRunning?: boolean;
   simulationTimeSeconds: number;
   terrain: HabitatTerrainVisual;
   resourceNodes: HabitatResourceVisual[];
@@ -221,8 +223,9 @@ export interface SurvivalHabitatScene {
   ): void;
   /** Suspends/resumes the render loop without disposing camera or scene state. */
   setActive(active: boolean): void;
-  /** Frames a recorded world position without changing simulation state. */
-  focusAt(point: HabitatPoint): void;
+  /** Frames a recorded world position; null returns to the current camera mode. */
+  focusAt(point: HabitatPoint | null): void;
+  zoom(direction: -1 | 1): void;
   resize(): void;
   dispose(): void;
 }

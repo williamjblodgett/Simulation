@@ -8,7 +8,13 @@ The earlier large-scale planetary civilization and Three.js civilization studies
 
 - GitHub Pages: <https://williamjblodgett.github.io/Simulation/>
 
-The primary survival study stores one run in browser storage on the observer's device. The static GitHub Pages build cannot protect server secrets and therefore never makes paid model calls. Preserved planetary studies keep their own separate device-local records.
+The survival study keeps revisioned checkpoints and a per-study event ledger in IndexedDB on this device. Previous studies can be listed and exported from Run. Each archive retains at most 100,000 events; Timeline pages a bounded window. Earlier records lost before this upgrade cannot be reconstructed. Browser storage is not a remote backup—export important studies.
+
+New studies use policy 2: private-observation planning, contextual outcome/yield learning, independently evaluated social exchanges and parameterized causal experiments. Existing policy-1 saves retain their original engine. A worker runs calculations while the browser can execute; it does not continue after every tab is closed. The static build makes no model/API calls. Preserved planetary studies keep separate records.
+
+This is bounded simulation autonomy, not general intelligence. Designers supply physiology, actions, material laws, initial survival estimates and seven research domains. Research need not occur in every run. Long-horizon technology procurement and learned reusable technique composition remain limitations, not hidden capabilities.
+
+See [implementation and verification report](docs/IMPLEMENTATION_REPORT.md) for delivered changes, benchmark results, actual browser coverage and remaining strategy work. Local changes are not automatically published to the live edition.
 
 ## Security boundary
 
@@ -32,3 +38,9 @@ npm run build:pages
 ```
 
 The Pages build is emitted to `github-pages/dist` with the `/Simulation/` base path.
+
+## Reproducible evaluation
+
+`npm run benchmark:survival` runs paired development scenarios; add `-- --holdout` for the held-out set. Both compare the frozen original engine, policy 2 and policy 2 with contextual learning cleared each step. This ablation does not remove the experiment notebook. Results and precise limitations are in `docs/autonomy-development-results.json` and `docs/autonomy-heldout-results.json`.
+
+Unit tests include private-knowledge isolation, exact-ration planning, learning-induced source choice, research controls, checkpoint corruption, transactional rollback, competing revisions, archive export and worker cancellation. IndexedDB unit tests use an in-memory implementation; browser cross-tab checks are separate.

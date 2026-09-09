@@ -98,9 +98,8 @@
 .portrait { --agent-color: #429fff; position: relative; flex: 0 0 auto; width: 38px; height: 38px; display: grid; place-items: center; overflow: hidden; border: 2px solid var(--agent-color); border-radius: 50%; background: linear-gradient(155deg,color-mix(in srgb,var(--agent-color) 32%,#17232f),#0b1219 70%); }
 .portrait[data-size="small"] { width: 34px; height: 34px; }
 .portrait[data-size="large"] { width: 60px; height: 60px; }
-.portrait > i { position: absolute; width: 42%; height: 42%; top: 17%; border-radius: 50%; background: color-mix(in srgb,var(--agent-color) 68%,#e8d3bd); box-shadow: 0 15px 0 8px color-mix(in srgb,var(--agent-color) 48%,#263b4d); }
-.portrait > b { position: absolute; right: 1px; bottom: 1px; z-index: 2; padding: 1px 3px; border-radius: 4px; background: #080d12; color: var(--agent-color); font-size: 7px; }
-.portrait > em { position: absolute; opacity: 0; }
+.portrait > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.portrait > b { color: var(--agent-color); font-size: 13px; }
 .agentInspector { position: absolute; inset: 54px 0 0; overflow: hidden; padding: 0 16px 20px; }
 .sheetHandle { width: 100%; min-height: 44px; display: grid; grid-template-columns: 44px minmax(0,1fr) 44px; align-items: center; color: #7f91a1; }
 .sheetHandle > button { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; }
@@ -224,11 +223,11 @@
 .emptyTimeline h2 { color: var(--text); }
 .runStatus,.newRun { max-width: 980px; margin: 0 auto 18px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
 .runStatus { padding: 18px; }
-.runStatus > div:first-child { display: flex; align-items: center; gap: 10px; }
-.runStatus > div:first-child > span { width: 10px; height: 10px; border-radius: 50%; background: var(--positive); }
-.runStatus > div:first-child > span[data-status="paused"] { background: var(--warning); }
-.runStatus > div:first-child > span[data-status="completed"],.runStatus > div:first-child > span[data-status="extinct"] { background: var(--critical); }
-.runStatus > div:first-child div { display: flex; flex-direction: column; }
+.runStatusHeading { display: flex; align-items: center; gap: 10px; }
+.runStatusHeading > span { width: 10px; height: 10px; border-radius: 50%; background: var(--positive); }
+.runStatusHeading > span[data-status="paused"] { background: var(--warning); }
+.runStatusHeading > span[data-status="completed"],.runStatusHeading > span[data-status="extinct"] { background: var(--critical); }
+.runStatusHeading div { display: flex; flex-direction: column; }
 .runStatus small { color: var(--muted); font-size: 11px; }
 .runStatus dl { display: grid; grid-template-columns: repeat(3,1fr); gap: 0; margin: 18px 0 0; border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
 .runStatus dl > div { min-height: 70px; padding: 12px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
@@ -377,4 +376,216 @@
   .agentSheet { transition: none; }
   .loading span { animation: none; }
   .shell * { scroll-behavior: auto !important; }
+}
+
+/* Decision evidence is readable at phone size, while the world remains primary. */
+.shell { --peek-height: max(144px, 9rem); }
+.worldCanvas > [data-survival-viewport][data-inspector-level="peek"] { bottom: var(--peek-height); }
+.agentSheet[data-level="peek"] { height: var(--peek-height); }
+.peekIntent { display: none; margin: 0 0 10px; color: var(--muted); font-size: .82rem; line-height: 1.45; }
+.peekIntent strong { color: var(--text); }
+.agentInspector[data-level="peek"] .peekIntent { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.intentOutcome { grid-template-columns: 1fr; gap: 12px; }
+.intentOutcome strong { font-size: .875rem; font-weight: 500; }
+.needMeter > div:first-child,.needMeter[data-compact="true"] > div:first-child { font-size: .75rem; }
+.recordSection > p,.recordSection > small,.planRecord > p,.researchRecord > p,.rowList dt { font-size: .875rem; line-height: 1.5; }
+.recordSection > small { color: var(--muted); }
+.recordSection > header small,.observationList small,.researchRecord > small,.relationshipList button small { font-size: .75rem; }
+.scopeButtons { display: flex; flex-wrap: wrap; gap: 8px; max-width: 980px; width: 100%; margin: 0 auto 16px; flex: 0 0 auto; }
+.scopeButtons button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); background: var(--surface); font-size: .875rem; cursor: pointer; }
+.scopeButtons button[aria-pressed="true"] { border-color: var(--accent); color: var(--text); }
+.decisionAlternatives,.knowledgeLens { margin: 16px 0; border-top: 1px solid var(--border); padding-top: 8px; }
+.decisionAlternatives summary,.knowledgeLens summary { min-height: 44px; padding: 12px 0; font-size: .875rem; cursor: pointer; }
+.decisionAlternatives ul,.decisionAlternatives ol,.knowledgeLens ul { list-style: none; padding: 0; }
+.decisionAlternatives li,.knowledgeLens li { padding: 10px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.decisionAlternatives strong,.knowledgeLens strong { display: block; font-size: .875rem; font-weight: 600; }
+.decisionAlternatives span,.knowledgeLens span { display: block; font-size: .75rem; color: var(--muted); }
+.decisionAlternatives p,.knowledgeLens p { font-size: .875rem; color: var(--muted); line-height: 1.5; }
+.knowledgeLens svg { width: 100%; border-radius: 12px; background: #080d12; }
+.eventDetail h3,.eventDetail p { font-size: .875rem; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.eventDetail dl { display: block; }
+.eventDetail dd { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.eventDetail details { font-size: .875rem; padding: 10px 0; }
+.timelineNote,.historyScope { font-size: .75rem; }
+.timelineScroller { overflow-anchor: auto; }
+.dayGroup li > button strong { font-size: .875rem; }
+.dayGroup li > button small { font-size: .8rem; }
+.screenHeading h1 { font-size: 1.5rem; }
+.screenHeading { margin-bottom: 20px; }
+.runStatus > p { font-size: .875rem; line-height: 1.5; color: var(--muted); }
+.runStatus dt,.setupGrid label > span,.advancedSetup label > span { font-size: .8rem; }
+.runStatus dd { font-size: .875rem; }
+.bottomNav button span { font-size: .75rem; }
+@media (max-width: 767px) { .agentDirectoryMain { padding: 14px; gap: 10px; } .agentDirectoryIdentity .conditionLine { font-size: .75rem; } }
+@media (min-width: 1024px), (orientation: landscape) and (max-height: 540px) {
+  .worldCanvas > [data-survival-viewport][data-inspector-level="peek"] { bottom: 0; }
+  .agentInspector[data-level="peek"] .peekIntent { display: none; }
+}
+.savedStudies { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+.savedStudies h2 { font-size: 1.25rem; }
+.savedStudies p, .saveDetails { color: var(--muted); font-size: .875rem; line-height: 1.6; }
+.savedStudies ul { padding: 0; list-style: none; }
+.savedStudies li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.savedStudies li div { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.savedStudies li span, .savedStudies li small { color: var(--muted); }
+.savedStudies button { min-height: 44px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--raised); color: var(--text); }
+@media (min-width: 768px), (orientation: landscape) and (max-height: 540px) {
+  .worldCanvas > [data-survival-viewport][data-inspector-level] { bottom: 0; }
+  .agentInspector[data-level="peek"] .peekIntent { display: none; }
+}
+@media (orientation: landscape) and (max-height: 540px) and (max-width: 700px) {
+  .agentRail { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; left: 8px; right: 8px; }
+  .agentRail button { min-width: 0; }
+}
+@media (orientation: portrait) and (max-width: 767px) {
+  .agentSheet[data-level="half"] { height: max(var(--peek-height), min(50%, 440px)); }
+  .worldCanvas > [data-survival-viewport][data-inspector-level="half"] { bottom: max(var(--peek-height), min(50%, 440px)); }
+}
+.screenView[aria-labelledby="agents-heading"] > .screenHeading { flex-direction: row; align-items: center; }
+.timelineView > .screenHeading { flex-direction: row; align-items: center; }
+.configureBack { display: block; width: 100%; max-width: 980px; min-height: 44px; margin: 0 auto 12px; border: 0; padding: 0; text-align: left; color: var(--muted); background: transparent; cursor: pointer; }
+.newRun { border: 0; background: transparent; padding: 0; }
+.setupScreen { display: flex; flex-direction: column; overflow: hidden; }
+.setupScreen > .screenHeading,.setupScreen > .configureBack,.setupScreen > .startButton { flex-shrink: 0; }
+.setupScreen > .screenHeading { width: 100%; }
+.setupScreen > .newRun { flex: 1; min-height: 0; width: 100%; overflow-y: auto; margin-bottom: 12px; padding-bottom: 16px; }
+.setupScreen > .startButton { width: 100%; max-width: 980px; margin: 0 auto; }
+.screenView[aria-labelledby="run-heading"] { padding-bottom: 16px; }
+.runStatus[hidden] { display: none; }
+.outcomeSummary { border: 0; border-radius: 0; background: transparent; padding: 16px 0 0; border-top: 1px solid var(--border); }
+.timelineNote summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.timelineNote p { margin: 0 0 8px; }
+@media (max-width: 767px) {
+  .timelineView { padding-top: 16px; }
+  .timelineFilters label { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 8px 10px; }
+  .timelineFilters label > span { display: block; font-size: .75rem; }
+  .timelineFilters select { min-height: 28px; }
+  .dayGroup { display: block; }
+  .dayGroup > header { position: static; width: max-content; height: 32px; flex-direction: row; gap: 6px; padding: 0 10px; margin-bottom: 8px; }
+  .dayGroup > header span { font-size: .75rem; }
+}
+.agentDirectoryIdentity .conditionLine { max-width: none; text-transform: none; letter-spacing: 0; text-align: left; margin-top: 4px; }
+.agentDirectoryMain { text-align: left; }
+.agentDirectoryIdentity .conditionLine svg { flex-shrink: 0; }
+
+/* Observer edition: the world is the primary surface; records stay restrained. */
+.brand { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.brand > svg { color: #80c3ff; flex-shrink: 0; }
+.appTitle strong { font-size: 20px; }
+.clock span,.weatherChip small { font-size: 12px; }
+.appHeader { gap: 10px; }
+.playback { gap: 6px; }
+.playback label { padding: 0 4px; }
+.playback select { min-width: 48px; }
+.portrait { border-width: 1px; border-radius: 13px; background: var(--raised); }
+.portrait[data-size="small"] { width: 38px; height: 42px; border-radius: 11px; }
+.portrait[data-size="large"] { width: 76px; height: 86px; border-radius: 16px; }
+.agentRail { top: 8px; height: 46px; gap: 6px; }
+.agentRail button { height: 46px; padding: 2px; gap: 4px; }
+.agentRail button > span { font-size: 12px; }
+.agentRail button[data-selected="true"] { background: var(--raised); border-color: #506579; }
+.agentRail button > i { right: 3px; bottom: 3px; }
+.agentSheet { background: #111a23; box-shadow: none; }
+.sheetDragZone::after { content: ""; position: absolute; width: 32px; height: 3px; top: 3px; left: 20px; border-radius: 3px; background: #5a6a78; }
+.peekSummary { display: none; }
+.conditionLine[data-warning="true"] { color: var(--warning); }
+.conditionLine { font-size: 12px; }
+.inspectorIdentity { padding: 10px 0 16px; }
+.inspectorIdentity > div > span { font-size: 12px; letter-spacing: .035em; }
+.inspectorIdentity p { font-size: 14px; line-height: 1.4; white-space: normal; }
+.inspectorIdentity .portrait { width: 58px; height: 66px; }
+.inspectorIdentity h2 { font-size: 21px; }
+.inspectorIdentity > .conditionLine { grid-column: 2 / -1; justify-self: start; max-width: none; text-align: left; }
+.agentInspector[data-level="expanded"] .inspectorIdentity .portrait { width: 72px; height: 82px; grid-row: span 2; }
+.recordSection > header span { font-size: 16px; }
+.recordSection > header small { font-size: 12px; line-height: 1.5; }
+.recordSection > header svg { margin-top: 3px; color: #8eabc4; }
+.intentOutcome span { font-size: 12px; letter-spacing: .05em; }
+.intentOutcome strong { font-size: 15px; line-height: 1.5; }
+.observationList strong,.memoryList p,.relationshipList button span,.rowList dd,.planRecord li { font-size: 14px; }
+.observationList li > span,.memoryList span,.planRecord li span { font-size: 12px; }
+.screenView { padding-top: 24px; }
+.screenHeading > div:first-child > span { color: var(--muted); font-size: 12px; letter-spacing: .1em; }
+.recordCount { border: 0; padding: 0; font-size: 13px; }
+.scopeButtons { gap: 0; border-bottom: 1px solid var(--border); }
+.scopeButtons button { border: 0; border-radius: 0; background: transparent; border-bottom: 2px solid transparent; }
+.scopeButtons button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--accent); }
+.agentDirectory > article { border-color: var(--border); background: #111a23; }
+.agentDirectoryIdentity > span { font-size: 12px; }
+.agentDirectoryIdentity p { font-size: 14px; margin-bottom: 4px; }
+.agentDirectoryIdentity h2 { font-size: 20px; }
+.agentDirectoryMain { gap: 16px; }
+.viewWorldButton { font-size: 14px; color: #9bcbfa; background: transparent; }
+.bottomNav button[data-active="true"] { color: #79baff; background: transparent; }
+.bottomNav button { position: relative; }
+.bottomNav button[data-active="true"]::before { content: ""; position: absolute; top: 0; width: 24px; height: 2px; border-radius: 2px; background: var(--accent); }
+.weatherChip { border: 0; background: rgba(8,13,18,.82); }
+.weatherChip strong { font-size: 17px; }
+.habitatCaption { position: absolute; z-index: 5; left: 16px; bottom: calc(var(--peek-height) + 18px); display: grid; gap: 3px; color: white; text-shadow: 0 1px 4px #080d12; pointer-events: none; }
+.habitatCaption span { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.habitatCaption strong { font-size: 13px; font-weight: 500; }
+.cameraControls { gap: 0; padding: 3px; border-radius: 14px; background: rgba(8,13,18,.85); }
+.cameraControls button { border: 0; background: transparent; backdrop-filter: none; padding: 0 9px; }
+.cameraControls button span { display: inline; font-size: 12px; }
+.cameraControls button:last-child span { display: none; }
+.cameraControls button[data-active="true"] { background: #244763; color: #b6dfff; }
+.zoomControls { position: absolute; z-index: 8; right: 12px; top: 82px; display: grid; background: rgba(8,13,18,.82); border-radius: 13px; overflow: hidden; }
+.zoomControls button { width: 44px; height: 44px; display: grid; place-items: center; background: transparent; border: 0; cursor: pointer; }
+.zoomControls button + button { border-top: 1px solid var(--border); }
+.miniMap { top: 72px; }
+.returnFollow { top: 178px; }
+.eventAgents i { min-width: 35px; height: 28px; font-size: 10px; border-radius: 8px; border-width: 0 0 2px; }
+.dayGroup time { font-size: 12px; }
+.timelineView > .screenHeading { margin-bottom: 14px; }
+.newRun .environmentPreview { height: 120px; background: #17232f; border: 1px solid var(--border); }
+.environmentPreview { margin: 0; }
+.environmentPreview::before { display: none; }
+.environmentPreview > img { width: 100%; height: 100%; object-fit: cover; }
+.environmentPreview > figcaption { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; background: linear-gradient(transparent,#080d12eb); }
+.environmentPreview strong { font-size: 16px; }
+.environmentPreview span { padding: 0; background: none; font-size: 12px; margin-top: 3px; }
+.environmentPreview small { font-size: 10px; color: var(--muted); margin-top: 3px; }
+@media (max-width: 767px) and (orientation: portrait) {
+  .agentInspector[data-level="peek"] { inset: 58px 0 0; padding-bottom: 6px; }
+  .agentInspector[data-level="peek"] .sheetHandle,.agentInspector[data-level="peek"] .inspectorIdentity { display: none; }
+  .agentInspector[data-level="peek"] .peekSummary { display: flex; min-height: 44px; gap: 8px; align-items: center; justify-content: space-between; }
+  .peekSummary > div { display: grid; min-width: 0; gap: 2px; }
+  .peekSummary strong { font-size: 15px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .peekSummary strong > span { font-weight: 500; }
+  .peekSummary .conditionLine { max-width: none; justify-self: start; text-align: left; }
+  .peekSummary > button { flex-shrink: 0; width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--raised); display: grid; place-items: center; }
+  .agentInspector[data-level="peek"] .peekIntent { -webkit-line-clamp: 1; font-size: 12px; line-height: 1.5; margin: 4px 0 0; }
+  .worldView[data-level="half"] .habitatCaption,.worldView[data-level="expanded"] .habitatCaption { display: none; }
+  .worldView[data-level="expanded"] .cameraControls,.worldView[data-level="expanded"] .zoomControls,.worldView[data-level="expanded"] .weatherChip { display: none; }
+}
+@media (max-width: 374px) {
+  .portrait[data-size="small"] { width: 30px; height: 36px; }
+  .weatherChip > span { font-size: 10px; }
+  .cameraControls button:first-child span { display: none; }
+  .brand > svg { display: none; }
+  .agentRail { left: 10px; right: 10px; gap: 2px; }
+  .weatherChip { left: 8px; padding: 6px 8px; gap: 5px; }
+  .cameraControls { right: 8px; }
+  .cameraControls button { padding: 0 6px; }
+}
+@media (min-width: 768px) {
+  .habitatCaption { bottom: 22px; }
+  .zoomControls { right: 396px; }
+  .agentInspector .peekSummary { display: none; }
+  .brand { gap: 12px; }
+}
+@media (min-width: 768px) and (max-width: 1023px) and (min-height: 541px) {
+  .worldCanvas > [data-survival-viewport][data-inspector-level] { inset: 0 340px 0 0; }
+  .agentSheet { top: 12px; bottom: 12px; left: auto; right: 12px; width: 328px; height: auto !important; border-radius: 18px; border-bottom: 1px solid var(--border); }
+  .agentInspector { inset: 66px 0 0; overflow-y: auto; }
+  .sheetHandle,.sheetDragZone { display: none; }
+  .agentInspector .inspectorHalf,.agentInspector .inspectorExpanded { display: block; }
+  .cameraControls,.zoomControls { right: 352px; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .zoomControls { right: calc(min(370px,42vw) + 18px); }
+  .habitatCaption { display: none; }
+  .cameraControls button span { display: none; }
+  .agentInspector .peekSummary { display: none; }
+  .portrait[data-size="small"] { width: 30px; height: 34px; }
 }

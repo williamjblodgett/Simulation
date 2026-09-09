@@ -102,6 +102,9 @@ export type AgentObservationKind = "resource" | "agent" | "weather" | "structure
 export type FactValue = string | number | boolean | null;
 
 export interface AgentObservation {
+  receivedAt?: number;
+  originalObserverId?: string;
+  transmissionChain?: string[];
   id: string;
   observerId: string;
   kind: AgentObservationKind;
@@ -123,6 +126,9 @@ export interface AgentMemory {
 }
 
 export interface AgentLearning {
+  successes?: number;
+  variance?: number;
+  expectedYield?: number;
   context: string;
   attempts: number;
   expectedUtility: number;
@@ -173,6 +179,9 @@ export type SurvivalActionKind =
   | "wait";
 
 export interface AgentDecisionCandidate {
+  predictedSteps?: number;
+  predictedSurvival?: number;
+  planActions?: SurvivalActionKind[];
   goal: AgentGoalKind;
   targetId: string | null;
   score: number;
@@ -184,6 +193,8 @@ export interface AgentDecisionCandidate {
 
 /** A factual decision record, not hidden chain-of-thought or consciousness. */
 export interface AgentDeliberation {
+  policyVersion?: number;
+  evidenceSnapshot?: AgentObservation[];
   id: string;
   decidedAt: number;
   selectedGoal: AgentGoalKind;
@@ -196,6 +207,9 @@ export interface AgentDeliberation {
 export type PlanStepStatus = "pending" | "active" | "complete" | "failed";
 
 export interface SurvivalPlanStep {
+  experimentDose?: number;
+  resource?: "freshwater" | "food";
+  amount?: number;
   id: string;
   action: SurvivalActionKind;
   targetId: string | null;
@@ -205,6 +219,9 @@ export interface SurvivalPlanStep {
 }
 
 export interface SurvivalPlan {
+  initialInventory?: SurvivalInventory;
+  decisionId?: string;
+  initialNeeds?: SurvivalNeeds;
   id: string;
   formedAt: number;
   goal: AgentGoalKind;
@@ -225,6 +242,8 @@ export interface SurvivalCurrentAction {
 }
 
 export interface SurvivalActionOutcome {
+  decisionId?: string;
+  observedYield?: number;
   tick: number;
   action: SurvivalActionKind;
   targetId: string | null;
@@ -257,6 +276,7 @@ export interface ResearchDefinition {
 }
 
 export interface ResearchAttempt {
+  causal?: import("./experiments").CausalExperimentEvidence;
   id: string;
   attemptedAt: number;
   agentId: string;
@@ -283,6 +303,7 @@ export interface AgentResearchProject {
 }
 
 export interface SurvivalAgent {
+  materialSamples?: Partial<Record<SurvivalResourceKind, { sourceId: string; sampledAt: number; contamination: number | null; activity: number | null }>>;
   id: string;
   label: `A${AgentLimit}`;
   slot: AgentLimit;
@@ -377,6 +398,8 @@ export interface SurvivalEventWindow {
 }
 
 export interface SurvivalRunState {
+  /** Missing means the preserved original policy; new runs use version 2. */
+  policyVersion?: 1 | 2;
   schemaVersion: 1;
   id: string;
   seed: number;

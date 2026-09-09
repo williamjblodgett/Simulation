@@ -292,9 +292,9 @@ function RecordList({ events, empty, compact: condensed = false, historyIndex, f
         <p>{event.message}</p>
         <div className="history-entity-actions" aria-label="Linked records">
           {camp && <Link href={`/archive?camp=${encodeURIComponent(camp.id)}`}>{camp.name}</Link>}
-          {agent && <Link href={`/?agent=${encodeURIComponent(agent.id)}${camp ? `&camp=${encodeURIComponent(camp.id)}` : ""}&overlay=${mapOverlayForHistoryEvent(event)}`}>{agent.name}</Link>}
+          {agent && <Link href={`/legacy?agent=${encodeURIComponent(agent.id)}${camp ? `&camp=${encodeURIComponent(camp.id)}` : ""}&overlay=${mapOverlayForHistoryEvent(event)}`}>{agent.name}</Link>}
           {beliefId && <Link href={`/archive?belief=${encodeURIComponent(beliefId)}#beliefs`}>Belief record</Link>}
-          {(camp || agent || beliefId) && <Link href={`/?${mapSearch.toString()}`}>Show on map</Link>}
+          {(camp || agent || beliefId) && <Link href={`/legacy?${mapSearch.toString()}`}>Show on map</Link>}
         </div>
       </article>
     </li>;
@@ -392,7 +392,7 @@ function NotablePeople({ chapter, historyIndex, query }: { chapter: HistoryChapt
         const camp = historyIndex.camps.find((candidate) => candidate.id === agent.campId);
         return <article key={agent.id} style={{ "--person-color": agent.color } as CSSProperties}>
           <i aria-hidden="true">{agent.name.slice(0, 1).toUpperCase()}</i>
-          <div><h4><Link href={`/?agent=${encodeURIComponent(agent.id)}${camp ? `&camp=${encodeURIComponent(camp.id)}` : ""}`}>{agent.name}</Link></h4><p>{camp?.name ?? (agent.alive ? "Unaffiliated" : "Archived affiliation")} · generation {agent.generation}</p>{camp && <Link className="history-linked-chip" href={`/archive?camp=${encodeURIComponent(camp.id)}`}>Civilization record</Link>}</div>
+          <div><h4><Link href={`/legacy?agent=${encodeURIComponent(agent.id)}${camp ? `&camp=${encodeURIComponent(camp.id)}` : ""}`}>{agent.name}</Link></h4><p>{camp?.name ?? (agent.alive ? "Unaffiliated" : "Archived affiliation")} · generation {agent.generation}</p>{camp && <Link className="history-linked-chip" href={`/archive?camp=${encodeURIComponent(camp.id)}`}>Civilization record</Link>}</div>
           <span><b>{mentions}</b><small>key {mentions === 1 ? "record" : "records"}</small></span>
         </article>;
       })}
@@ -677,7 +677,7 @@ export function HistoryBook() {
       <h1>The ledger could not be opened.</h1>
       <p>{error ?? "The persistent world remains intact. Try opening its history again."}</p>
       <button onClick={() => void loadHistory()}><RefreshCw />Try again</button>
-      <Link href="/"><ArrowLeft />Return to the live map</Link>
+      <Link href="/legacy"><ArrowLeft />Return to the live map</Link>
     </div>
   </main>;
 
@@ -690,7 +690,7 @@ export function HistoryBook() {
         <span><Leaf /></span><div><b>SIMULATION <em>ARCHIVE</em></b><small>Prior living history</small></div>
       </Link>
       <nav className="site-section-nav" aria-label="Site pages">
-        <Link href="/"><Activity /><span>Map</span></Link>
+        <Link href="/legacy"><Activity /><span>Map</span></Link>
         <Link href="/archive"><Landmark /><span>Civilizations</span></Link>
         <span className="site-section-link" aria-current="page"><BookOpen /><span>History</span></span>
       </nav>

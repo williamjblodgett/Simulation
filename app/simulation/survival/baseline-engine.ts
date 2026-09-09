@@ -1,9 +1,4 @@
 import { RESEARCH_CATALOG } from "./catalog";
-import { driftNeeds } from "./physiology";
-import { researchMaterialEvidence } from "./research-evidence";
-import { advanceSurvivalRun as advanceBaseline } from "./baseline-engine";
-import { evaluateDonation, planFromPrivateKnowledge, survivalPotential } from "./planner";
-import { chooseExperimentDose, evaluateCausalExperiment, hasReplicatedCausalEffect, preparedMaterialContext } from "./experiments";
 import { survivalBetween, survivalHash, survivalSeedToUint32, survivalUnit } from "./random";
 import type {
   AddObserverAgentResult,
@@ -57,7 +52,7 @@ const STEPS_PER_DAY = (24 * 60) / SURVIVAL_STEP_MINUTES;
 const PERCEPTION_RADIUS = 36;
 const MAX_OBSERVATIONS = 48;
 const MAX_MEMORIES = 64;
-const MAX_LEARNING_CONTEXTS = 96;
+const MAX_LEARNING_CONTEXTS = 32;
 const FRESHWATER_SHORE_CLEARANCE = 2.4;
 
 type MutableIdKind = keyof SurvivalRunState["nextIds"];
@@ -444,7 +439,6 @@ export function createSurvivalRun(seedInput: SurvivalSeed, options: SurvivalRunO
   const config = normalizeOptions(options);
   const seed = survivalSeedToUint32(seedInput);
   const state: SurvivalRunState = {
-    policyVersion: 2,
     schemaVersion: SURVIVAL_SCHEMA_VERSION,
     id: `survival-${survivalHash(seed, "run").toString(36)}`,
     seed,
@@ -713,6 +707,7 @@ function materializeResearchEvidence(
       && observation.observerId === agent.id
       && observation.kind === "resource"
       && observation.facts.resourceKind === kind
+      && observation.facts.researchEvidence !== true
     ));
     if (!source) return [];
     evidence.push({
@@ -837,29 +832,19 @@ function remember(
   agent.memory.push(memory);
   if (agent.memory.length > MAX_MEMORIES) agent.memory.splice(0, agent.memory.length - MAX_MEMORIES);
 
-  updateLearning(agent, `action:${outcome.action}`, outcome, state.tick);
-  if (outcome.targetId) updateLearning(agent, `site:${outcome.targetId}:${outcome.action}`, outcome, state.tick);
-}
-
-function updateLearning(agent: SurvivalAgent, context: string, outcome: SurvivalActionOutcome, tick: number): void {
+  const context = `action:${outcome.action}`;
   const existing = agent.learning.find((item) => item.context === context);
   if (existing) {
     existing.attempts += 1;
-    existing.successes = (existing.successes ?? existing.attempts - 1) + Number(outcome.success);
-    existing.variance = rounded((existing.variance ?? 0) * 0.72 + (outcome.utility - existing.expectedUtility) ** 2 * 0.28);
     existing.expectedUtility = rounded(existing.expectedUtility * 0.72 + outcome.utility * 0.28);
-    if (outcome.observedYield !== undefined) existing.expectedYield = rounded((existing.expectedYield ?? outcome.observedYield) * 0.6 + outcome.observedYield * 0.4);
-    existing.updatedAt = tick;
+    existing.updatedAt = state.tick;
   } else {
     const learning: AgentLearning = {
       context,
       attempts: 1,
       expectedUtility: rounded(outcome.utility),
-      updatedAt: tick,
-      successes: Number(outcome.success),
-      variance: 0,
+      updatedAt: state.tick,
     };
-    if (outcome.observedYield !== undefined) learning.expectedYield = outcome.observedYield;
     agent.learning.push(learning);
     if (agent.learning.length > MAX_LEARNING_CONTEXTS) {
       agent.learning.sort((left, right) => left.updatedAt - right.updatedAt);
@@ -877,8 +862,6 @@ function recordOutcome(
   utility: number,
   summary: string,
   emit = true,
-  observedYield?: number,
-  linkOwnDecision = true,
 ): SurvivalActionOutcome {
   const outcome: SurvivalActionOutcome = {
     tick: state.tick,
@@ -888,8 +871,6 @@ function recordOutcome(
     utility: rounded(utility),
     summary,
   };
-  if (linkOwnDecision && agent.currentDeliberation) outcome.decisionId = agent.currentDeliberation.id;
-  if (observedYield !== undefined) outcome.observedYield = observedYield;
   agent.lastOutcome = outcome;
   remember(state, agent, outcome);
   if (emit) {
@@ -900,7 +881,7 @@ function recordOutcome(
       summary,
       outcome: success ? "The attempted action completed." : "The attempted action did not complete.",
       position: agent.position,
-      facts: { action, targetId, success, utility: rounded(utility), decisionId: outcome.decisionId ?? null, planId: agent.currentPlan?.id ?? null },
+      facts: { action, targetId, success, utility: rounded(utility) },
     });
   }
   return outcome;
@@ -955,7 +936,7 @@ function observationIdsForResearch(agent: SurvivalAgent, definition: ResearchDef
   }
   const ids: string[] = [];
   for (const kind of definition.requiredObservations) {
-    const observation = researchMaterialEvidence(agent, kind);
+    const observation = resourceObservations(agent, kind)[0];
     if (!observation) return [];
     ids.push(observation.id);
   }
@@ -1326,40 +1307,6 @@ function planForDecision(
 }
 
 function deliberate(state: SurvivalRunState, agent: SurvivalAgent): void {
-  if (state.policyVersion === 2) {
-    const choices = planFromPrivateKnowledge({ agent, tick: state.tick, seed: state.seed, bounds: state.environment.bounds });
-    const chosen = choices[0];
-    if (chosen) {
-      const decisionId = nextId(state, "decision");
-      const evidence = agent.observations.filter(o => chosen.candidate.knownObservationIds.includes(o.id)).map(o => structuredClone(o));
-      agent.currentDeliberation = {
-        id: decisionId, decidedAt: state.tick, selectedGoal: chosen.candidate.goal,
-        policyVersion: 2, candidates: choices.map(c => c.candidate), knownObservationIds: chosen.candidate.knownObservationIds,
-        uncertainty: chosen.uncertainty, recordedIntent: chosen.candidate.summary, evidenceSnapshot: evidence,
-      };
-      agent.currentPlan = {
-        id: nextId(state, "plan"), decisionId, initialNeeds: { ...agent.needs }, initialInventory: { ...agent.inventory }, formedAt: state.tick,
-        goal: chosen.candidate.goal, targetId: chosen.candidate.targetId,
-        targetPosition: destinationForTarget(agent, chosen.candidate.targetId), status: "active", rationale: chosen.candidate.summary,
-        activeStepIndex: 0, steps: chosen.actions.map(action => {
-          const step = newStep(state, action.action, action.targetId, action.destination, action.action === "move" ? 1 : action.duration);
-          if (action.resource) { step.resource = action.resource; step.amount = action.amount ?? 1; }
-          if (action.experimentDose !== undefined) step.experimentDose = action.experimentDose;
-          return step;
-        }),
-      };
-      const first = agent.currentPlan.steps[0];
-      agent.currentAction = { kind: first.action, targetId: first.targetId, status: "awaiting_decision", startedAt: state.tick, updatedAt: state.tick };
-      state.stats.decisions++;
-      makeEvent(state, { type: "decision_recorded", category: "agent", agentIds: [agent.id],
-        summary: `${agent.label} chose ${chosen.actions.map(a => a.action).join(" → ")}.`, outcome: chosen.candidate.summary, position: agent.position,
-        facts: { decisionId, planId: agent.currentPlan.id, goal: chosen.candidate.goal, score: chosen.candidate.score,
-          scoreMeaning: "survival potential, not a probability", predictedSteps: chosen.candidate.predictedSteps ?? 1,
-          evidence: JSON.stringify(evidence), alternatives: JSON.stringify(choices.slice(1, 4).map(c => c.candidate)) },
-      });
-      return;
-    }
-  }
   const candidates = draftCandidates(state, agent)
     .map((draft) => scoreCandidate(state, agent, draft))
     .sort((left, right) => right.score - left.score || left.goal.localeCompare(right.goal) || (left.targetId ?? "").localeCompare(right.targetId ?? ""))
@@ -1403,11 +1350,10 @@ function deliberate(state: SurvivalRunState, agent: SurvivalAgent): void {
 }
 
 function shouldAbandonForUrgency(agent: SurvivalAgent): boolean {
-  const actions = agent.currentPlan?.steps.slice(agent.currentPlan.activeStepIndex).map(s => s.action) ?? [];
   const goal = agent.currentPlan?.goal;
   if (!goal) return false;
-  if (agent.needs.hydration < 13 && !actions.includes("drink") && !actions.includes("request")) return true;
-  if (agent.needs.nutrition < 10 && !actions.includes("eat") && !actions.includes("request")) return true;
+  if (agent.needs.hydration < 13 && goal !== "secure_water" && goal !== "request_help") return true;
+  if (agent.needs.nutrition < 10 && goal !== "secure_food" && goal !== "request_help") return true;
   if (agent.needs.safety < 8 && goal !== "seek_safety") return true;
   return false;
 }
@@ -1445,7 +1391,6 @@ function finishStep(
   step.status = success ? "complete" : "failed";
   if (!success) {
     plan.status = "failed";
-    if (plan.initialNeeds && plan.initialInventory) updateLearning(agent, `goal:${plan.goal}`, { tick: state.tick, action: step.action, targetId: plan.targetId, success: false, utility: survivalPotential(agent.needs, agent.inventory) - survivalPotential(plan.initialNeeds, plan.initialInventory), summary: "Measured consequence of a failed plan." }, state.tick);
     agent.currentAction = {
       kind: step.action,
       status: "blocked",
@@ -1458,11 +1403,6 @@ function finishStep(
   plan.activeStepIndex += 1;
   if (plan.activeStepIndex >= plan.steps.length) {
     plan.status = "complete";
-    if (plan.initialNeeds) updateLearning(agent, `goal:${plan.goal}`, {
-      tick: state.tick, action: step.action, targetId: plan.targetId, success: true,
-      utility: survivalPotential(agent.needs, agent.inventory) - survivalPotential(plan.initialNeeds, plan.initialInventory ?? agent.inventory),
-      summary: "Observed survival condition change across the completed plan.",
-    }, state.tick);
     agent.currentAction = {
       kind: step.action,
       status: "complete",
@@ -1504,21 +1444,6 @@ function moveToward(state: SurvivalRunState, agent: SurvivalAgent, step: Surviva
   if (distance(agent.position, destination) <= 2.4) finishStep(state, agent, step, true);
 }
 
-function consumeMaterial(agent: SurvivalAgent, kind: SurvivalResourceKind, amount: number): void {
-  agent.inventory[kind] = rounded(agent.inventory[kind] - amount, 2);
-  if (agent.inventory[kind] <= 0 && agent.materialSamples) delete agent.materialSamples[kind];
-}
-
-function receiveMaterial(agent: SurvivalAgent, kind: SurvivalResourceKind, amount: number, sample?: NonNullable<SurvivalAgent["materialSamples"]>[SurvivalResourceKind]): void {
-  const existing = agent.materialSamples?.[kind];
-  const unmixed = agent.inventory[kind] === 0 || (sample && existing && existing.sourceId === sample.sourceId && existing.contamination === sample.contamination && existing.activity === sample.activity);
-  agent.inventory[kind] = rounded(agent.inventory[kind] + amount, 2);
-  agent.materialSamples ??= {};
-  // Aggregate stores cannot establish which mixed batch was used in a test.
-  if (sample && unmixed) agent.materialSamples[kind] = { ...sample };
-  else delete agent.materialSamples[kind];
-}
-
 function gatherFromSite(
   state: SurvivalRunState,
   agent: SurvivalAgent,
@@ -1540,11 +1465,10 @@ function gatherFromSite(
     : 1;
   const amount = rounded(Math.min(site.quantity, (site.kind === "freshwater" ? 2 + vesselBonus : 1.5) * edgeBonus), 2);
   site.quantity = rounded(Math.max(0, site.quantity - amount), 3);
-  const boiled = site.contaminated && site.kind === "freshwater" && agent.technologies.includes("water_boiling") && agent.inventory.wood >= 0.25;
-  receiveMaterial(agent, site.kind, amount, { sourceId: site.id, sampledAt: state.tick, contamination: site.kind === "freshwater" ? site.contaminated && !boiled ? 0.8 : 0 : null, activity: site.kind === "herbs" ? 0.8 : null });
+  agent.inventory[site.kind] = rounded(agent.inventory[site.kind] + amount, 2);
   if (site.contaminated && site.kind === "freshwater") {
     if (agent.technologies.includes("water_boiling") && agent.inventory.wood >= 0.25) {
-      consumeMaterial(agent, "wood", 0.25);
+      agent.inventory.wood = rounded(agent.inventory.wood - 0.25, 2);
     } else {
       agent.needs.health = rounded(clamp(agent.needs.health - 1.5));
     }
@@ -1557,8 +1481,6 @@ function gatherFromSite(
     true,
     site.kind === "freshwater" || site.kind === "food" ? 8 : 4,
     `${agent.label} gathered ${amount} ${site.kind}.`,
-    true,
-    amount,
   );
   finishStep(state, agent, step, true);
 }
@@ -1569,7 +1491,7 @@ function consumeWater(state: SurvivalRunState, agent: SurvivalAgent, step: Survi
     finishStep(state, agent, step, false);
     return;
   }
-  consumeMaterial(agent, "freshwater", 1);
+  agent.inventory.freshwater = rounded(agent.inventory.freshwater - 1, 2);
   const gain = Math.min(34, 100 - agent.needs.hydration);
   agent.needs.hydration = rounded(clamp(agent.needs.hydration + 34));
   recordOutcome(state, agent, "drink", null, true, gain, `${agent.label} drank carried water; hydration increased.`);
@@ -1582,7 +1504,7 @@ function consumeFood(state: SurvivalRunState, agent: SurvivalAgent, step: Surviv
     finishStep(state, agent, step, false);
     return;
   }
-  consumeMaterial(agent, "food", 1);
+  agent.inventory.food = rounded(agent.inventory.food - 1, 2);
   const restoredNutrition = agent.technologies.includes("food_smoking") ? 32 : 27;
   const gain = Math.min(restoredNutrition, 100 - agent.needs.nutrition);
   agent.needs.nutrition = rounded(clamp(agent.needs.nutrition + restoredNutrition));
@@ -1616,7 +1538,7 @@ function shelterAgent(state: SurvivalRunState, agent: SurvivalAgent, step: Survi
 function warmAgent(state: SurvivalRunState, agent: SurvivalAgent, step: SurvivalPlanStep): void {
   const canMakeFire = agent.technologies.includes("controlled_fire") && agent.inventory.wood >= 1;
   if (canMakeFire) {
-    consumeMaterial(agent, "wood", 1);
+    agent.inventory.wood = rounded(agent.inventory.wood - 1, 2);
     const nearbyFire = state.environment.structures.find(
       ({ kind, position }) => kind === "fire" && distance(position, agent.position) < 5,
     );
@@ -1650,8 +1572,8 @@ function buildShelter(state: SurvivalRunState, agent: SurvivalAgent, step: Survi
     finishStep(state, agent, step, false);
     return;
   }
-  consumeMaterial(agent, "wood", 4);
-  consumeMaterial(agent, "fiber", fiberCost);
+  agent.inventory.wood = rounded(agent.inventory.wood - 4, 2);
+  agent.inventory.fiber = rounded(agent.inventory.fiber - fiberCost, 2);
   const structure: SurvivalStructure = {
     id: nextId(state, "structure"),
     kind: "shelter",
@@ -1681,9 +1603,9 @@ function researchDefinition(id: string | null): ResearchDefinition | null {
   return RESEARCH_CATALOG.find((definition) => definition.id === id) ?? null;
 }
 
-function consumeInputs(agent: SurvivalAgent, inputs: Partial<SurvivalInventory>): void {
+function consumeInputs(inventory: SurvivalInventory, inputs: Partial<SurvivalInventory>): void {
   for (const kind of RESOURCE_KINDS) {
-    consumeMaterial(agent, kind, inputs[kind] ?? 0);
+    inventory[kind] = rounded(inventory[kind] - (inputs[kind] ?? 0), 2);
   }
 }
 
@@ -1733,16 +1655,10 @@ function conductExperiment(state: SurvivalRunState, agent: SurvivalAgent, step: 
     return;
   }
   const attemptNumber = project.attempts.length + 1;
-  const sample = preparedMaterialContext(definition.id, state.environment.weather === "rain" || state.environment.weather === "storm", agent.materialSamples);
-  const dose = step.experimentDose ?? chooseExperimentDose(definition.id, project.attempts, sample);
-  if (dose === null) {
-    recordOutcome(state, agent, "test_hypothesis", definition.id, false, 0, "Deferred this test: no informative untried procedure remains under these conditions.");
-    finishStep(state, agent, step, true);
-    return;
-  }
-  consumeInputs(agent, definition.inputs);
-  const causal = evaluateCausalExperiment(definition.id, dose, sample);
-  const supported = causal.verdict === "supported";
+  consumeInputs(agent.inventory, definition.inputs);
+  const chance = clamp(0.48 + (attemptNumber - 1) * 0.085 - definition.difficulty * 0.22, 0.2, 0.9);
+  const roll = survivalUnit(state.seed, "experiment", agent.id, definition.id, project.id, attemptNumber);
+  const supported = roll < chance;
   const attempt: ResearchAttempt = {
     id: nextId(state, "attempt"),
     attemptedAt: state.tick,
@@ -1752,8 +1668,9 @@ function conductExperiment(state: SurvivalRunState, agent: SurvivalAgent, step: 
     procedure: [...definition.procedure],
     observationIds,
     result: supported ? "supported" : "not_supported",
-    evidence: `Trial ${attemptNumber}, procedure intensity ${dose}: ${causal.explanation}`,
-    causal,
+    evidence: supported
+      ? `Trial ${attemptNumber} produced the predicted repeatable effect under the recorded procedure.`
+      : `Trial ${attemptNumber} did not produce a reliable effect; the materials were still consumed.`,
     utility: supported ? 10 : -5,
   };
   project.attempts.push(attempt);
@@ -1781,7 +1698,7 @@ function conductExperiment(state: SurvivalRunState, agent: SurvivalAgent, step: 
       requiredSuccessfulTrials: project.requiredSuccessfulTrials,
     },
   });
-  if (project.successfulTrials >= project.requiredSuccessfulTrials && hasReplicatedCausalEffect(project.attempts, project.requiredSuccessfulTrials)) {
+  if (project.successfulTrials >= project.requiredSuccessfulTrials) {
     project.status = "confirmed";
     project.discoveredAt = state.tick;
     agent.technologies.push(definition.id);
@@ -1829,10 +1746,7 @@ function consentScore(
   proposer: SurvivalAgent,
   responder: SurvivalAgent,
   action: "share" | "request" | "cooperate",
-  resource?: "freshwater" | "food",
-  amount = 1,
 ): number {
-  if (action === "request" && resource) return evaluateDonation(responder, resource, amount).accepted ? Math.max(0.5, evaluateDonation(responder, resource, amount).score) : Math.min(0.49, evaluateDonation(responder, resource, amount).score);
   const relationship = relationshipFor(responder, proposer.id);
   const stableNeeds = (responder.needs.health + responder.needs.hydration + responder.needs.nutrition + responder.needs.safety) / 400;
   const surplus = Math.min(1, (responder.inventory.freshwater + responder.inventory.food) / 4);
@@ -1868,17 +1782,10 @@ function performSocialAction(state: SurvivalRunState, agent: SurvivalAgent, step
   const other = state.agents.find(({ id, alive }) => id === step.targetId && alive);
   const action = step.action as "share" | "request" | "cooperate";
   if (!other || distance(agent.position, other.position) > 8) {
-    const stale = observationFor(agent, step.targetId);
-    if (stale) { stale.confidence = rounded(stale.confidence * 0.25); stale.facts.lastPresenceFailureAt = state.tick; }
     recordOutcome(state, agent, action, step.targetId, false, -5, "The proposed interaction could not occur because the other agent was unavailable.");
     finishStep(state, agent, step, false);
     return;
   }
-  const observedOther = observationFor(agent, other.id);
-  const desiredResource = step.resource ?? (action === "share"
-    ? Number(observedOther?.facts.hydrationEstimate ?? 100) <= Number(observedOther?.facts.nutritionEstimate ?? 100) ? "freshwater" : "food"
-    : agent.needs.hydration <= agent.needs.nutrition ? "freshwater" : "food");
-  const amount = step.amount ?? 1;
   makeEvent(state, {
     type: "social_proposal",
     category: "social",
@@ -1886,27 +1793,37 @@ function performSocialAction(state: SurvivalRunState, agent: SurvivalAgent, step
     summary: `${agent.label} proposed to ${action === "request" ? "request help from" : action} with ${other.label}.`,
     outcome: `${other.label} evaluated the proposal independently.`,
     position: agent.position,
-    facts: { action, proposerId: agent.id, responderId: other.id, resource: action === "cooperate" ? null : desiredResource, amount, decisionId: agent.currentDeliberation?.id ?? null },
+    facts: { action, proposerId: agent.id, responderId: other.id },
   });
-  const score = consentScore(state, agent, other, action, desiredResource, amount);
+  const score = consentScore(state, agent, other, action);
   let accepted = score >= 0.5;
   let aidDirection: "left_gave" | "right_gave" | "none" = "none";
   let outcomeSummary = `${other.label} refused the proposal.`;
   if (accepted && action === "share") {
-    const resource = evaluateDonation(agent, desiredResource, amount).accepted ? desiredResource : null;
+    const resource: "freshwater" | "food" | null = agent.inventory.freshwater >= 2
+      ? "freshwater"
+      : agent.inventory.food >= 2
+        ? "food"
+        : null;
     if (!resource) accepted = false;
     else {
-      consumeMaterial(agent, resource, amount);
-      receiveMaterial(other, resource, amount);
+      agent.inventory[resource] = rounded(agent.inventory[resource] - 1, 2);
+      other.inventory[resource] = rounded(other.inventory[resource] + 1, 2);
       aidDirection = "left_gave";
       outcomeSummary = `${other.label} consented to receive one ${resource}.`;
     }
   } else if (accepted && action === "request") {
-    const resource = evaluateDonation(other, desiredResource, amount).accepted ? desiredResource : null;
+    const resource: "freshwater" | "food" | null = agent.needs.hydration <= agent.needs.nutrition && other.inventory.freshwater >= 1
+      ? "freshwater"
+      : other.inventory.food >= 1
+        ? "food"
+        : other.inventory.freshwater >= 1
+          ? "freshwater"
+          : null;
     if (!resource) accepted = false;
     else {
-      consumeMaterial(other, resource, amount);
-      receiveMaterial(agent, resource, amount);
+      other.inventory[resource] = rounded(other.inventory[resource] - 1, 2);
+      agent.inventory[resource] = rounded(agent.inventory[resource] + 1, 2);
       aidDirection = "right_gave";
       outcomeSummary = `${other.label} consented and supplied one ${resource}.`;
     }
@@ -1919,15 +1836,15 @@ function performSocialAction(state: SurvivalRunState, agent: SurvivalAgent, step
         ...structuredClone(transferable),
         id: `obs-${agent.id}-${transferable.subjectId}`,
         observerId: agent.id,
-        receivedAt: state.tick,
-        originalObserverId: transferable.originalObserverId ?? other.id,
-        transmissionChain: [...(transferable.transmissionChain ?? []), other.id].slice(-5),
+        observedAt: state.tick,
         confidence: rounded(transferable.confidence * 0.72),
         facts: { ...transferable.facts, sharedBy: other.id },
       });
       outcomeSummary = `${other.label} consented and shared a resource observation.`;
     } else {
-      outcomeSummary = `${other.label} consented, but had no new resource information to share.`;
+      agent.needs.safety = rounded(clamp(agent.needs.safety + 2));
+      other.needs.safety = rounded(clamp(other.needs.safety + 2));
+      outcomeSummary = `${other.label} consented to brief mutual coordination.`;
     }
   }
   if (!accepted) outcomeSummary = `${other.label} independently refused the proposal.`;
@@ -1939,12 +1856,9 @@ function performSocialAction(state: SurvivalRunState, agent: SurvivalAgent, step
     summary: outcomeSummary,
     outcome: accepted ? "The action occurred with consent." : "No resource or knowledge changed hands.",
     position: agent.position,
-    facts: { action, consentScore: score, accepted, resource: action === "cooperate" ? null : desiredResource, amount, decisionId: agent.currentDeliberation?.id ?? null },
+    facts: { action, consentScore: score, accepted },
   });
-  const utility = !accepted ? -1 : aidDirection === "right_gave" ? 8 : aidDirection === "left_gave" ? -1 : outcomeSummary.includes("no new") ? -0.5 : 2;
-  recordOutcome(state, agent, action, other.id, accepted, utility, outcomeSummary, false);
-  const responseAction = action === "request" ? "share" : action === "share" ? "request" : "cooperate";
-  recordOutcome(state, other, responseAction, agent.id, accepted, aidDirection === "left_gave" ? 8 : aidDirection === "right_gave" ? -1 : utility, `Response to ${agent.label}: ${outcomeSummary}`, false, undefined, false);
+  recordOutcome(state, agent, action, other.id, accepted, accepted ? 12 : -3, outcomeSummary, false);
   finishStep(state, agent, step, true);
 }
 
@@ -1970,7 +1884,7 @@ function executePlanStep(state: SurvivalRunState, agent: SurvivalAgent): void {
     agent.needs.energy = rounded(clamp(agent.needs.energy + 13));
     agent.needs.health = rounded(clamp(agent.needs.health + 0.35));
     if (agent.technologies.includes("herbal_poultice") && agent.inventory.herbs >= 0.25 && agent.needs.health < 100) {
-      consumeMaterial(agent, "herbs", 0.25);
+      agent.inventory.herbs = rounded(agent.inventory.herbs - 0.25, 2);
       agent.needs.health = rounded(clamp(agent.needs.health + 1));
     }
     step.remainingSteps -= 1;
@@ -2010,7 +1924,39 @@ function applyNeedDrift(state: SurvivalRunState, agent: SurvivalAgent): void {
   const byFire = state.environment.structures.some(
     ({ kind, position, condition }) => kind === "fire" && condition > 5 && distance(agent.position, position) <= 7,
   );
-  driftNeeds(agent.needs, { ...state.environment, sheltered, byFire });
+  const heatHydrationCost = state.environment.temperatureC >= 31 ? 0.42 : 0;
+  agent.needs.hydration = rounded(clamp(agent.needs.hydration - 0.82 - heatHydrationCost));
+  agent.needs.nutrition = rounded(clamp(agent.needs.nutrition - 0.25));
+  agent.needs.energy = rounded(clamp(agent.needs.energy - 0.31));
+
+  let warmthDelta = 0.1;
+  if (state.environment.temperatureC < 4) warmthDelta = -1.3;
+  else if (state.environment.temperatureC < 11) warmthDelta = -0.62;
+  else if (state.environment.temperatureC < 16) warmthDelta = -0.24;
+  else warmthDelta = 0.18;
+  if (state.environment.weather === "rain") warmthDelta -= 0.18;
+  if (state.environment.weather === "storm") warmthDelta -= 0.45;
+  if (sheltered) warmthDelta += 0.46;
+  if (byFire) warmthDelta += 0.8;
+  agent.needs.warmth = rounded(clamp(agent.needs.warmth + warmthDelta));
+
+  let safetyDelta = state.environment.daylight < 0.08 ? -0.14 : 0.1;
+  if (state.environment.weather === "storm") safetyDelta -= 0.72;
+  if (state.environment.weather === "cold_snap" || state.environment.weather === "heat_wave") safetyDelta -= 0.17;
+  if (sheltered) safetyDelta += 0.5;
+  agent.needs.safety = rounded(clamp(agent.needs.safety + safetyDelta));
+
+  let healthDelta = 0;
+  if (agent.needs.hydration <= 0) healthDelta -= 6;
+  else if (agent.needs.hydration < 14) healthDelta -= 2.2;
+  if (agent.needs.nutrition <= 0) healthDelta -= 2.8;
+  else if (agent.needs.nutrition < 12) healthDelta -= 0.8;
+  if (agent.needs.warmth < 8) healthDelta -= 1.2;
+  if (agent.needs.safety < 5) healthDelta -= 0.45;
+  if (Math.min(agent.needs.hydration, agent.needs.nutrition, agent.needs.warmth, agent.needs.safety) > 58) {
+    healthDelta += 0.08;
+  }
+  agent.needs.health = rounded(clamp(agent.needs.health + healthDelta));
 }
 
 function causeOfDeath(agent: SurvivalAgent): string {
@@ -2186,7 +2132,6 @@ function advanceOneStep(state: SurvivalRunState): void {
  * object is never mutated, which makes checkpoint/replay comparisons simple.
  */
 export function advanceSurvivalRun(stateInput: SurvivalRunState, steps = 1): SurvivalAdvanceResult {
-  if (stateInput.policyVersion !== 2) return advanceBaseline(stateInput, steps);
   if (!Number.isInteger(steps) || steps < 0) throw new RangeError("steps must be a non-negative integer.");
   const state = cloneState(stateInput);
   const generatedEvents: SurvivalEvent[] = [];
@@ -2320,7 +2265,6 @@ function isNeedSet(value: unknown): value is SurvivalNeeds {
 
 export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
   if (!isRecord(value) || !isJsonSafe(value)) return false;
-  if (value.policyVersion !== undefined && value.policyVersion !== 1 && value.policyVersion !== 2) return false;
   if (value.schemaVersion !== SURVIVAL_SCHEMA_VERSION) return false;
   if (!isRecord(value.config) || !isRecord(value.environment) || !isRecord(value.stats) || !isRecord(value.nextIds) || !isRecord(value.soleSurvivor) || !isRecord(value.eventWindow)) return false;
   if (!Array.isArray(value.agents) || !Array.isArray(value.events)) return false;
@@ -2407,18 +2351,6 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
       if (typeof rawObservation.subjectId !== "string" || !isNonNegativeInteger(rawObservation.observedAt) || rawObservation.observedAt > value.tick) return false;
       if (!(rawObservation.position === null || isPosition(rawObservation.position, bounds))) return false;
       if (!isFiniteNumber(rawObservation.confidence, 0, 1) || !isRecord(rawObservation.facts)) return false;
-      if (!["resource", "agent", "weather", "structure", "outcome"].includes(String(rawObservation.kind))) return false;
-      if (rawObservation.receivedAt !== undefined && (!isNonNegativeInteger(rawObservation.receivedAt) || rawObservation.receivedAt < rawObservation.observedAt || rawObservation.receivedAt > value.tick)) return false;
-      if (rawObservation.originalObserverId !== undefined && typeof rawObservation.originalObserverId !== "string") return false;
-      if (rawObservation.transmissionChain !== undefined && (!Array.isArray(rawObservation.transmissionChain) || rawObservation.transmissionChain.length > 5 || !rawObservation.transmissionChain.every(id => typeof id === "string"))) return false;
-    }
-    if (rawAgent.materialSamples !== undefined) {
-      if (!isRecord(rawAgent.materialSamples)) return false;
-      for (const [kind, sample] of Object.entries(rawAgent.materialSamples)) {
-        if (!RESOURCE_KINDS.includes(kind as SurvivalResourceKind) || !isRecord(sample) || typeof sample.sourceId !== "string" || siteKindsById.get(sample.sourceId) !== kind) return false;
-        if (!isNonNegativeInteger(sample.sampledAt) || sample.sampledAt > value.tick) return false;
-        if (!(sample.contamination === null || isFiniteNumber(sample.contamination, 0, 1)) || !(sample.activity === null || isFiniteNumber(sample.activity, 0, 1))) return false;
-      }
     }
     const memoryIds = new Set<string>();
     for (const rawMemory of rawAgent.memory) {
@@ -2428,11 +2360,6 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
       if (!isNonNegativeInteger(rawMemory.recordedAt) || !isFiniteNumber(rawMemory.utility)) return false;
     }
     for (const rawLearning of rawAgent.learning) {
-      if (isRecord(rawLearning)) {
-        if (rawLearning.successes !== undefined && (!isNonNegativeInteger(rawLearning.successes) || Number(rawLearning.successes) > Number(rawLearning.attempts))) return false;
-        if (rawLearning.variance !== undefined && !isFiniteNumber(rawLearning.variance, 0)) return false;
-        if (rawLearning.expectedYield !== undefined && !isFiniteNumber(rawLearning.expectedYield, 0)) return false;
-      }
       if (!isRecord(rawLearning) || typeof rawLearning.context !== "string" || !isNonNegativeInteger(rawLearning.attempts)) return false;
       if (!isFiniteNumber(rawLearning.expectedUtility) || !isNonNegativeInteger(rawLearning.updatedAt)) return false;
     }
@@ -2483,12 +2410,6 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
         }
         if (RESOURCE_KINDS.some((kind) => Number(materialsConsumed[kind] ?? 0) !== Number(definition.inputs[kind] ?? 0))) return false;
         if (!(rawAttempt.result === "supported" || rawAttempt.result === "not_supported") || rawAttempt.utility !== (rawAttempt.result === "supported" ? 10 : -5)) return false;
-        if (value.policyVersion === 2) {
-          if (!isRecord(rawAttempt.causal) || !isRecord(rawAttempt.causal.context)) return false;
-          const c = rawAttempt.causal as unknown as import("./experiments").CausalExperimentEvidence;
-          if (JSON.stringify(evaluateCausalExperiment(definition.id, c.dose, c.context)) !== JSON.stringify(c)) return false;
-          if ((c.verdict === "supported") !== (rawAttempt.result === "supported")) return false;
-        }
         if (rawAttempt.result === "supported") supportedTrials += 1;
       }
       if (supportedTrials !== rawProject.successfulTrials) return false;
@@ -2497,11 +2418,10 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
       if (rawProject.status === "confirmed") {
         confirmedProjectCount += 1;
         const finalAttempt = rawProject.attempts.at(-1);
-        if (supportedTrials < definition.requiredSuccessfulTrials || !unlockedTechnologyIds.has(definition.id)) return false;
-        if (value.policyVersion === 2 && !hasReplicatedCausalEffect(rawProject.attempts as unknown as ResearchAttempt[], definition.requiredSuccessfulTrials)) return false;
+        if (supportedTrials !== definition.requiredSuccessfulTrials || !unlockedTechnologyIds.has(definition.id)) return false;
         if (!isRecord(finalAttempt) || finalAttempt.result !== "supported" || rawProject.discoveredAt !== finalAttempt.attemptedAt) return false;
         confirmedTechnologyIds.add(definition.id);
-      } else if ((value.policyVersion !== 2 && supportedTrials >= definition.requiredSuccessfulTrials) || rawProject.discoveredAt !== null || unlockedTechnologyIds.has(definition.id)) {
+      } else if (supportedTrials >= definition.requiredSuccessfulTrials || rawProject.discoveredAt !== null || unlockedTechnologyIds.has(definition.id)) {
         return false;
       }
     }
@@ -2513,12 +2433,6 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
       }
     }
     if (isRecord(rawAgent.currentDeliberation)) {
-      const decision = rawAgent.currentDeliberation;
-      if (!isNonNegativeInteger(decision.decidedAt) || decision.decidedAt > value.tick || !GOAL_KINDS.includes(decision.selectedGoal as AgentGoalKind) || !isFiniteNumber(decision.uncertainty, 0, 1) || typeof decision.recordedIntent !== "string") return false;
-      if (decision.evidenceSnapshot !== undefined) {
-        if (!Array.isArray(decision.evidenceSnapshot) || decision.evidenceSnapshot.length > MAX_OBSERVATIONS) return false;
-        if (!decision.evidenceSnapshot.every(o => isRecord(o) && o.observerId === rawAgent.id && typeof o.id === "string" && typeof o.subjectId === "string" && isNonNegativeInteger(o.observedAt) && o.observedAt <= Number(decision.decidedAt) && isFiniteNumber(o.confidence, 0, 1) && isRecord(o.facts) && (o.position === null || isPosition(o.position, bounds)))) return false;
-      }
       if (typeof rawAgent.currentDeliberation.id !== "string" || sequenceNumber(rawAgent.currentDeliberation.id, "decision") === null || currentDecisionIds.has(rawAgent.currentDeliberation.id)) return false;
       currentDecisionIds.add(rawAgent.currentDeliberation.id);
       const cited = rawAgent.currentDeliberation.knownObservationIds;
@@ -2527,27 +2441,18 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
       if (!cited.every((id) => typeof id === "string" && observationIds.has(id))) return false;
       for (const candidate of candidates) {
         if (!isRecord(candidate) || !Array.isArray(candidate.knownObservationIds)) return false;
-        if (!GOAL_KINDS.includes(candidate.goal as AgentGoalKind) || !isFiniteNumber(candidate.score) || !isFiniteNumber(candidate.expectedBenefit) || !isFiniteNumber(candidate.risk) || typeof candidate.summary !== "string") return false;
-        if (candidate.predictedSteps !== undefined && !isNonNegativeInteger(candidate.predictedSteps)) return false;
-        if (candidate.predictedSurvival !== undefined && !isFiniteNumber(candidate.predictedSurvival)) return false;
-        if (candidate.planActions !== undefined && (!Array.isArray(candidate.planActions) || !candidate.planActions.every(action => ACTION_KINDS.includes(action as SurvivalActionKind)))) return false;
         if (!candidate.knownObservationIds.every((id) => typeof id === "string" && observationIds.has(id))) return false;
       }
     } else if (rawAgent.currentDeliberation !== null) {
       return false;
     }
     if (isRecord(rawAgent.currentPlan)) {
-      if (rawAgent.currentPlan.initialNeeds !== undefined && !isNeedSet(rawAgent.currentPlan.initialNeeds)) return false;
-      if (rawAgent.currentPlan.initialInventory !== undefined && !isInventory(rawAgent.currentPlan.initialInventory)) return false;
       if (typeof rawAgent.currentPlan.id !== "string" || sequenceNumber(rawAgent.currentPlan.id, "plan") === null || currentPlanIds.has(rawAgent.currentPlan.id)) return false;
       currentPlanIds.add(rawAgent.currentPlan.id);
       if (!GOAL_KINDS.includes(rawAgent.currentPlan.goal as AgentGoalKind) || !["active", "complete", "failed", "abandoned"].includes(String(rawAgent.currentPlan.status))) return false;
       if (!Array.isArray(rawAgent.currentPlan.steps) || !(rawAgent.currentPlan.targetPosition === null || isPosition(rawAgent.currentPlan.targetPosition, bounds))) return false;
       if (!Number.isInteger(rawAgent.currentPlan.activeStepIndex) || Number(rawAgent.currentPlan.activeStepIndex) < 0 || Number(rawAgent.currentPlan.activeStepIndex) > rawAgent.currentPlan.steps.length) return false;
       for (const rawStep of rawAgent.currentPlan.steps) {
-        if (isRecord(rawStep) && rawStep.experimentDose !== undefined && !isFiniteNumber(rawStep.experimentDose, 0, 1)) return false;
-        if (isRecord(rawStep) && rawStep.resource !== undefined && rawStep.resource !== "freshwater" && rawStep.resource !== "food") return false;
-        if (isRecord(rawStep) && rawStep.amount !== undefined && !isFiniteNumber(rawStep.amount, Number.EPSILON, 5)) return false;
         if (!isRecord(rawStep) || typeof rawStep.id !== "string" || sequenceNumber(rawStep.id, "step") === null || retainedStepIds.has(rawStep.id)) return false;
         retainedStepIds.add(rawStep.id);
         if (!ACTION_KINDS.includes(rawStep.action as SurvivalActionKind) || !["pending", "active", "complete", "failed"].includes(String(rawStep.status))) return false;
@@ -2564,8 +2469,6 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
       if (!isRecord(rawAgent.lastOutcome) || !ACTION_KINDS.includes(rawAgent.lastOutcome.action as SurvivalActionKind)) return false;
       if (!isNonNegativeInteger(rawAgent.lastOutcome.tick) || rawAgent.lastOutcome.tick > value.tick || !isFiniteNumber(rawAgent.lastOutcome.utility)) return false;
       if (typeof rawAgent.lastOutcome.success !== "boolean" || typeof rawAgent.lastOutcome.summary !== "string") return false;
-      if (rawAgent.lastOutcome.observedYield !== undefined && !isFiniteNumber(rawAgent.lastOutcome.observedYield, 0)) return false;
-      if (rawAgent.lastOutcome.decisionId !== undefined && (typeof rawAgent.lastOutcome.decisionId !== "string" || sequenceNumber(rawAgent.lastOutcome.decisionId, "decision") === null)) return false;
     }
     if (rawAgent.alive) {
       if (livingSlots.has(Number(rawAgent.slot))) return false;

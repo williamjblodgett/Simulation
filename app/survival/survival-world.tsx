@@ -30,6 +30,7 @@ interface SurvivalWorldProps {
   active: boolean;
   focusPosition?: { x: number; z: number } | null;
   inspectorLevel: InspectorLevel;
+  zoomRequest?: { direction: -1 | 1; sequence: number } | null;
 }
 
 function actionKind(agent: SurvivalAgent): HabitatActionKind {
@@ -77,7 +78,7 @@ function toolFor(agent: SurvivalAgent): HabitatToolKind {
 }
 
 function headingFor(agent: SurvivalAgent) {
-  const target = agent.currentPlan?.targetPosition;
+  const target = agent.currentPlan?.status === "active" ? agent.currentPlan.steps[agent.currentPlan.activeStepIndex]?.destination : null;
   if (!target) return 0;
   return Math.atan2(target.x - agent.position.x, target.z - agent.position.z);
 }
@@ -118,6 +119,7 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
     return records.find((agent) => agent.alive) ?? records[0] ?? [];
   });
   return {
+    simulationRunning: world.status === "running",
     simulationTimeSeconds: world.elapsedMinutes * 60,
     terrain: {
       seed: world.seed,
@@ -163,10 +165,11 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
     },
     daylight: { phase, lightLevel: Math.max(0.12, Math.min(1, world.environment.daylight)), sunAzimuth: dayFraction * Math.PI * 2 },
     agents: currentAgents.map((agent) => {
-      const targetPosition = agent.currentPlan?.targetPosition ?? undefined;
+      const targetPosition = agent.currentPlan?.status === "active" ? agent.currentPlan.steps[agent.currentPlan.activeStepIndex]?.destination ?? undefined : undefined;
       const carried = carriedItem(agent);
       return {
         id: agent.label as SurvivalAgentId,
+        lifeId: agent.id,
         displayName: agent.name,
         position: agent.position,
         heading: headingFor(agent),
@@ -190,7 +193,7 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
   };
 }
 
-export function SurvivalWorld({ world, selectedId, cameraMode, onSelectAgent, onManualCamera, onContextLost, retryKey, active, focusPosition, inspectorLevel }: SurvivalWorldProps) {
+export function SurvivalWorld({ world, selectedId, cameraMode, onSelectAgent, onManualCamera, onContextLost, retryKey, active, focusPosition, inspectorLevel, zoomRequest }: SurvivalWorldProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SurvivalHabitatScene | null>(null);
   const callbacksRef = useRef({ onSelectAgent, onManualCamera, onContextLost });
@@ -226,15 +229,17 @@ export function SurvivalWorld({ world, selectedId, cameraMode, onSelectAgent, on
 
   useEffect(() => {
     sceneRef.current?.update(visualSnapshot, selectedId, cameraMode);
-  }, [cameraMode, selectedId, visualSnapshot]);
+  }, [cameraMode, selectedId, visualSnapshot, retryKey]);
 
   useEffect(() => {
     sceneRef.current?.setActive(active);
-  }, [active]);
+  }, [active, retryKey]);
 
   useEffect(() => {
-    if (focusPosition) sceneRef.current?.focusAt(focusPosition);
-  }, [focusPosition]);
+    sceneRef.current?.focusAt(focusPosition ?? null);
+  }, [focusPosition, retryKey]);
+
+  useEffect(() => { if (zoomRequest) sceneRef.current?.zoom(zoomRequest.direction); }, [zoomRequest]);
 
   return <div ref={hostRef} data-testid="survival-world" data-survival-viewport data-inspector-level={inspectorLevel} />;
 }

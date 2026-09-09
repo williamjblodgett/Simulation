@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { renderCharacterPortraits } from "./character-model";
+import { getPortraits, publishPortraits, publishHabitatPreview } from "../portraits";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createAgentCollection, createResourceCollection, createShelterCollection, disposeObject } from "./scene-models";
 import { createTerrainWorld, type TerrainWorld } from "./terrain-world";
@@ -199,6 +201,7 @@ export function createSurvivalHabitatScene(
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#101a22");
   scene.fog = new THREE.FogExp2("#839da0", 0.008);
+  let baseFogDensity = 0.0045;
 
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 600);
   camera.position.set(35, 40, 48);
@@ -267,6 +270,7 @@ export function createSurvivalHabitatScene(
   let previousCameraMode: HabitatCameraMode = "overview";
   let cameraTransition = true;
   let manualOverride = false;
+  let focusedSite: HabitatPoint | null = null;
   let disposed = false;
   let contextLost = false;
   let active = true;
@@ -278,6 +282,10 @@ export function createSurvivalHabitatScene(
   let lastWheelReport = -Infinity;
 
   function frameOverview(immediate: boolean) {
+    if (focusedSite) {
+      frameSite(focusedSite);
+      return;
+    }
     const halfSize = Math.max(12, snapshot?.terrain.halfSize ?? 48);
     const livingAgents = snapshot?.agents.filter((agent) => agent.alive) ?? [];
     if (livingAgents.length) {
@@ -299,34 +307,22 @@ export function createSurvivalHabitatScene(
       const centerZ = selectedAgent
         ? THREE.MathUtils.lerp(clusterCenterZ, selectedAgent.position.z, 0.1)
         : clusterCenterZ;
-      const selectedExtent = Math.max(
-        ...livingAgents.flatMap((agent) => [
-          Math.abs(agent.position.x - centerX),
-          Math.abs(agent.position.z - centerZ),
-        ]),
-      );
-      // The overview is an observation camera, not a map of every undiscovered
-      // resource. Frame every living subject plus a generous habitat margin so
-      // the opening view remains legible even on a phone.
-      const baseSubjectRadius = THREE.MathUtils.clamp(
-        Math.max(Math.max(maxX - minX, maxZ - minZ) * 0.86, selectedExtent * 1.12) + 10,
-        15,
-        halfSize * 0.7,
-      );
-      // A portrait phone has a much narrower horizontal field of view than the
-      // desktop canvas. Widen the overview there so all living agents remain in
-      // frame instead of only the selected subject.
-      // The camera renders behind the mobile inspector. Reserve enough
-      // vertical breathing room that the population remains above the peek
-      // sheet, while desktop retains the closer composed view.
-      const aspectFit = THREE.MathUtils.clamp(1.16 / Math.max(0.5, camera.aspect), 1, 2.2);
-      const subjectRadius = Math.min(halfSize * 0.92, baseSubjectRadius * aspectFit);
-      desiredTarget.set(centerX, 0.9, centerZ);
-      desiredCamera.set(
-        centerX + subjectRadius * 0.72,
-        subjectRadius * 0.94,
-        centerZ + subjectRadius * 1.08,
-      );
+      desiredTarget.set(centerX, (terrainWorld?.heightAt({ x: centerX, z: centerZ }) ?? 0) + 1.3, centerZ);
+      // Fit the actual frustum, not a capped world-axis radius. Dispersed agents
+      // otherwise disappear on portrait screens even with Overview selected.
+      const direction = new THREE.Vector3(0.72, 0.94, 1.08).normalize();
+      const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), direction).normalize();
+      const up = new THREE.Vector3().crossVectors(direction, right).normalize();
+      const verticalTan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const horizontalTan = verticalTan * Math.max(0.1, camera.aspect);
+      let cameraDistance = 24;
+      for (const agent of livingAgents) {
+        const point = new THREE.Vector3(agent.position.x, (terrainWorld?.heightAt(agent.position) ?? 0) + 2.5, agent.position.z).sub(desiredTarget);
+        const depth = point.dot(direction);
+        cameraDistance = Math.max(cameraDistance, depth + (Math.abs(point.dot(right)) + 3) * 1.3 / horizontalTan, depth + (Math.abs(point.dot(up)) + 3) * 1.55 / verticalTan);
+      }
+      controls.maxDistance = Math.max(controls.maxDistance, cameraDistance * 1.1);
+      desiredCamera.copy(desiredTarget).addScaledVector(direction, cameraDistance);
     } else {
       desiredTarget.set(0, 0.8, 0);
       desiredCamera.set(halfSize * 0.62, halfSize * 0.72, halfSize * 0.88);
@@ -342,6 +338,7 @@ export function createSurvivalHabitatScene(
   }
 
   function reportManualCamera() {
+    focusedSite = null;
     manualOverride = true;
     cameraTransition = false;
     if (!manualGestureReported) {
@@ -367,12 +364,12 @@ export function createSurvivalHabitatScene(
       scene.fog.color.set(palette.fog);
       const weatherFog = snapshot.weather.kind === "fog" ? snapshot.weather.intensity * 0.026 : 0;
       const stormFog = snapshot.weather.kind === "storm" ? snapshot.weather.intensity * 0.009 : 0;
-      scene.fog.density = 0.0045 + weatherFog + stormFog;
+      baseFogDensity = 0.0045 + weatherFog + stormFog;
     }
     // Preserve the day/night signal without making the observed state
     // unreadable. Night uses cool ambient moonlight; daytime still carries the
     // stronger directional contrast.
-    hemisphere.intensity = 0.64 + light * 0.56;
+    hemisphere.intensity = 0.86 + light * 0.42;
     sunlight.intensity = 0.3 + light * 1.3;
     fill.intensity = 0.34 + (1 - light) * 0.3;
     sunlight.color.set(palette.sun);
@@ -426,6 +423,7 @@ export function createSurvivalHabitatScene(
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    if (snapshot && cameraMode === "overview" && !manualOverride) frameOverview(false);
   }
 
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
@@ -441,6 +439,7 @@ export function createSurvivalHabitatScene(
     snapshot = nextSnapshot;
     selectedId = nextSelectedId;
     cameraMode = nextCameraMode;
+    if (cameraMode !== "overview") focusedSite = null;
     const nextTerrainSignature = terrainSignature(nextSnapshot);
     if (nextTerrainSignature !== currentTerrainSignature) {
       const firstTerrain = !currentTerrainSignature;
@@ -453,6 +452,7 @@ export function createSurvivalHabitatScene(
     shelters.sync(nextSnapshot.shelters, terrainWorld.heightAt);
     agents.sync(nextSnapshot.agents, nextSelectedId, terrainWorld.heightAt);
     applyDaylight();
+    if (cameraMode === "overview" && !manualOverride) frameOverview(false);
 
     if (cameraMode !== previousCameraMode || selectedId !== previousSelectedId) {
       manualOverride = cameraMode === "free";
@@ -486,6 +486,8 @@ export function createSurvivalHabitatScene(
     }
   }
 
+  let activityTimeSeconds = 0;
+  let previewFrames = 0;
   function animate(timeMilliseconds: number) {
     if (disposed || contextLost || !snapshot) return;
     if (document.visibilityState === "hidden") {
@@ -494,13 +496,30 @@ export function createSurvivalHabitatScene(
     }
     const deltaSeconds = Math.min(0.05, Math.max(0, (timeMilliseconds - previousFrameTime) / 1000));
     previousFrameTime = timeMilliseconds;
-    const timeSeconds = timeMilliseconds / 1000;
-    agents.animate(timeSeconds, reducedMotion);
-    shelters.animate(timeSeconds, reducedMotion);
-    updateWeatherParticles(weatherField, snapshot, deltaSeconds, reducedMotion);
+    const activityDelta = snapshot.simulationRunning === false ? 0 : deltaSeconds;
+    activityTimeSeconds += activityDelta;
+    agents.animate(activityTimeSeconds, reducedMotion);
+    shelters.animate(activityTimeSeconds, reducedMotion);
+    updateWeatherParticles(weatherField, snapshot, activityDelta, reducedMotion);
     updateCamera();
     controls.update();
+    if (scene.fog instanceof THREE.FogExp2) scene.fog.density = baseFogDensity * Math.min(1, 65 / Math.max(1, camera.position.distanceTo(controls.target)));
+    agents.placeLabels(camera, host.clientWidth, host.clientHeight, selectedId);
     renderer.render(scene, camera);
+    if (++previewFrames === 40) {
+      // A single actual habitat capture, not a second renderer or a fake live view.
+      try {
+        const preview = document.createElement("canvas");
+        preview.width = 640; preview.height = 320;
+        const context = preview.getContext("2d");
+        if (context) {
+          const source = renderer.domElement;
+          const cropHeight = Math.min(source.height, source.width / 2);
+          context.drawImage(source, 0, (source.height - cropHeight) / 2, source.width, cropHeight, 0, 0, 640, 320);
+          publishHabitatPreview(preview.toDataURL("image/jpeg", .8));
+        }
+      } catch { /* The textual environment description remains available. */ }
+    }
   }
 
   function setActive(nextActive: boolean) {
@@ -513,13 +532,22 @@ export function createSurvivalHabitatScene(
     }
   }
 
-  function focusAt(point: HabitatPoint) {
-    if (disposed || !terrainWorld) return;
+  function frameSite(point: HabitatPoint) {
+    if (!terrainWorld) return;
     const height = terrainWorld.heightAt(point);
     manualOverride = false;
     cameraTransition = true;
     desiredTarget.set(point.x, height + 0.8, point.z);
     desiredCamera.set(point.x + 9.5, height + 10.5, point.z + 12.5);
+  }
+
+  function focusAt(point: HabitatPoint | null) {
+    if (disposed) return;
+    // Event inspection is a persistent observer camera target, not a one-frame
+    // animation. It survives checkpoints and viewport resizes until cleared.
+    focusedSite = point ? { ...point } : null;
+    if (focusedSite) frameSite(focusedSite);
+    else if (cameraMode === "overview" && !manualOverride) frameOverview(false);
   }
 
   function handlePointerDown(event: PointerEvent) {
@@ -588,6 +616,11 @@ export function createSurvivalHabitatScene(
   renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
   renderer.domElement.addEventListener("webglcontextrestored", handleContextRestored);
   renderer.setAnimationLoop(animate);
+  if (!Object.keys(getPortraits()).length) {
+    try { publishPortraits(renderCharacterPortraits(renderer)); }
+    catch { /* Portrait fallback is the stable ID; the habitat can still render. */ }
+    finally { resize(); }
+  }
 
   function dispose() {
     if (disposed) return;
@@ -613,5 +646,15 @@ export function createSurvivalHabitatScene(
     renderer.domElement.remove();
   }
 
-  return { update, setActive, focusAt, resize, dispose };
+  function zoom(direction: -1 | 1) {
+    if (disposed) return;
+    manualGestureReported = false;
+    reportManualCamera();
+    const offset = camera.position.clone().sub(controls.target);
+    offset.setLength(THREE.MathUtils.clamp(offset.length() * (direction < 0 ? .78 : 1.28), controls.minDistance, controls.maxDistance));
+    camera.position.copy(controls.target).add(offset);
+    controls.update();
+    manualGestureReported = false;
+  }
+  return { update, setActive, focusAt, zoom, resize, dispose };
 }

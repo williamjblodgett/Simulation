@@ -202,7 +202,7 @@ function EventList({ events, empty }: { events: MajorEvent[]; empty: string }) {
       <span className="archive-moment-rank">{String(index + 1).padStart(2, "0")}</span>
       <span className="archive-moment-copy"><small>Day {Math.max(1, Math.floor(event.day))} · {eventKind(event.type)}</small><b>{event.title}</b><p>{event.message}</p><span className="archive-entity-actions">
         <Link href={`/history?chapter=${chapterForDay(event.day)}&day=${Math.max(1, Math.floor(event.day))}&q=${encodeURIComponent(event.title)}`}>Read in chapter</Link>
-        {event.campIds[0] && <Link href={`/?camp=${encodeURIComponent(event.campIds[0])}&overlay=${mapOverlayForEvent(event)}`}>Show on map</Link>}
+        {event.campIds[0] && <Link href={`/legacy?camp=${encodeURIComponent(event.campIds[0])}&overlay=${mapOverlayForEvent(event)}`}>Show on map</Link>}
       </span></span>
     </li>)}
   </ol>;
@@ -239,7 +239,7 @@ function CampArchive({ world, camp, events, onOpenBelief, onOpenCamp }: {
       <div><span className="archive-kicker">Civilization record</span><h2>{camp.name}</h2><p>Founded on day {Math.max(1, Math.floor(camp.foundedDay))}{camp.parentCampId ? parent ? ` as a breakaway from ${parent.name}` : " as a breakaway from an archived power" : " as an independent founding camp"}.</p></div>
       <StatusPill active={camp.active}>{camp.active ? `Active${powerRank > 0 ? ` · Rank ${powerRank}` : ""}` : "Historical"}</StatusPill>
       <span className="archive-entity-actions archive-dossier-actions">
-        <Link href={`/?camp=${encodeURIComponent(camp.id)}&overlay=territories`}>Show on map</Link>
+        <Link href={`/legacy?camp=${encodeURIComponent(camp.id)}&overlay=territories`}>Show on map</Link>
         <Link href={`/history?chapter=${chapterForDay(camp.foundedDay)}&day=${Math.max(1, Math.floor(camp.foundedDay))}`}>Read its first chapter</Link>
       </span>
     </header>
@@ -255,8 +255,8 @@ function CampArchive({ world, camp, events, onOpenBelief, onOpenCamp }: {
       <section className="archive-card archive-identity-card">
         <div className="archive-section-title"><Landmark size={14} /><span>People & leadership</span></div>
         <dl className="archive-facts">
-          <div><dt>Founder</dt><dd>{founder ? <Link className="archive-linked-chip" href={`/?agent=${encodeURIComponent(founder.id)}&camp=${encodeURIComponent(camp.id)}&overlay=territories`}>{founder.name}</Link> : "Archived founder"}<small>{founder ? (founder.alive ? "Living" : `Fallen${founder.deathDay ? ` · day ${Math.floor(founder.deathDay)}` : ""}`) : "Record no longer in the active roster"}</small></dd></div>
-          <div><dt>Current leader</dt><dd>{leader ? <Link className="archive-linked-chip" href={`/?agent=${encodeURIComponent(leader.id)}&camp=${encodeURIComponent(camp.id)}&overlay=territories`}>{leader.name}</Link> : camp.active ? "Council vacancy" : "No active leader"}<small>{leader ? `Generation ${leader.generation} · ${compact(leader.influence + leader.spiritualInfluence)} influence` : ""}</small></dd></div>
+          <div><dt>Founder</dt><dd>{founder ? <Link className="archive-linked-chip" href={`/legacy?agent=${encodeURIComponent(founder.id)}&camp=${encodeURIComponent(camp.id)}&overlay=territories`}>{founder.name}</Link> : "Archived founder"}<small>{founder ? (founder.alive ? "Living" : `Fallen${founder.deathDay ? ` · day ${Math.floor(founder.deathDay)}` : ""}`) : "Record no longer in the active roster"}</small></dd></div>
+          <div><dt>Current leader</dt><dd>{leader ? <Link className="archive-linked-chip" href={`/legacy?agent=${encodeURIComponent(leader.id)}&camp=${encodeURIComponent(camp.id)}&overlay=territories`}>{leader.name}</Link> : camp.active ? "Council vacancy" : "No active leader"}<small>{leader ? `Generation ${leader.generation} · ${compact(leader.influence + leader.spiritualInfluence)} influence` : ""}</small></dd></div>
           <div><dt>Origin</dt><dd>{camp.parentCampId ? parent ? <Link className="archive-linked-chip" href={archiveHref({ camp: parent.id })} onClick={() => onOpenCamp(parent.id)}>Breakaway from {parent.name}</Link> : "Breakaway from an archived power" : "Original power"}<small>{captor ? <Link className="archive-linked-chip" href={archiveHref({ camp: captor.id })} onClick={() => onOpenCamp(captor.id)}>Later captured by {captor.name}</Link> : camp.destroyedDay ? `Ended on day ${Math.floor(camp.destroyedDay)}` : "Self-governing"}</small></dd></div>
           <div><dt>Cohesion</dt><dd>{percent(camp.cohesion)}<small>{percent(camp.beliefDiversity)} belief diversity</small></dd></div>
         </dl>
@@ -341,12 +341,12 @@ function BeliefArchive({ world, belief, events, onOpenBelief, onOpenCamp }: { wo
   return <article className="archive-belief-dossier" style={{ "--belief-accent": belief.color } as CSSProperties}>
     <header>
       <span className="archive-belief-sigil" aria-hidden="true"><i /></span>
-      <div><span className="archive-kicker">{belief.active ? "Living tradition" : "Historical belief"}</span><h3>{belief.name}</h3><p>Founded day {Math.max(1, Math.floor(belief.foundedDay))} by {founder ? <Link className="archive-linked-chip" href={`/?agent=${encodeURIComponent(founder.id)}&overlay=beliefs`}>{founder.name}</Link> : "an archived founder"} {origin ? <>at <Link className="archive-linked-chip" href={archiveHref({ camp: origin.id })} onClick={() => onOpenCamp(origin.id)}>{origin.name}</Link></> : originPhrase}.</p></div>
+      <div><span className="archive-kicker">{belief.active ? "Living tradition" : "Historical belief"}</span><h3>{belief.name}</h3><p>Founded day {Math.max(1, Math.floor(belief.foundedDay))} by {founder ? <Link className="archive-linked-chip" href={`/legacy?agent=${encodeURIComponent(founder.id)}&overlay=beliefs`}>{founder.name}</Link> : "an archived founder"} {origin ? <>at <Link className="archive-linked-chip" href={archiveHref({ camp: origin.id })} onClick={() => onOpenCamp(origin.id)}>{origin.name}</Link></> : originPhrase}.</p></div>
       <StatusPill active={belief.active}>{belief.active ? "Active" : "Faded"}</StatusPill>
       <span className="archive-entity-actions archive-dossier-actions">
-        <Link href={`/?belief=${encodeURIComponent(belief.id)}&overlay=beliefs`}>Show on map</Link>
+        <Link href={`/legacy?belief=${encodeURIComponent(belief.id)}&overlay=beliefs`}>Show on map</Link>
         <Link href={`/history?chapter=${chapterForDay(belief.foundedDay)}&day=${Math.max(1, Math.floor(belief.foundedDay))}`}>Read its founding</Link>
-        {founder && <Link href={`/?agent=${encodeURIComponent(founder.id)}&overlay=beliefs`}>Follow {founder.name}</Link>}
+        {founder && <Link href={`/legacy?agent=${encodeURIComponent(founder.id)}&overlay=beliefs`}>Follow {founder.name}</Link>}
       </span>
     </header>
 
@@ -564,7 +564,7 @@ export function CivilizationArchive() {
       <h1>The chronicle is temporarily closed.</h1>
       <p>{error ?? "The persistent world could not be reached. Its history has not been replaced or reset."}</p>
       <button onClick={() => void loadWorld()}><RefreshCw />Try again</button>
-      <Link href="/"><ArrowLeft />Return to live map</Link>
+      <Link href="/legacy"><ArrowLeft />Return to live map</Link>
     </div>
   </main>;
 
@@ -577,7 +577,7 @@ export function CivilizationArchive() {
         <span><Leaf size={16} /></span><div><b>SIMULATION <em>ARCHIVE</em></b><small>Prior world record</small></div>
       </Link>
       <nav className="site-section-nav" aria-label="Site pages">
-        <Link href="/"><Activity /><span>Map</span></Link>
+        <Link href="/legacy"><Activity /><span>Map</span></Link>
         <span className="site-section-link" aria-current="page"><Landmark /><span>Civilizations</span></span>
         <Link href="/history"><BookOpen /><span>History</span></Link>
       </nav>
@@ -644,7 +644,7 @@ export function CivilizationArchive() {
               return <article key={result.id} role="listitem" className={`archive-result-row ${selected ? "selected" : ""}`} data-kind={result.kind}>
                 <button type="button" onClick={openResult} disabled={result.kind === "events" && !result.campId && !result.beliefId}><span><small>{result.kind === "agents" && result.subtitle.includes("founder") ? "founder" : result.kind.slice(0, -1)}</small><b>{result.title}</b><em>{result.subtitle}</em></span><ChevronRight /></button>
                 <span className="archive-entity-actions">
-                  {mapParameters.has("camp") || mapParameters.has("agent") || mapParameters.has("belief") ? <Link href={`/?${mapParameters.toString()}`}>Map</Link> : null}
+                  {mapParameters.has("camp") || mapParameters.has("agent") || mapParameters.has("belief") ? <Link href={`/legacy?${mapParameters.toString()}`}>Map</Link> : null}
                   {result.day ? <Link href={`/history?chapter=${chapterForDay(result.day)}&day=${Math.max(1, Math.floor(result.day))}${result.kind === "events" ? `&q=${encodeURIComponent(result.title)}` : ""}`}>History</Link> : null}
                 </span>
               </article>;

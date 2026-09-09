@@ -91,14 +91,16 @@ function isInsideOpenArea(terrain: HabitatTerrainVisual, x: number, z: number) {
 }
 
 function buildGround(terrain: HabitatTerrainVisual) {
-  const halfSize = Math.max(12, terrain.halfSize);
-  const segments = 68;
+  // Continue the landscape to its natural shore instead of cutting a floating
+  // square at the study bounds. Navigation and resources still use engine bounds.
+  const halfSize = Math.max(12, terrain.halfSize, (terrain.islandRadius ?? terrain.halfSize * .82) * 1.12);
+  const segments = 112;
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
-  const lowColor = new THREE.Color("#556f46");
-  const grassColor = new THREE.Color("#6e8750");
-  const highColor = new THREE.Color("#7f8161");
+  const lowColor = new THREE.Color("#415d42");
+  const grassColor = new THREE.Color("#74875a");
+  const highColor = new THREE.Color("#989279");
   const sandColor = new THREE.Color("#a99368");
 
   for (let row = 0; row <= segments; row += 1) {
@@ -115,7 +117,7 @@ function buildGround(terrain: HabitatTerrainVisual) {
       } else {
         color.copy(grassColor).lerp(highColor, heightMix * 0.75);
       }
-      const variation = terrainNoise(x * 1.7, z * 1.7, terrain.seed + 41) * 0.035;
+      const variation = terrainNoise(x * 1.7, z * 1.7, terrain.seed + 41) * 0.12;
       color.offsetHSL(0, variation, variation);
       colors.push(color.r, color.g, color.b);
     }
@@ -153,20 +155,23 @@ function buildScenery(terrain: HabitatTerrainVisual) {
   const halfSize = Math.max(12, terrain.halfSize);
   const radius = Math.max(8, terrain.islandRadius ?? halfSize * 0.82);
   const random = seededRandom(terrain.seed ^ 0x8af35c1);
-  const vegetationCount = Math.round(THREE.MathUtils.lerp(35, 190, clamp01(terrain.vegetationDensity ?? 0.62)));
+  const vegetationCount = Math.round(THREE.MathUtils.lerp(65, 420, clamp01(terrain.vegetationDensity ?? 0.62)));
   const rockCount = Math.round(THREE.MathUtils.lerp(12, 72, clamp01(terrain.rockDensity ?? 0.38)));
 
   const trunkGeometry = new THREE.CylinderGeometry(0.16, 0.24, 1.6, 6);
-  const crownGeometry = new THREE.ConeGeometry(0.82, 2.5, 7);
+  const crownGeometry = new THREE.ConeGeometry(1.12, 2.3, 7);
   const trunkMaterial = new THREE.MeshStandardMaterial({ color: "#67513d", roughness: 1 });
-  const crownMaterial = new THREE.MeshStandardMaterial({ color: "#315c43", roughness: 0.96 });
+  const crownMaterial = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.96 });
   const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, vegetationCount);
   const crowns = new THREE.InstancedMesh(crownGeometry, crownMaterial, vegetationCount);
+  const upperCrowns = new THREE.InstancedMesh(crownGeometry, crownMaterial, vegetationCount);
   trunks.name = "instanced-tree-trunks";
   crowns.name = "instanced-tree-crowns";
+  upperCrowns.name = "instanced-upper-tree-crowns";
   trunks.castShadow = true;
   trunks.receiveShadow = true;
   crowns.castShadow = true;
+  upperCrowns.castShadow = true;
 
   const dummy = new THREE.Object3D();
   let placedTrees = 0;
@@ -174,10 +179,12 @@ function buildScenery(terrain: HabitatTerrainVisual) {
   while (placedTrees < vegetationCount && attempts < vegetationCount * 20) {
     attempts += 1;
     const angle = random() * Math.PI * 2;
-    const distance = Math.sqrt(random()) * radius * 0.88;
+    const distance = Math.sqrt(random()) * Math.min(radius * 0.88, halfSize * 0.98);
     const x = Math.cos(angle) * distance;
     const z = Math.sin(angle) * distance * 0.82;
     if (isInsideOpenArea(terrain, x, z)) continue;
+    // Seeded groves and open meadows are scenery, never hidden resource stock.
+    if (terrainNoise(x * 1.9, z * 1.9, terrain.seed + 9) < -0.15 && random() < 0.88) continue;
     const y = terrainHeightAt(terrain, { x, z });
     if (y < 0.35) continue;
     const scale = 0.68 + random() * 0.72;
@@ -186,17 +193,26 @@ function buildScenery(terrain: HabitatTerrainVisual) {
     dummy.scale.set(scale, scale, scale);
     dummy.updateMatrix();
     trunks.setMatrixAt(placedTrees, dummy.matrix);
-    dummy.position.y = y + (1.55 + 1.1) * scale;
+    dummy.position.y = y + 2.15 * scale;
     dummy.rotation.y += random() * 0.25;
     dummy.updateMatrix();
     crowns.setMatrixAt(placedTrees, dummy.matrix);
+    const leafColor = new THREE.Color().setHSL(.34 + random() * .05, .23 + random() * .16, .22 + random() * .13);
+    crowns.setColorAt(placedTrees, leafColor);
+    dummy.position.y = y + 3.3 * scale;
+    dummy.scale.set(scale * .7, scale * .82, scale * .7);
+    dummy.updateMatrix();
+    upperCrowns.setMatrixAt(placedTrees, dummy.matrix);
+    upperCrowns.setColorAt(placedTrees, leafColor.clone().offsetHSL(0, -.02, .04));
     placedTrees += 1;
   }
   trunks.count = placedTrees;
   crowns.count = placedTrees;
+  upperCrowns.count = placedTrees;
   trunks.instanceMatrix.needsUpdate = true;
   crowns.instanceMatrix.needsUpdate = true;
-  group.add(trunks, crowns);
+  upperCrowns.instanceMatrix.needsUpdate = true;
+  group.add(trunks, crowns, upperCrowns);
 
   const rockGeometry = new THREE.DodecahedronGeometry(0.55, 0);
   const rockMaterial = new THREE.MeshStandardMaterial({ color: "#69716d", roughness: 0.9 });
@@ -209,7 +225,7 @@ function buildScenery(terrain: HabitatTerrainVisual) {
   while (placedRocks < rockCount && attempts < rockCount * 15) {
     attempts += 1;
     const angle = random() * Math.PI * 2;
-    const distance = Math.sqrt(random()) * radius * 0.94;
+    const distance = Math.sqrt(random()) * Math.min(radius * 0.94, halfSize * 0.98);
     const x = Math.cos(angle) * distance;
     const z = Math.sin(angle) * distance * 0.82;
     if (isInsideOpenArea(terrain, x, z)) continue;
@@ -251,13 +267,13 @@ export function createTerrainWorld(terrain: HabitatTerrainVisual): TerrainWorld 
   const halfSize = Math.max(12, terrain.halfSize);
   const oceanMaterial = new THREE.MeshPhysicalMaterial({
     color: "#1d5a68",
-    roughness: 0.24,
-    metalness: 0.05,
+    roughness: 0.65,
+    metalness: 0,
     transparent: true,
     opacity: 0.92,
     depthWrite: false,
   });
-  const ocean = new THREE.Mesh(new THREE.CircleGeometry(halfSize * 2.1, 96), oceanMaterial);
+  const ocean = new THREE.Mesh(new THREE.CircleGeometry(Math.max(halfSize, terrain.islandRadius ?? halfSize) * 2.1, 96), oceanMaterial);
   ocean.rotation.x = -Math.PI / 2;
   ocean.position.y = -0.12;
   ocean.receiveShadow = true;
@@ -269,8 +285,8 @@ export function createTerrainWorld(terrain: HabitatTerrainVisual): TerrainWorld 
       new THREE.CircleGeometry(1, 48),
       new THREE.MeshPhysicalMaterial({
         color: "#397c8c",
-        roughness: 0.18,
-        metalness: 0.04,
+        roughness: 0.5,
+        metalness: 0,
         transparent: true,
         opacity: 0.88,
         depthWrite: false,
@@ -285,6 +301,33 @@ export function createTerrainWorld(terrain: HabitatTerrainVisual): TerrainWorld 
       feature.position.z,
     );
     group.add(water);
+
+    // Visual bank follows the same basin; it is not an extra resource or obstacle.
+    const positions: number[] = [], colors: number[] = [], indices: number[] = [];
+    const bankColors = [new THREE.Color("#72735a"), new THREE.Color("#ac9b73")];
+    const rotation = feature.rotation ?? 0, cos = Math.cos(rotation), sin = Math.sin(rotation);
+    for (let i = 0; i <= 48; i++) {
+      const angle = i / 48 * Math.PI * 2;
+      for (const edge of [0, 1]) {
+        const expansion = edge === 0 ? 0.04 : 0.85;
+        const localX = Math.cos(angle) * (feature.radiusX + expansion);
+        const localZ = Math.sin(angle) * (feature.radiusZ + expansion);
+        const x = feature.position.x + cos * localX - sin * localZ;
+        const z = feature.position.z + sin * localX + cos * localZ;
+        positions.push(x, terrainHeightAt(terrain, { x, z }) + 0.025, z);
+        colors.push(bankColors[edge].r, bankColors[edge].g, bankColors[edge].b);
+      }
+      if (i < 48) { const a = i * 2; indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    }
+    const bankGeometry = new THREE.BufferGeometry();
+    bankGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    bankGeometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    bankGeometry.setIndex(indices);
+    bankGeometry.computeVertexNormals();
+    const bank = new THREE.Mesh(bankGeometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }));
+    bank.name = `decorative-shoreline-${feature.id}`;
+    bank.receiveShadow = true;
+    group.add(bank);
   }
   group.add(buildScenery(terrain));
 

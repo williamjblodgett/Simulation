@@ -7,6 +7,7 @@ import {
   ownsSurvivalRuntimeLease,
   readSurvivalRuntimeLease,
   releaseSurvivalRuntimeLease,
+  loadStoredRun,
 } from "../app/survival/use-survival-runtime.ts";
 
 function memoryStorage() {
@@ -23,6 +24,19 @@ function memoryStorage() {
     },
   };
 }
+
+test("inaccessible legacy storage cannot be mistaken for an absent study", () => {
+  const denied = { getItem() { throw new DOMException("Blocked", "SecurityError"); }, setItem() { assert.fail("No write is allowed after a failed read"); } };
+  assert.throws(() => loadStoredRun(denied), /could not be read/);
+  const storage = memoryStorage();
+  assert.deepEqual(loadStoredRun(storage), { world: null, recoveryNotice: null });
+  storage.setItem("simulation:survival-run:v1", "invalid checkpoint");
+  const invalid = loadStoredRun(storage);
+  assert.equal(invalid.world, null);
+  assert.match(invalid.recoveryNotice, /invalid/);
+  assert.equal(storage.getItem("simulation:survival-run:v1"), "invalid checkpoint");
+  assert.equal(storage.getItem("simulation:survival-run:unreadable-backup"), "invalid checkpoint");
+});
 
 test("survival runtime lease admits one leader and supports deliberate takeover", () => {
   const storage = memoryStorage();

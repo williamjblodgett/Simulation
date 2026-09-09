@@ -1,6 +1,7 @@
 "use client";
 
 import { Eye, Users } from "lucide-react";
+import { useState } from "react";
 import type { SurvivalAgent, SurvivalRunState } from "../simulation/survival";
 import { activityLabel, AgentPortrait, ConditionLine, NeedMeter } from "./presentation";
 import styles from "./survival-experience.module.css";
@@ -13,6 +14,7 @@ interface AgentsViewProps {
 }
 
 export function AgentsView({ world, selectedId, onInspect, onViewInWorld }: AgentsViewProps) {
+  const [allLives, setAllLives] = useState(false);
   const currentRecords = [1, 2, 3, 4, 5].slice(0, world.config.agentCap).flatMap((slot) => {
     const records = world.agents
       .filter((agent) => agent.slot === slot)
@@ -21,9 +23,10 @@ export function AgentsView({ world, selectedId, onInspect, onViewInWorld }: Agen
     return current ? [current] : [];
   });
   return <section className={styles.screenView} aria-labelledby="agents-heading">
-    <header className={styles.screenHeading}><div><span>One to five independent lives</span><h1 id="agents-heading">Agents</h1><p>No roles or strategies are assigned here. Each row reports the latest state produced by the simulation.</p></div><div className={styles.recordCount}><Users size={15} />{world.stats.livingAgents} living</div></header>
+    <header className={styles.screenHeading}><div><span>Independent lives</span><h1 id="agents-heading">Agents</h1></div><div className={styles.recordCount}><Users size={15} />{world.stats.livingAgents} living</div></header>
+    <div className={styles.scopeButtons}><button type="button" aria-pressed={!allLives} onClick={() => setAllLives(false)}>Current agents</button><button type="button" aria-pressed={allLives} onClick={() => setAllLives(true)}>All lives · {world.agents.length}</button></div>
     <div className={styles.agentDirectory}>
-      {currentRecords.map((agent) => <article key={agent.id} data-selected={selectedId === agent.id} data-alive={agent.alive}>
+      {(allLives ? world.agents : currentRecords).map((agent) => <article key={agent.id} data-selected={selectedId === agent.id} data-alive={agent.alive}>
         <button type="button" className={styles.agentDirectoryMain} onClick={() => onInspect(agent)}>
           <AgentPortrait id={agent.label} name={agent.name} size="large" />
           <div className={styles.agentDirectoryIdentity}><span>{agent.label}{agent.slotGeneration > 1 ? ` · Entry ${agent.slotGeneration}` : ""} · {agent.alive ? "Living" : "Died"}</span><h2>{agent.name}</h2><p>{activityLabel(agent)}</p><ConditionLine agent={agent} /></div>

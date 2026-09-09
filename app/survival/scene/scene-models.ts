@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { createCharacter } from "./character-model";
 import {
   SURVIVAL_AGENT_COLORS,
   SURVIVAL_AGENT_IDS,
@@ -52,24 +54,43 @@ const RESOURCE_COLORS: Record<HabitatResourceKind, string> = {
 };
 
 function resourceGeometry(kind: HabitatResourceKind): THREE.BufferGeometry {
-  switch (kind) {
-    case "freshwater":
-      return new THREE.CylinderGeometry(0.58, 0.58, 0.11, 20);
-    case "food":
-      return new THREE.IcosahedronGeometry(0.38, 1);
-    case "timber":
-      return new THREE.CylinderGeometry(0.22, 0.27, 1.05, 7);
-    case "stone":
-      return new THREE.DodecahedronGeometry(0.48, 0);
-    case "fiber":
-      return new THREE.ConeGeometry(0.4, 1.05, 7);
-    case "medicine":
-      return new THREE.OctahedronGeometry(0.4, 0);
-    case "clay":
-      return new THREE.SphereGeometry(0.43, 10, 7);
-    case "ore":
-      return new THREE.TetrahedronGeometry(0.5, 1);
+  const parts: THREE.BufferGeometry[] = [];
+  const add = (geometry: THREE.BufferGeometry, color: string, x: number, y: number, z: number) => {
+    geometry.translate(x, y, z);
+    const normalized = geometry.index ? geometry.toNonIndexed() : geometry;
+    if (normalized !== geometry) geometry.dispose();
+    const tint = new THREE.Color(color), count = normalized.getAttribute("position").count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) tint.toArray(colors, i * 3);
+    normalized.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    normalized.deleteAttribute("uv"); parts.push(normalized);
+  };
+  if (kind === "freshwater") {
+    // The authoritative pond surface is rendered by terrain-world, not a blue token.
+    add(new THREE.CylinderGeometry(.3, .3, .025, 16), RESOURCE_COLORS[kind], 0, .02, 0);
+  } else if (kind === "timber") {
+    for (let i = 0; i < 3; i++) {
+      const log = new THREE.CylinderGeometry(.19, .22, 1.8 - i * .2, 8);
+      log.rotateZ(Math.PI / 2); add(log, i === 2 ? "#a18055" : "#70523c", 0, i === 2 ? .51 : .21, i === 2 ? 0 : (i - .5) * .48);
+    }
+  } else if (kind === "food" || kind === "medicine") {
+    for (let i = 0; i < 3; i++) add(new THREE.IcosahedronGeometry(.48, 0), "#54714c", (i - 1) * .38, .42 + (i === 1 ? .18 : 0), i === 1 ? -.12 : .1);
+    for (let i = 0; i < 7; i++) add(new THREE.IcosahedronGeometry(.085, 0), kind === "food" ? "#bc6a50" : "#c9adcf", Math.sin(i * 2.4) * .54, .66 + (i % 3) * .12, Math.cos(i * 2.4) * .38);
+  } else if (kind === "fiber") {
+    for (let i = 0; i < 7; i++) {
+      const leaf = new THREE.ConeGeometry(.1, .8 + (i % 3) * .15, 4);
+      leaf.rotateZ((i - 3) * .12); add(leaf, i % 2 ? "#879554" : "#b0ac6c", Math.sin(i * 2.4) * .26, .48, Math.cos(i * 2.4) * .26);
+    }
+  } else {
+    for (let i = 0; i < 3; i++) {
+      const rock = new THREE.DodecahedronGeometry(.5 - i * .075, 0);
+      rock.scale(1.1, kind === "clay" ? .45 : .7, .85);
+      add(rock, i === 1 && kind === "ore" ? "#bda277" : RESOURCE_COLORS[kind], (i - 1) * .38, kind === "clay" ? .16 : .29, i === 1 ? -.18 : .12);
+    }
   }
+  const geometry = mergeGeometries(parts)!;
+  parts.forEach(part => part.dispose());
+  return geometry;
 }
 
 export interface ResourceCollection {
@@ -86,7 +107,7 @@ export function createResourceCollection(): ResourceCollection {
   const sync = (nodes: HabitatResourceVisual[], heightAt: HeightAt) => {
     const byKind = new Map<HabitatResourceKind, HabitatResourceVisual[]>();
     for (const node of nodes) {
-      if (node.visible === false || node.available <= 0) continue;
+      if (node.visible === false || node.available <= 0 || node.kind === "freshwater") continue;
       const list = byKind.get(node.kind) ?? [];
       list.push(node);
       byKind.set(node.kind, list);
@@ -103,11 +124,9 @@ export function createResourceCollection(): ResourceCollection {
         mesh = new THREE.InstancedMesh(
           resourceGeometry(kind),
           new THREE.MeshStandardMaterial({
-            color: RESOURCE_COLORS[kind],
+            vertexColors: true,
             roughness: kind === "freshwater" ? 0.26 : 0.82,
             metalness: kind === "ore" ? 0.32 : 0.02,
-            emissive: RESOURCE_COLORS[kind],
-            emissiveIntensity: 0.025,
           }),
           Math.max(1, visibleNodes.length),
         );
@@ -121,11 +140,11 @@ export function createResourceCollection(): ResourceCollection {
       visibleNodes.forEach((node, index) => {
         const scale = THREE.MathUtils.lerp(0.48, 1.05, clamp01(node.available));
         const y = heightAt(node.position);
-        dummy.position.set(node.position.x, y + (kind === "freshwater" ? 0.48 : 0.5 * scale), node.position.z);
+        dummy.position.set(node.position.x, y + 0.02, node.position.z);
         dummy.rotation.set(
-          kind === "timber" ? Math.PI / 2 : 0,
+          0,
           ((index * 2.399963 + node.position.x * 0.1) % (Math.PI * 2)),
-          kind === "timber" ? 0.24 : 0,
+          0,
         );
         dummy.scale.setScalar(scale);
         dummy.updateMatrix();
@@ -356,13 +375,6 @@ function createLabelTexture(id: SurvivalAgentId, color: string) {
   return texture;
 }
 
-function makeLimb(material: THREE.MeshStandardMaterial, length = 0.62) {
-  const limb = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.105, length, 7), material);
-  limb.geometry.translate(0, -length * 0.5, 0);
-  limb.castShadow = true;
-  return limb;
-}
-
 function createTool(kind: HabitatToolKind) {
   const group = new THREE.Group();
   group.name = `tool-${kind}`;
@@ -459,49 +471,8 @@ function createAgentModel(agent: HabitatAgentVisual): AgentModel {
   const root = new THREE.Group();
   root.name = `agent-${agent.id}`;
   root.userData.agentId = agent.id;
-  const actor = new THREE.Group();
+  const { actor, leftArm, rightArm } = createCharacter(agent.id);
   root.add(actor);
-
-  const clothing = new THREE.MeshStandardMaterial({ color: "#273844", roughness: 0.88 });
-  const identity = new THREE.MeshStandardMaterial({
-    color,
-    emissive: color,
-    emissiveIntensity: 0.08,
-    roughness: 0.72,
-  });
-  const skin = new THREE.MeshStandardMaterial({ color: "#b78363", roughness: 0.86 });
-  const boots = new THREE.MeshStandardMaterial({ color: "#24272a", roughness: 0.96 });
-
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.45, 0.9, 7), clothing);
-  torso.position.y = 1.25;
-  torso.castShadow = true;
-  actor.add(torso);
-  const mantle = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.34, 0.26, 7), identity);
-  mantle.position.y = 1.65;
-  mantle.castShadow = true;
-  actor.add(mantle);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 14, 10), skin);
-  head.position.y = 2.02;
-  head.castShadow = true;
-  actor.add(head);
-  const headband = new THREE.Mesh(new THREE.TorusGeometry(0.275, 0.045, 7, 18), identity);
-  headband.position.y = 2.08;
-  headband.rotation.x = Math.PI / 2;
-  actor.add(headband);
-
-  for (const side of [-1, 1]) {
-    const leg = makeLimb(boots, 0.68);
-    leg.position.set(side * 0.19, 0.86, 0);
-    actor.add(leg);
-  }
-  const leftArm = makeLimb(clothing, 0.64);
-  leftArm.position.set(-0.42, 1.57, 0);
-  leftArm.rotation.z = -0.13;
-  actor.add(leftArm);
-  const rightArm = makeLimb(clothing, 0.64);
-  rightArm.position.set(0.42, 1.57, 0);
-  rightArm.rotation.z = 0.13;
-  actor.add(rightArm);
 
   const toolAnchor = new THREE.Group();
   toolAnchor.position.set(0, -0.62, 0);
@@ -543,7 +514,9 @@ function createAgentModel(agent: HabitatAgentVisual): AgentModel {
   intentLine.visible = false;
 
   const labelMaterial = new THREE.SpriteMaterial({
+    fog: false,
     map: createLabelTexture(agent.id, color),
+    sizeAttenuation: false,
     transparent: true,
     depthTest: false,
   });
@@ -554,7 +527,7 @@ function createAgentModel(agent: HabitatAgentVisual): AgentModel {
   // Stagger only their screen-facing ID plates so every co-located record
   // remains identifiable without moving the simulated bodies.
   label.position.y = 2.72 + identityIndex * 0.28;
-  label.scale.set(1.5, 0.75, 1);
+  label.scale.set(0.075, 0.0375, 1);
   label.renderOrder = 12;
   root.add(label);
 
@@ -613,6 +586,7 @@ export interface AgentCollection {
   group: THREE.Group;
   sync(agents: HabitatAgentVisual[], selectedId: SurvivalAgentId | null, heightAt: HeightAt): void;
   animate(timeSeconds: number, reducedMotion: boolean): void;
+  placeLabels(camera: THREE.Camera, width: number, height: number, selectedId: SurvivalAgentId | null): void;
   positionOf(id: SurvivalAgentId): THREE.Vector3 | null;
   raycast(raycaster: THREE.Raycaster): SurvivalAgentId | null;
   dispose(): void;
@@ -652,9 +626,10 @@ export function createAgentCollection(): AgentCollection {
         const initialY = heightAt(agent.position);
         model.root.position.set(agent.position.x, initialY, agent.position.z);
       }
+      if (model.data.lifeId !== agent.lifeId) model.root.position.set(agent.position.x, heightAt(agent.position), agent.position.z);
       model.data = agent;
       model.target.set(agent.position.x, heightAt(agent.position), agent.position.z);
-      model.desiredHeading = -agent.heading;
+      model.desiredHeading = agent.heading;
       model.selection.visible = agent.alive && selectedId === agent.id;
       model.label.renderOrder = selectedId === agent.id
         ? 30
@@ -700,7 +675,7 @@ export function createAgentCollection(): AgentCollection {
         model.statusDisc.visible = false;
         continue;
       }
-      if (reducedMotion) continue;
+      if (reducedMotion || data.status === "blocked" || data.status === "awaiting-decision" || data.status === "connection-lost") continue;
 
       if (["move", "explore", "relocate"].includes(action) || data.status === "moving") {
         const stride = Math.sin(timeSeconds * 7 + Number(model.id.slice(1))) * 0.7;
@@ -734,10 +709,32 @@ export function createAgentCollection(): AgentCollection {
     return null;
   };
 
+  const placeLabels = (camera: THREE.Camera, width: number, height: number, selectedId: SurvivalAgentId | null) => {
+    const occupied: Array<{ x: number; y: number }> = [];
+    const ordered = [...models.values()].sort((a,b) => Number(b.id === selectedId) - Number(a.id === selectedId) || a.id.localeCompare(b.id));
+    for (const model of ordered) {
+      model.root.updateWorldMatrix(true, false);
+      const projected = model.root.localToWorld(new THREE.Vector3(0, 2.8, 0)).project(camera);
+      const center = { x: (projected.x + 1) * width / 2, y: (1 - projected.y) * height / 2 };
+      model.label.visible = projected.z > -1 && projected.z < 1 && center.x >= 10 && center.x <= width - 10 && center.y >= 0 && center.y <= height;
+      if (!model.label.visible) continue;
+      const positions = [0, -24, 24, -48, 48].flatMap(dy => [0, -42, 42].map(dx => ({ x: center.x + dx, y: center.y + dy })));
+      const position = positions.find(p => p.x >= 24 && p.x <= width - 24 && p.y >= 66 && p.y <= height - 16 && !occupied.some(other => Math.abs(p.x-other.x)<43 && Math.abs(p.y-other.y)<23));
+      model.label.visible = Boolean(position);
+      if (!position) continue;
+      occupied.push(position);
+      const point = new THREE.Vector3(position.x / width * 2 - 1, 1 - position.y / height * 2, projected.z).unproject(camera);
+      model.label.position.copy(model.root.worldToLocal(point));
+      const pixelScale = 1 / Math.max(1, camera.projectionMatrix.elements[5] * height);
+      model.label.scale.set(80 * pixelScale, 40 * pixelScale, 1);
+    }
+  };
+
   return {
     group,
     sync,
     animate,
+    placeLabels,
     positionOf: (id) => models.get(id)?.root.position.clone() ?? null,
     raycast,
     dispose: () => disposeObject(group),

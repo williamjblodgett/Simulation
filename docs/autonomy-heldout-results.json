@@ -1,0 +1,1184 @@
+{
+  "seeds": [
+    "validation-sep09-final-1",
+    "validation-sep09-final-2",
+    "validation-sep09-final-3",
+    "validation-sep09-final-4"
+  ],
+  "thresholds": {
+    "health": 25,
+    "hydration": 14,
+    "nutrition": 12,
+    "warmth": 8,
+    "safety": 5
+  },
+  "fingerprints": {
+    "engine": "7ef2a279a20b",
+    "baseline-engine": "bb8aaae7793b",
+    "planner": "1f648b2eef11",
+    "experiments": "7c0845b294e8",
+    "physiology": "c3d507c5a945"
+  },
+  "rows": [
+    {
+      "seed": "validation-sep09-final-1",
+      "count": 1,
+      "policy": "baseline",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 20,
+      "repeated": 19,
+      "ms": 646,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          20
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-1",
+      "count": 1,
+      "policy": "v2",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 23,
+      "repeated": 22,
+      "ms": 668,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-1",
+      "count": 1,
+      "policy": "no_learning",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 23,
+      "repeated": 22,
+      "ms": 666,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-1",
+      "count": 3,
+      "policy": "baseline",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 81,
+      "repeated": 60,
+      "ms": 1423,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:collect:site-freshwater-1",
+          12
+        ],
+        [
+          "agent-2:cooperate:agent-1",
+          10
+        ],
+        [
+          "agent-1:cooperate:agent-3",
+          9
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-1",
+      "count": 3,
+      "policy": "v2",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 20,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 20,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 69,
+      "repeated": 66,
+      "ms": 1804,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:shelter:",
+          23
+        ],
+        [
+          "agent-2:shelter:",
+          23
+        ],
+        [
+          "agent-1:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-1",
+      "count": 3,
+      "policy": "no_learning",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 71,
+      "repeated": 66,
+      "ms": 1640,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:shelter:",
+          23
+        ],
+        [
+          "agent-2:shelter:",
+          23
+        ],
+        [
+          "agent-1:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-1",
+      "count": 5,
+      "policy": "baseline",
+      "survivors": 5,
+      "lifeHours": 360,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 161,
+      "repeated": 107,
+      "ms": 1862,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:cooperate:agent-2",
+          10
+        ],
+        [
+          "agent-2:cooperate:agent-4",
+          10
+        ],
+        [
+          "agent-4:cooperate:agent-2",
+          9
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-1",
+      "count": 5,
+      "policy": "v2",
+      "survivors": 5,
+      "lifeHours": 360,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 127,
+      "repeated": 112,
+      "ms": 2956,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:shelter:",
+          23
+        ],
+        [
+          "agent-5:shelter:",
+          23
+        ],
+        [
+          "agent-1:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-1",
+      "count": 5,
+      "policy": "no_learning",
+      "survivors": 5,
+      "lifeHours": 360,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 126,
+      "repeated": 110,
+      "ms": 2601,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:shelter:",
+          23
+        ],
+        [
+          "agent-1:shelter:",
+          23
+        ],
+        [
+          "agent-2:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-2",
+      "count": 1,
+      "policy": "baseline",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 22,
+      "repeated": 21,
+      "ms": 683,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          22
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-2",
+      "count": 1,
+      "policy": "v2",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 24,
+      "repeated": 23,
+      "ms": 705,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          24
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-2",
+      "count": 1,
+      "policy": "no_learning",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 24,
+      "repeated": 23,
+      "ms": 871,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          24
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-2",
+      "count": 3,
+      "policy": "baseline",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 68,
+      "repeated": 55,
+      "ms": 1641,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-2:cooperate:agent-3",
+          10
+        ],
+        [
+          "agent-3:cooperate:agent-2",
+          8
+        ],
+        [
+          "agent-1:cooperate:agent-3",
+          6
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-2",
+      "count": 3,
+      "policy": "v2",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 79,
+      "repeated": 72,
+      "ms": 4125,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:shelter:",
+          25
+        ],
+        [
+          "agent-2:shelter:",
+          25
+        ],
+        [
+          "agent-1:shelter:",
+          24
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-2",
+      "count": 3,
+      "policy": "no_learning",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 75,
+      "repeated": 69,
+      "ms": 3232,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          24
+        ],
+        [
+          "agent-2:shelter:",
+          24
+        ],
+        [
+          "agent-3:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-2",
+      "count": 5,
+      "policy": "baseline",
+      "survivors": 3,
+      "lifeHours": 319.8333333333333,
+      "critical": 65,
+      "criticalByNeed": {
+        "health": 15,
+        "hydration": 65,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 134,
+      "repeated": 93,
+      "ms": 2377,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-4:collect:site-freshwater-1",
+          11
+        ],
+        [
+          "agent-2:drink:",
+          8
+        ],
+        [
+          "agent-1:drink:",
+          8
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-2",
+      "count": 5,
+      "policy": "v2",
+      "survivors": 5,
+      "lifeHours": 360,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 126,
+      "repeated": 113,
+      "ms": 3360,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-4:shelter:",
+          24
+        ],
+        [
+          "agent-5:shelter:",
+          24
+        ],
+        [
+          "agent-2:shelter:",
+          24
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-2",
+      "count": 5,
+      "policy": "no_learning",
+      "survivors": 5,
+      "lifeHours": 360,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 129,
+      "repeated": 115,
+      "ms": 2927,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-5:shelter:",
+          24
+        ],
+        [
+          "agent-1:shelter:",
+          24
+        ],
+        [
+          "agent-4:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-3",
+      "count": 1,
+      "policy": "baseline",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 20,
+      "repeated": 19,
+      "ms": 642,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          20
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-3",
+      "count": 1,
+      "policy": "v2",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 24,
+      "repeated": 23,
+      "ms": 532,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          24
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-3",
+      "count": 1,
+      "policy": "no_learning",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 23,
+      "repeated": 22,
+      "ms": 535,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-3",
+      "count": 3,
+      "policy": "baseline",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 101,
+      "repeated": 86,
+      "ms": 1443,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:cooperate:agent-2",
+          15
+        ],
+        [
+          "agent-1:cooperate:agent-3",
+          11
+        ],
+        [
+          "agent-2:cooperate:agent-3",
+          11
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-3",
+      "count": 3,
+      "policy": "v2",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 71,
+      "repeated": 67,
+      "ms": 1662,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-2:shelter:",
+          24
+        ],
+        [
+          "agent-1:shelter:",
+          23
+        ],
+        [
+          "agent-3:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-3",
+      "count": 3,
+      "policy": "no_learning",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 73,
+      "repeated": 68,
+      "ms": 1714,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          24
+        ],
+        [
+          "agent-2:shelter:",
+          23
+        ],
+        [
+          "agent-3:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-3",
+      "count": 5,
+      "policy": "baseline",
+      "survivors": 3,
+      "lifeHours": 319.33333333333337,
+      "critical": 66,
+      "criticalByNeed": {
+        "health": 14,
+        "hydration": 66,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 149,
+      "repeated": 102,
+      "ms": 1824,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:collect:site-freshwater-1",
+          8
+        ],
+        [
+          "agent-1:cooperate:agent-2",
+          7
+        ],
+        [
+          "agent-2:collect:site-freshwater-1",
+          7
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-3",
+      "count": 5,
+      "policy": "v2",
+      "survivors": 5,
+      "lifeHours": 360,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 126,
+      "repeated": 113,
+      "ms": 2821,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-2:shelter:",
+          24
+        ],
+        [
+          "agent-4:shelter:",
+          23
+        ],
+        [
+          "agent-3:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-3",
+      "count": 5,
+      "policy": "no_learning",
+      "survivors": 5,
+      "lifeHours": 360,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 131,
+      "repeated": 113,
+      "ms": 2556,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:shelter:",
+          24
+        ],
+        [
+          "agent-4:shelter:",
+          23
+        ],
+        [
+          "agent-5:shelter:",
+          23
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-4",
+      "count": 1,
+      "policy": "baseline",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 26,
+      "repeated": 25,
+      "ms": 652,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          26
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-4",
+      "count": 1,
+      "policy": "v2",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 30,
+      "repeated": 29,
+      "ms": 609,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          30
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-4",
+      "count": 1,
+      "policy": "no_learning",
+      "survivors": 1,
+      "lifeHours": 72,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 30,
+      "repeated": 29,
+      "ms": 584,
+      "introduced": 1,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          30
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-4",
+      "count": 3,
+      "policy": "baseline",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 101,
+      "repeated": 77,
+      "ms": 1422,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:collect:site-freshwater-1",
+          10
+        ],
+        [
+          "agent-3:shelter:",
+          9
+        ],
+        [
+          "agent-1:cooperate:agent-2",
+          9
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-4",
+      "count": 3,
+      "policy": "v2",
+      "survivors": 3,
+      "lifeHours": 216,
+      "critical": 255,
+      "criticalByNeed": {
+        "health": 232,
+        "hydration": 26,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 98,
+      "repeated": 89,
+      "ms": 1931,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          30
+        ],
+        [
+          "agent-2:shelter:",
+          30
+        ],
+        [
+          "agent-3:shelter:",
+          30
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-4",
+      "count": 3,
+      "policy": "no_learning",
+      "survivors": 1,
+      "lifeHours": 130.83333333333331,
+      "critical": 54,
+      "criticalByNeed": {
+        "health": 8,
+        "hydration": 54,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 69,
+      "repeated": 66,
+      "ms": 1486,
+      "introduced": 3,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-3:shelter:",
+          30
+        ],
+        [
+          "agent-2:shelter:",
+          20
+        ],
+        [
+          "agent-1:shelter:",
+          19
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-4",
+      "count": 5,
+      "policy": "baseline",
+      "survivors": 3,
+      "lifeHours": 336.6666666666667,
+      "critical": 101,
+      "criticalByNeed": {
+        "health": 46,
+        "hydration": 70,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 157,
+      "repeated": 110,
+      "ms": 1776,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-5:collect:site-freshwater-1",
+          13
+        ],
+        [
+          "agent-1:cooperate:agent-2",
+          10
+        ],
+        [
+          "agent-1:collect:site-freshwater-1",
+          10
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-4",
+      "count": 5,
+      "policy": "v2",
+      "survivors": 5,
+      "lifeHours": 360,
+      "critical": 0,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 0,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 161,
+      "repeated": 145,
+      "ms": 2850,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-1:shelter:",
+          30
+        ],
+        [
+          "agent-5:shelter:",
+          30
+        ],
+        [
+          "agent-4:shelter:",
+          29
+        ]
+      ]
+    },
+    {
+      "seed": "validation-sep09-final-4",
+      "count": 5,
+      "policy": "no_learning",
+      "survivors": 5,
+      "lifeHours": 360,
+      "critical": 26,
+      "criticalByNeed": {
+        "health": 0,
+        "hydration": 26,
+        "nutrition": 0,
+        "warmth": 0,
+        "safety": 0
+      },
+      "failures": 171,
+      "repeated": 150,
+      "ms": 2726,
+      "introduced": 5,
+      "valid": true,
+      "topFailures": [
+        [
+          "agent-5:shelter:",
+          30
+        ],
+        [
+          "agent-3:shelter:",
+          30
+        ],
+        [
+          "agent-1:shelter:",
+          29
+        ]
+      ]
+    }
+  ],
+  "totals": {
+    "baseline": {
+      "agents": 36,
+      "survivors": 30,
+      "lifeHours": 2487.833333333333,
+      "critical": 232,
+      "failures": 1040,
+      "repeated": 774,
+      "ms": 16391,
+      "invalid": 0
+    },
+    "v2": {
+      "agents": 36,
+      "survivors": 36,
+      "lifeHours": 2592,
+      "critical": 275,
+      "failures": 958,
+      "repeated": 874,
+      "ms": 24023,
+      "invalid": 0
+    },
+    "no_learning": {
+      "agents": 36,
+      "survivors": 34,
+      "lifeHours": 2506.8333333333335,
+      "critical": 80,
+      "failures": 945,
+      "repeated": 853,
+      "ms": 21538,
+      "invalid": 0
+    }
+  }
+}

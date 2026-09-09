@@ -1,6 +1,8 @@
 "use client";
 
 import { AlertTriangle, HeartPulse } from "lucide-react";
+import { useSyncExternalStore } from "react";
+import { getPortraits, getServerPortraits, subscribePortraits } from "./portraits";
 import type { SurvivalActionKind, SurvivalAgent, SurvivalNeeds } from "../simulation/survival";
 import { SURVIVAL_AGENT_COLORS, type SurvivalAgentId } from "./scene";
 import styles from "./survival-experience.module.css";
@@ -65,7 +67,10 @@ export function mostImportantCondition(agent: SurvivalAgent) {
 }
 
 export function AgentPortrait({ id, name, size = "normal" }: { id: string; name?: string; size?: "small" | "normal" | "large" }) {
-  return <span className={styles.portrait} data-size={size} style={{ "--agent-color": agentColor(id) } as React.CSSProperties} aria-hidden="true"><i /><b>{id}</b><em>{name?.slice(0, 1) ?? id.slice(-1)}</em></span>;
+  const images = useSyncExternalStore(subscribePortraits, getPortraits, getServerPortraits);
+  // Tiny renderer-generated data URLs require no network or image optimization service.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <span className={styles.portrait} data-size={size} style={{ "--agent-color": agentColor(id) } as React.CSSProperties} aria-hidden="true">{images[id] ? <img src={images[id]} alt="" title={name} /> : <b>{id}</b>}</span>;
 }
 
 export function NeedMeter({ label, value, compact = false }: { label: string; value: number; compact?: boolean }) {
@@ -79,5 +84,5 @@ export function NeedMeter({ label, value, compact = false }: { label: string; va
 export function ConditionLine({ agent }: { agent: SurvivalAgent }) {
   const condition = mostImportantCondition(agent);
   const Icon = condition.value < 48 ? AlertTriangle : HeartPulse;
-  return <span className={styles.conditionLine} data-critical={condition.value < 28}><Icon size={13} />{condition.label}</span>;
+  return <span className={styles.conditionLine} data-critical={condition.value < 28} data-warning={condition.value >= 28 && condition.value < 48}><Icon size={13} />{condition.label}</span>;
 }

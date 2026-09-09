@@ -5,6 +5,7 @@ import type { PointerEventHandler } from "react";
 import type { SurvivalAgent, SurvivalRunState } from "../simulation/survival";
 import { activityLabel, AgentPortrait, ConditionLine, humanize, NeedMeter } from "./presentation";
 import styles from "./survival-experience.module.css";
+import { AgentKnowledge } from "./agent-knowledge";
 
 export type InspectorLevel = "peek" | "half" | "expanded";
 
@@ -30,8 +31,15 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
   const activePlan = agent.currentPlan;
   const levels: InspectorLevel[] = ["peek", "half", "expanded"];
   const levelIndex = levels.indexOf(level);
+  const decision = agent.currentDeliberation;
+  const choice = decision?.candidates[0];
+  const evidence = decision?.evidenceSnapshot ?? agent.observations.filter(o => decision?.knownObservationIds.includes(o.id));
 
   return <article className={styles.agentInspector} data-level={level} aria-label={`${agent.label} agent inspector`}>
+    <div className={styles.peekSummary}>
+      <div><strong>{agent.label} <span>· {activityLabel(agent)}</span></strong><ConditionLine agent={agent} /></div>
+      <button type="button" onClick={() => onLevelChange("half")} aria-label="Expand agent details"><ChevronUp size={19} /></button>
+    </div>
     <div className={styles.sheetHandle} aria-label="Agent detail height controls">
       <button type="button" disabled={levelIndex === 0} onClick={() => onLevelChange(levels[levelIndex - 1])} aria-label="Collapse agent details"><ChevronDown size={18} /></button>
       <span onPointerDown={onHandlePointerDown} onPointerUp={onHandlePointerUp}><i />{level === "peek" ? "Conditions" : level === "half" ? "More details" : "Full record"}</span>
@@ -44,6 +52,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
       <ConditionLine agent={agent} />
     </div>
 
+    {choice ? <p className={styles.peekIntent}><strong>Chose {humanize(choice.goal).toLowerCase()}.</strong> {choice.summary}</p> : null}
     <div className={styles.inspectorHalf}>
       <section className={styles.needsSection} aria-label="Needs, higher is better">
         <NeedMeter label="Health" value={agent.needs.health} />
@@ -57,6 +66,15 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
     </div>
 
     <div className={styles.inspectorExpanded}>
+      {decision ? <section className={styles.recordSection}>
+        <header><Route size={17} /><div><span>Decision evidence</span><small>{decision.id} · {(world.tick - decision.decidedAt) * world.config.stepMinutes} modeled minutes ago</small></div></header>
+        <p>{choice?.planActions?.map(humanize).join(" → ") ?? decision.recordedIntent}</p>
+        <small>Scores compare modeled survival value; they are not probabilities or private thoughts.</small>
+        <details className={styles.decisionAlternatives}><summary>Alternatives considered · {Math.max(0, decision.candidates.length - 1)}</summary><ol>{decision.candidates.slice(1, 4).map((candidate, i) => <li key={i}><strong>{humanize(candidate.goal)}{candidate.targetId ? ` · ${candidate.targetId}` : ""}</strong><span>Value {candidate.score.toFixed(1)} · risk {candidate.risk.toFixed(1)} · {candidate.predictedSteps ?? "?"} steps</span><p>{candidate.summary}</p></li>)}</ol></details>
+        <details className={styles.decisionAlternatives}><summary>{decision.evidenceSnapshot ? "Evidence when chosen" : "Retained referenced evidence"} · {evidence.length}</summary><ul>{evidence.map(o => <li key={o.id}><strong>{o.subjectId}</strong><span>Observed at step {o.observedAt} · {Math.round(o.confidence * 100)}% confidence</span><p>{Object.entries(o.facts).slice(0, 5).map(([key,value]) => `${humanize(key)}: ${String(value)}`).join(" · ")}</p></li>)}</ul></details>
+        {agent.lastOutcome ? <p><strong>{agent.lastOutcome.decisionId === decision.id ? "Result linked to this decision" : "Separate latest result"}:</strong> {agent.lastOutcome.summary}</p> : null}
+      </section> : null}
+      <AgentKnowledge agent={agent} world={world} />
       <section className={styles.recordSection}>
         <header><PackageOpen size={17} /><div><span>Possessions</span><small>Personal inventory reported by the simulation</small></div></header>
         {inventory.length ? <dl className={styles.rowList}>{inventory.map(([kind, amount]) => <div key={kind}><dt>{humanize(kind)}</dt><dd>{amount.toFixed(1)}</dd></div>)}</dl> : <p className={styles.emptyCopy}>Nothing is currently carried.</p>}
@@ -86,6 +104,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
       </section>
 
       {memories.length ? <section className={styles.recordSection}><header><Footprints size={17} /><div><span>Learned outcomes</span><small>Experience used in later comparisons</small></div></header><ol className={styles.memoryList}>{memories.map((memory) => <li key={memory.id}><span>{humanize(memory.result)}</span><p>{memory.summary}</p></li>)}</ol></section> : null}
+      <details className={styles.decisionAlternatives}><summary>Learned expectations · {agent.learning.length} contexts</summary><ul>{[...agent.learning].sort((a,b) => b.updatedAt - a.updatedAt).slice(0, 12).map(item => <li key={item.context}><strong>{item.context}</strong><span>{item.attempts} experiences · mean outcome {item.expectedUtility.toFixed(1)}{item.expectedYield === undefined ? "" : ` · expected yield ${item.expectedYield.toFixed(2)}`}</span></li>)}</ul></details>
     </div>
   </article>;
 }

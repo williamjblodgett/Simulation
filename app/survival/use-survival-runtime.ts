@@ -1,16 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { SurvivalRuntimeContext } from "./survival-runtime-context";
+import { ObserverSelectionProvider } from "./observer-selection";
+import { commitCheckpoint, eventSequence, exportRunArchive, extendHistoryWindow, loadCheckpoint, loadCommandCheckpoint, loadEventPage, recoverLastGoodCheckpoint, type SurvivalCheckpoint } from "./survival-persistence";
+import { SurvivalWorkerBridge } from "./survival-worker-bridge";
 import {
   addObserverAgent,
-  advanceSurvivalRun,
   createSurvivalRun,
   restoreSurvivalRun,
-  serializeSurvivalRun,
+  validateSurvivalRun,
   setSurvivalRunPaused,
   type AddObserverAgentResult,
   type SurvivalRunOptions,
   type SurvivalRunState,
+  type SurvivalEvent,
 } from "../simulation/survival";
 
 const STORAGE_KEY = "simulation:survival-run:v1";
@@ -30,38 +34,54 @@ export interface SurvivalRuntimeLease {
 }
 
 export interface SurvivalRuntime {
+  runInstanceId: string;
+  busy: boolean;
+  lastSavedAt: number | null;
+  historyEvents: SurvivalEvent[];
+  archiveStatus: "saved" | "partial" | "unavailable";
+  hasOlderEvents: boolean;
+  historyFrozen: boolean;
+  freezeHistory(): void;
+  returnLiveHistory(): void;
+  loadOlderEvents(): Promise<void>;
+  exportHistory(): Promise<void>;
+  retry(): Promise<void>;
+  recoverBackup(): Promise<void>;
   world: SurvivalRunState | null;
   ready: boolean;
   speed: PlaybackSpeed;
-  storageStatus: "saved-on-device" | "memory-only";
+  storageStatus: "saved-on-device" | "save-unavailable";
   recoveryNotice: string | null;
   lastEvents: string[];
   setSpeed(speed: PlaybackSpeed): void;
-  setPaused(paused: boolean): void;
-  start(options: SurvivalRunOptions, seed?: string | number): void;
-  addAgent(): AddObserverAgentResult | null;
+  setPaused(paused: boolean): Promise<void>;
+  start(options: SurvivalRunOptions, seed?: string | number): Promise<void>;
+  addAgent(): Promise<AddObserverAgentResult | null>;
   dismissRecoveryNotice(): void;
 }
 
-function loadStoredRun(): { world: SurvivalRunState | null; recoveryNotice: string | null } {
+export function loadStoredRun(storage?: Pick<Storage, "getItem" | "setItem">): { world: SurvivalRunState | null; recoveryNotice: string | null } {
   try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
+    const source = storage ?? window.localStorage;
+    const stored = source.getItem(STORAGE_KEY);
     if (!stored) return { world: null, recoveryNotice: null };
     try {
       return { world: restoreSurvivalRun(stored), recoveryNotice: null };
     } catch {
       try {
-        window.localStorage.setItem(RECOVERY_STORAGE_KEY, stored);
+        source.setItem(RECOVERY_STORAGE_KEY, stored);
       } catch {
         // A readable notice still matters when the browser also refuses backup storage.
       }
       return {
         world: null,
-        recoveryNotice: "The previous checkpoint was invalid. A backup was preserved when storage allowed, and a fresh run was opened instead of presenting corrupted data.",
+        recoveryNotice: "The previous checkpoint was invalid. A backup was preserved when storage allowed. No new run has replaced it.",
       };
     }
   } catch {
-    return { world: null, recoveryNotice: null };
+    // An inaccessible legacy record is not evidence that no study exists.
+    // Initialization must stop instead of committing a new default study.
+    throw new Error("The previous device record could not be read. Allow browser storage, then retry. No new study has replaced it.");
   }
 }
 
@@ -119,236 +139,221 @@ function createRuntimeOwnerId(): string {
   }
 }
 
-export function useSurvivalRuntime(): SurvivalRuntime {
-  const [world, setWorld] = useState<SurvivalRunState | null>(null);
+export function useSurvivalRuntimeController(): SurvivalRuntime {
+  const [checkpoint, setCheckpoint] = useState<SurvivalCheckpoint | null>(null);
   const [ready, setReady] = useState(false);
-  const [speed, setSpeedState] = useState<PlaybackSpeed>(1);
-  const [storageStatus, setStorageStatus] = useState<"saved-on-device" | "memory-only">("saved-on-device");
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
+  const [storageStatus, setStorageStatus] = useState<"saved-on-device" | "save-unavailable">("saved-on-device");
   const [lastEvents, setLastEvents] = useState<string[]>([]);
-  const worldRef = useRef<SurvivalRunState | null>(null);
-  const speedRef = useRef<PlaybackSpeed>(1);
-  const accumulatedMillisecondsRef = useRef(0);
-  const lastIntervalAtRef = useRef(0);
+  const [historyWindow, setHistoryWindow] = useState<{ runInstanceId: string; events: SurvivalEvent[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const current = useRef<SurvivalCheckpoint | null>(null);
   const [ownerId] = useState(createRuntimeOwnerId);
-  const isLeaderRef = useRef(false);
-  const storageAvailableRef = useRef(true);
+  const bridge = useRef<SurvivalWorkerBridge | null>(null);
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const generation = useRef(0);
+  const disposed = useRef(false);
+  const channel = useRef<BroadcastChannel | null>(null);
+  const accumulated = useRef(0);
+  const workerBusy = useRef(false);
+  const commandBusy = useRef(false);
+  const hasCheckpoint = Boolean(checkpoint);
 
-  const publish = useCallback((next: SurvivalRunState) => {
-    worldRef.current = next;
-    setWorld(next);
+  const accept = useCallback((next: SurvivalCheckpoint) => {
+    if (disposed.current || (current.current && next.revision < current.current.revision)) return;
+    if (current.current?.runInstanceId !== next.runInstanceId) { setHistoryWindow(null); setLastEvents([]); accumulated.current = 0; }
+    current.current = next; setCheckpoint(next); setLastSavedAt(next.savedAt);
   }, []);
 
-  const markLeadership = useCallback((isLeader: boolean) => {
-    if (isLeaderRef.current === isLeader) return;
-    isLeaderRef.current = isLeader;
-    accumulatedMillisecondsRef.current = 0;
-    lastIntervalAtRef.current = performance.now();
+  const locked = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const invoke = async (): Promise<T> => navigator.locks
+      ? await navigator.locks.request("simulation-survival-authority-v2", task)
+      : await task(); // IndexedDB revision CAS remains authoritative without Web Locks.
+    const work = queue.current.then(invoke, invoke);
+    queue.current = work.catch(() => {});
+    return work;
   }, []);
 
-  const claimLeadership = useCallback((force = false) => {
-    if (!storageAvailableRef.current) {
-      markLeadership(true);
-      return true;
-    }
-    try {
-      const claimed = claimSurvivalRuntimeLease(window.localStorage, ownerId, Date.now(), force);
-      markLeadership(claimed);
-      return claimed;
-    } catch {
-      storageAvailableRef.current = false;
-      setStorageStatus("memory-only");
-      markLeadership(true);
-      return true;
-    }
-  }, [markLeadership, ownerId]);
-
-  const persistOwnedWorld = useCallback((next: SurvivalRunState) => {
-    if (!storageAvailableRef.current) return false;
-    try {
-      if (!ownsSurvivalRuntimeLease(window.localStorage, ownerId, Date.now())) {
-        markLeadership(false);
-        return false;
-      }
-      window.localStorage.setItem(STORAGE_KEY, serializeSurvivalRun(next));
-      setStorageStatus("saved-on-device");
-      return true;
-    } catch {
-      storageAvailableRef.current = false;
-      setStorageStatus("memory-only");
-      markLeadership(true);
-      return false;
-    }
-  }, [markLeadership, ownerId]);
+  const save = useCallback(async (next: SurvivalCheckpoint, events: SurvivalEvent[], expected: number | null) => {
+    // Reject malformed output before it can replace the last known good checkpoint.
+    if (!validateSurvivalRun(next.world)) throw new Error("The planner produced an invalid checkpoint. The previous saved run is intact.");
+    if (!await commitCheckpoint(next, events, expected)) throw new Error("Another tab updated the run. Retry the command against its latest state.");
+    accept(next); setStorageStatus("saved-on-device");
+    channel.current?.postMessage({ revision: next.revision });
+  }, [accept]);
 
   useEffect(() => {
-    const initialization = window.setTimeout(() => {
-      const restored = loadStoredRun();
-      setRecoveryNotice(restored.recoveryNotice);
-      publish(restored.world ?? createSurvivalRun(DEFAULT_SEED, { agentCount: 3, agentCap: 3, durationHours: 72 }));
-      claimLeadership(false);
-      setReady(true);
-    }, 0);
-    return () => window.clearTimeout(initialization);
-  }, [claimLeadership, publish]);
-
-  useEffect(() => {
-    worldRef.current = world;
-    if (!world || !ready) return;
-    const timer = window.setTimeout(() => {
-      if (isLeaderRef.current && worldRef.current === world) persistOwnedWorld(world);
-    }, 180);
-    return () => window.clearTimeout(timer);
-  }, [persistOwnedWorld, ready, world]);
-
-  useEffect(() => {
-    speedRef.current = speed;
-  }, [speed]);
-
-  useEffect(() => {
-    if (!ready) return;
-    const receiveSharedCheckpoint = (event: StorageEvent) => {
-      if (event.storageArea !== window.localStorage) return;
-      if (event.key === SURVIVAL_RUNTIME_LEASE_KEY) {
-        if (!ownsSurvivalRuntimeLease(window.localStorage, ownerId, Date.now())) markLeadership(false);
-        return;
-      }
-      if (event.key !== STORAGE_KEY || !event.newValue) return;
-      if (ownsSurvivalRuntimeLease(window.localStorage, ownerId, Date.now())) return;
-      try {
-        const next = restoreSurvivalRun(event.newValue);
-        const previous = worldRef.current;
-        const cursorBefore = previous?.eventWindow.totalEvents ?? previous?.events.length ?? 0;
-        const cursorAfter = next.eventWindow.totalEvents;
-        if (previous?.id !== next.id || cursorAfter < cursorBefore) {
-          setLastEvents([]);
-        } else if (cursorAfter > cursorBefore) {
-          const recent = next.events.slice(-Math.min(next.events.length, cursorAfter - cursorBefore));
-          const important = recent.filter(({ type }) =>
-            type === "agent_added" ||
-            type === "agent_died" ||
-            type === "discovery" ||
-            type === "sole_survivor_decision" ||
-            type === "run_completed" ||
-            type === "run_extinct",
-          );
-          if (important.length) setLastEvents(important.slice(-2).map(({ summary, outcome }) => `${summary} ${outcome}`));
-        }
-        accumulatedMillisecondsRef.current = 0;
-        setStorageStatus("saved-on-device");
-        publish(next);
-      } catch {
-        // Ignore an invalid cross-tab write; the valid last-known checkpoint remains visible.
-      }
+    disposed.current = false;
+    bridge.current = new SurvivalWorkerBridge();
+    channel.current = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("simulation-survival-sync-v2") : null;
+    const sync = async () => {
+      try { const saved = await loadCheckpoint(); if (saved && !disposed.current) accept(saved); }
+      catch { /* Preserve useful last-known state; the next write reports storage trouble. */ }
     };
-    window.addEventListener("storage", receiveSharedCheckpoint);
-    return () => window.removeEventListener("storage", receiveSharedCheckpoint);
-  }, [markLeadership, ownerId, publish, ready]);
-
-  useEffect(() => {
-    if (!ready) return;
-    const release = () => {
-      if (!storageAvailableRef.current || !isLeaderRef.current) return;
-      const current = worldRef.current;
-      if (current) persistOwnedWorld(current);
+    if (channel.current) channel.current.onmessage = () => void sync();
+    const init = async () => {
       try {
-        releaseSurvivalRuntimeLease(window.localStorage, ownerId);
-      } catch {
-        // The lease will expire if storage becomes unavailable during unload.
-      }
-      isLeaderRef.current = false;
+        await locked(async () => {
+          const saved = await loadCheckpoint();
+          if (saved) { if (!validateSurvivalRun(saved.world)) throw new Error("The saved checkpoint is invalid; it has not been replaced."); accept(saved); return; }
+          const legacy = loadStoredRun();
+          if (legacy.recoveryNotice) throw new Error(legacy.recoveryNotice);
+          const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { agentCount: 3, agentCap: 3, durationHours: 72 });
+          await save({ runInstanceId: crypto.randomUUID(), revision: 1, savedAt: Date.now(), speed: 1, world, missingBefore: world.eventWindow.droppedEvents }, world.events, null);
+        });
+      } catch (error) {
+        setStorageStatus("save-unavailable");
+        setRecoveryNotice(error instanceof Error ? error.message : "Device storage is unavailable. No saved study was replaced.");
+      } finally { if (!disposed.current) setReady(true); }
     };
-    window.addEventListener("pagehide", release);
-    window.addEventListener("beforeunload", release);
+    void init();
+    const visibility = () => { if (!document.hidden) void sync(); };
+    document.addEventListener("visibilitychange", visibility);
     return () => {
-      window.removeEventListener("pagehide", release);
-      window.removeEventListener("beforeunload", release);
-      release();
+      disposed.current = true;
+      bridge.current?.dispose(); channel.current?.close();
+      try { releaseSurvivalRuntimeLease(localStorage, ownerId); } catch { /* The lease expires independently. */ }
+      document.removeEventListener("visibilitychange", visibility);
     };
-  }, [ownerId, persistOwnedWorld, ready]);
+  }, [accept, locked, save, ownerId]);
 
   useEffect(() => {
-    if (!ready) return;
-    lastIntervalAtRef.current = performance.now();
-    const interval = window.setInterval(() => {
-      const now = performance.now();
-      const elapsed = Math.min(2_000, Math.max(0, now - lastIntervalAtRef.current));
-      lastIntervalAtRef.current = now;
-      if (!claimLeadership(false)) return;
-      const current = worldRef.current;
-      if (!current || current.status !== "running") return;
-      accumulatedMillisecondsRef.current += elapsed * speedRef.current;
-      const requestedSteps = Math.min(
-        MAX_STEPS_PER_INTERVAL,
-        Math.floor(accumulatedMillisecondsRef.current / REAL_MILLISECONDS_PER_STEP_AT_1X),
-      );
-      if (requestedSteps < 1) return;
-      accumulatedMillisecondsRef.current -= requestedSteps * REAL_MILLISECONDS_PER_STEP_AT_1X;
-      const result = advanceSurvivalRun(current, requestedSteps);
-      const importantEvents = result.events.filter(({ type }) =>
-        type === "agent_added" ||
-        type === "agent_died" ||
-        type === "discovery" ||
-        type === "sole_survivor_decision" ||
-        type === "run_completed" ||
-        type === "run_extinct",
-      );
-      if (importantEvents.length) {
-        setLastEvents(importantEvents.slice(-2).map(({ summary, outcome }) => `${summary} ${outcome}`));
-      }
-      publish(result.state);
+    if (!ready || !hasCheckpoint) return;
+    let previous = performance.now();
+    const timer = setInterval(() => {
+      const now = performance.now(), elapsed = Math.min(2000, now - previous); previous = now;
+      if (workerBusy.current || busy || storageStatus === "save-unavailable") return;
+      const visible = current.current;
+      if (!visible || visible.world.status !== "running") return;
+      try { if (!claimSurvivalRuntimeLease(localStorage, ownerId, Date.now())) return; }
+      catch { setRecoveryNotice("Run ownership could not be checked. Free device storage, then retry."); setStorageStatus("save-unavailable"); return; }
+      accumulated.current += elapsed * visible.speed;
+      const steps = Math.min(MAX_STEPS_PER_INTERVAL, Math.floor(accumulated.current / REAL_MILLISECONDS_PER_STEP_AT_1X));
+      if (steps < 1) return;
+      accumulated.current -= steps * REAL_MILLISECONDS_PER_STEP_AT_1X;
+      workerBusy.current = true;
+      const epoch = generation.current;
+      void locked(async () => {
+        const source = await loadCheckpoint();
+        if (!source || epoch !== generation.current || disposed.current) return;
+        if (source.world.status !== "running") { accept(source); return; }
+        if (!ownsSurvivalRuntimeLease(localStorage, ownerId, Date.now())) { accept(source); return; }
+        const result = await bridge.current!.advance(source.world, steps);
+        if (epoch !== generation.current || disposed.current) return;
+        const next = { ...source, revision: source.revision + 1, savedAt: Date.now(), world: result.state };
+        await save(next, result.events, source.revision);
+        const important = result.events.filter(e => ["agent_added", "agent_died", "discovery", "sole_survivor_decision", "run_completed", "run_extinct"].includes(e.type));
+        if (important.length) setLastEvents(important.slice(-2).map(e => e.summary + " " + e.outcome));
+      }).catch(error => {
+        if (epoch !== generation.current || disposed.current) return;
+        setRecoveryNotice(error instanceof Error ? error.message : "The local run stopped. The last saved checkpoint is intact.");
+        setStorageStatus("save-unavailable");
+      }).finally(() => { workerBusy.current = false; });
     }, 200);
-    return () => window.clearInterval(interval);
-  }, [claimLeadership, publish, ready]);
+    return () => clearInterval(timer);
+  }, [ready, hasCheckpoint, busy, storageStatus, ownerId, accept, locked, save]);
 
-  const setPaused = useCallback((paused: boolean) => {
-    if (!claimLeadership(true)) return;
-    const current = worldRef.current;
-    if (!current || current.status === "completed" || current.status === "extinct") return;
-    const next = setSurvivalRunPaused(current, paused);
-    publish(next);
-    persistOwnedWorld(next);
-  }, [claimLeadership, persistOwnedWorld, publish]);
+  const command = useCallback(async <T,>(change: (source: SurvivalCheckpoint) => { next: SurvivalCheckpoint; events: SurvivalEvent[]; value: T }): Promise<T | null> => {
+    if (commandBusy.current) throw new Error("A command is already being saved.");
+    const expectedRunInstanceId = current.current?.runInstanceId;
+    commandBusy.current = true;
+    generation.current++; accumulated.current = 0; setBusy(true);
+    try {
+      return await locked(async () => {
+        const source = await loadCommandCheckpoint(expectedRunInstanceId);
+        const result = change(source);
+        result.next.revision = source.revision + 1; result.next.savedAt = Date.now();
+        await save(result.next, result.events, source.revision);
+        setRecoveryNotice(null);
+        return result.value;
+      });
+    } catch (error) { setRecoveryNotice(error instanceof Error ? error.message : "This command could not be saved."); throw error; }
+    finally { commandBusy.current = false; setBusy(false); }
+  }, [locked, save]);
 
-  const start = useCallback((options: SurvivalRunOptions, seed?: string | number) => {
-    if (!claimLeadership(true)) return;
-    accumulatedMillisecondsRef.current = 0;
-    setLastEvents([]);
-    setRecoveryNotice(null);
-    const next = createSurvivalRun(seed ?? `survival-${Date.now()}`, options);
-    publish(next);
-    persistOwnedWorld(next);
-  }, [claimLeadership, persistOwnedWorld, publish]);
-
-  const addAgent = useCallback(() => {
-    if (!claimLeadership(true)) return null;
-    const current = worldRef.current;
-    if (!current) return null;
-    const result = addObserverAgent(current);
-    if (result.ok) {
-      publish(result.state);
-      persistOwnedWorld(result.state);
-    }
-    return result;
-  }, [claimLeadership, persistOwnedWorld, publish]);
-
-  const setPlaybackSpeed = useCallback((next: PlaybackSpeed) => {
-    claimLeadership(true);
-    speedRef.current = next;
-    setSpeedState(next);
-  }, [claimLeadership]);
-
+  const setPaused = useCallback(async (paused: boolean) => {
+    await command(source => ({ next: { ...source, world: setSurvivalRunPaused(source.world, paused) }, events: [], value: null }));
+  }, [command]);
+  const start = useCallback(async (options: SurvivalRunOptions, seed?: string | number) => {
+    await command(source => {
+      const world = createSurvivalRun(seed ?? `survival-${Date.now()}`, options);
+      return { next: { ...source, runInstanceId: crypto.randomUUID(), world, missingBefore: 0 }, events: world.events, value: null };
+    });
+  }, [command]);
+  const addAgent = useCallback(async () => command(source => {
+    const result = addObserverAgent(source.world);
+    return { next: { ...source, world: result.state }, events: result.event ? [result.event] : [], value: result };
+  }), [command]);
+  const setSpeed = useCallback((speed: PlaybackSpeed) => {
+    void command(source => ({ next: { ...source, speed }, events: [], value: null })).catch(() => {});
+  }, [command]);
+  const retry = useCallback(async () => {
+    try {
+      bridge.current?.dispose(); bridge.current = new SurvivalWorkerBridge();
+      const saved = await loadCheckpoint();
+      if (saved) { accept(saved); setStorageStatus("saved-on-device"); setRecoveryNotice(null); }
+      else window.location.reload();
+    } catch (error) { setRecoveryNotice(error instanceof Error ? error.message : "Device storage is still unavailable. Your last known record has not been discarded."); }
+  }, [accept]);
+  const recoverBackup = useCallback(async () => {
+    if (!window.confirm("Recover the previous good checkpoint? This may roll back recent progress. The current checkpoint will be preserved separately.")) return;
+    generation.current++;
+    try {
+      await locked(async () => {
+        const saved = await recoverLastGoodCheckpoint();
+        accept(saved); setStorageStatus("saved-on-device");
+        setRecoveryNotice("Recovered the last good save. The unreadable checkpoint was kept separately.");
+        channel.current?.postMessage({ revision: saved.revision });
+      });
+    } catch (error) { setRecoveryNotice(error instanceof Error ? error.message : "The backup could not be recovered."); }
+  }, [accept, locked]);
+  // A historical window stays fixed while the live tail advances. Mixing a fixed
+  // older page with that moving tail would silently leave holes in the middle.
+  const historyFrozen = Boolean(historyWindow && historyWindow.runInstanceId === checkpoint?.runInstanceId);
+  const historyEvents = useMemo(() => historyFrozen ? historyWindow!.events : checkpoint?.world.events ?? [], [historyFrozen, historyWindow, checkpoint]);
+  const freezeHistory = useCallback(() => {
+    const source = current.current;
+    if (source) setHistoryWindow(previous => previous?.runInstanceId === source.runInstanceId ? previous : { runInstanceId: source.runInstanceId, events: source.world.events });
+  }, []);
+  const returnLiveHistory = useCallback(() => setHistoryWindow(null), []);
+  const loadOlderEvents = useCallback(async () => {
+    const source = current.current;
+    if (!source) return;
+    try {
+      const earliest = Math.min(...historyEvents.map(eventSequence), Number.MAX_SAFE_INTEGER);
+      const page = await loadEventPage(source.runInstanceId, earliest);
+      if (current.current?.runInstanceId === source.runInstanceId) setHistoryWindow(previous => {
+        const windowEvents = previous?.runInstanceId === source.runInstanceId ? previous.events : historyEvents;
+        return { runInstanceId: source.runInstanceId, events: extendHistoryWindow(windowEvents, page) };
+      });
+    } catch { throw new Error("Earlier history could not be read. The current record is still available."); }
+  }, [historyEvents]);
+  const exportHistory = useCallback(async () => {
+    const source = current.current;
+    if (!source) return;
+    const text = await locked(() => exportRunArchive(source));
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    const link = document.createElement("a"); link.href = url; link.download = `simulation-${source.runInstanceId}.json`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [locked]);
   return {
-    world,
-    ready,
-    speed,
-    storageStatus,
-    recoveryNotice,
-    lastEvents,
-    setSpeed: setPlaybackSpeed,
-    setPaused,
-    start,
-    addAgent,
+    world: checkpoint?.world ?? null, ready, speed: checkpoint?.speed ?? 1, storageStatus, recoveryNotice, lastEvents,
+    runInstanceId: checkpoint?.runInstanceId ?? "", busy, lastSavedAt, historyEvents,
+    archiveStatus: storageStatus === "save-unavailable" ? "unavailable" : checkpoint?.missingBefore ? "partial" : "saved",
+    hasOlderEvents: Boolean(checkpoint && historyEvents.length < 4608 && historyEvents.length && eventSequence(historyEvents[0]) > checkpoint.missingBefore + 1),
+    historyFrozen, freezeHistory, returnLiveHistory,
+    loadOlderEvents, exportHistory, retry, recoverBackup, setPaused, start, addAgent, setSpeed,
     dismissRecoveryNotice: () => setRecoveryNotice(null),
   };
+}
+
+export function SurvivalRuntimeProvider({ children }: { children: ReactNode }) {
+  const runtime = useSurvivalRuntimeController();
+  return createElement(SurvivalRuntimeContext.Provider, { value: runtime }, createElement(ObserverSelectionProvider, null, children));
+}
+export function useSurvivalRuntime(): SurvivalRuntime {
+  const runtime = useContext(SurvivalRuntimeContext);
+  if (!runtime) throw new Error("Simulation runtime provider is missing.");
+  return runtime;
 }
