@@ -14,7 +14,7 @@ New studies use policy 2: private-observation planning, contextual outcome/yield
 
 This is bounded simulation autonomy, not general intelligence. Designers supply physiology, actions, material laws, initial survival estimates and seven research domains. Research need not occur in every run. Long-horizon technology procurement and learned reusable technique composition remain limitations, not hidden capabilities.
 
-See [implementation and verification report](docs/IMPLEMENTATION_REPORT.md) for delivered changes, benchmark results, actual browser coverage and remaining strategy work. Local changes are not automatically published to the live edition.
+The September 9 observer release is published to GitHub Pages. See [implementation and verification report](docs/IMPLEMENTATION_REPORT.md) for the deployed revision, delivered changes, benchmark results, actual browser coverage and remaining strategy work. Future local changes still require an explicit release.
 
 ## Security boundary
 

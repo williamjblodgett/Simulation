@@ -1,6 +1,15 @@
 # Simulation implementation and verification
 
-September 9, 2026. Implementation following the Astra review of revision `dce7792`, including the final observer-interface refinement and GitHub Pages release preparation.
+September 9, 2026. Implementation following the Astra review of revision `dce7792`, including the final observer-interface refinement and verified GitHub Pages release.
+
+## Live release
+
+- Live: [Simulation](https://williamjblodgett.github.io/Simulation/).
+- Implementation source: `35358a7`; published static branch: `a29376624ca26a1c28367f507fcd512fe7f02540`. Both branches were pushed together without force.
+- [GitHub Pages deployment 34406090933](https://github.com/williamjblodgett/Simulation/actions/runs/34406090933) completed successfully.
+- Public browser verification loaded title `Simulation · Autonomous Survival Study`, script `index-DMjjgqHZ.js` and stylesheet `index-f_rSnhr-.css`, matching the built artifacts. Every copied deployment file was hash-compared with the local Pages build before publication.
+- The public page was visually inspected at 1280 × 720 and 390 × 844. It rendered the actual 3D habitat and matching portraits. World → Agents → Timeline → Run → About → World retained A2 selection and the paused day 1 03:10 checkpoint. The minimap control opened, and the inspected browser console had no warnings or errors. No public study was reset for release verification.
+- Older static asset hashes were retained so already-open tabs are not broken by missing lazy-loaded files. Prior model routes and save namespaces are preserved. Existing policy-1 survival saves continue using their original engine; configure a new study to use policy 2 without deleting the archived study.
 
 ## Delivered
 
@@ -114,4 +123,4 @@ The delivered local agents choose and compose actions, learn some contextual con
 - Profile weaker real devices; reduce the initial JavaScript chunk and checkpoint clone/serialization costs if measured as limiting. A worker does not continue once all tabs are closed.
 - Finish the unverified accessibility/device/fault matrix above. Event history is not recorded-world replay; no fake scrubbing was added.
 
-The checkout is runnable and prior planetary/civilization models and their separate data remain available. The release target is the existing `williamjblodgett/Simulation` repository and its `gh-pages` branch; source goes to `main`. Deployment verification is recorded separately after the public build is checked.
+The checkout is runnable and prior planetary/civilization models and their separate data remain available. The release is on the existing `williamjblodgett/Simulation` repository: source on `main`, static output on `gh-pages`. Public-build verification is recorded above. This documentation-only follow-up does not change the deployed JavaScript.
