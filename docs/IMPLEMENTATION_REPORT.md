@@ -54,6 +54,25 @@ on exposure. Arbitrary machines, articulated mechanisms, electrical systems,
 full chemistry, assembly carrying and evolving new action verbs are not modeled.
 No random-policy superiority or open-ended-intelligence benchmark is claimed.
 
+### Published physical-model release
+
+- Implementation source: `434f81c9769abcbad931ec4427ae88fc6b1e675e`.
+- Pages revision: `2a292fb9ff0485f9c376e08414e60b17b3e56829`. All 16 copied
+  artifacts matched the validated local build. Older hashed assets were retained.
+- Both branches were pushed atomically without force. The host did not start its
+  automatic build immediately, so the existing Pages build was explicitly
+  requested. [Deployment 34427495501](https://github.com/williamjblodgett/Simulation/actions/runs/34427495501)
+  completed successfully for that exact Pages revision.
+- Public browser verification loaded `index-DPQuRBET.js`, matching the final
+  artifact. Run shows the preserved-policy banner and the new setup includes
+  survival-only / optional-continuity choices. World is nonblank. The public study
+  stayed paused at day 1 03:10 with three agents; no public study was replaced or
+  advanced. The final console inspection returned no warnings/errors.
+- Final local reload preserved the physical QA study at day 1 07:20 with five
+  agents. The event-location regression was rechecked: expanded → Timeline →
+  Locate current site now returns to the World with `data-level="peek"`.
+- Live: [Simulation](https://williamjblodgett.github.io/Simulation/).
+
 ## Next-generation update (subsequent to the observer release below)
 
 - Add agent is available in Agents and Run whenever fewer than five agents are living, including before any death and after extinction. The command uses the existing locked, revision-checked checkpoint transaction; it preserves pause and refuses completed studies. An observer addition may expand an older run's smaller capacity to five, with the previous capacity recorded in its event.
