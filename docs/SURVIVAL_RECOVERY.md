@@ -160,6 +160,20 @@ They are not rendering frame times or reliable device-performance benchmarks.
 Long or congested studies can run below requested playback speed; policy search
 remains in the worker so the interface can continue rendering.
 
-Publication to the existing GitHub Pages site was explicitly approved on
-2026-09-10. The release uses the compiled asset identifiers above; deployment
-success must be checked separately before describing the update as live.
+## Published release
+
+Published to the existing GitHub Pages site with explicit approval on 2026-09-10.
+
+- Implementation source: `4dd1f8a1cb2ba1e259011a9d7aae2723c56efd01`.
+- Static release: `7f2526c5927d54e65b61f766b63644f691861cfc`.
+- [Pages deployment 34522643399](https://github.com/williamjblodgett/Simulation/actions/runs/34522643399)
+  completed successfully. Both branches were pushed atomically without force.
+- All 16 release files were byte-verified against the local build before push.
+  The live application and survival worker subsequently returned HTTP 200 and
+  matched the local files' SHA-256 hashes.
+- The public browser loaded `index-B6SQS-xD.js`, showed a nonblank Three.js world,
+  and reported no console warnings or errors. The existing study remained paused
+  on Day 1 at 03:10 with its three living agents; no reset or resume was performed.
+
+Refresh already-open tabs before resuming. Active policy-2/3 studies adopt the
+survival corrections on their next advancing tick, with their history preserved.
