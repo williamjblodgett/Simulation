@@ -207,7 +207,7 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
           }
           const legacy = loadStoredRun();
           if (legacy.recoveryNotice) throw new Error(legacy.recoveryNotice);
-          const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { agentCount: 3, agentCap: 5, durationHours: 72 });
+          const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { policyVersion: 3, agentCount: 3, agentCap: 5, durationHours: 72 });
           if (world.policyVersion === 2) world.schemaVersion = 2;
           await save({ runInstanceId: crypto.randomUUID(), revision: 1, savedAt: Date.now(), speed: 1, world, missingBefore: world.eventWindow.droppedEvents }, world.events, null);
         });

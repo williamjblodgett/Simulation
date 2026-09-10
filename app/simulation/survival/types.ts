@@ -25,6 +25,8 @@ export interface SurvivalObjective {
 }
 
 export interface SurvivalRunOptions {
+  policyVersion?: 2 | 3;
+  continuity?: boolean;
   agentCount?: AgentLimit;
   agentCap?: AgentLimit;
   durationHours?: number | null;
@@ -34,6 +36,7 @@ export interface SurvivalRunOptions {
 }
 
 export interface SurvivalRunConfig {
+  continuity?: boolean;
   initialAgentCount: AgentLimit;
   agentCap: AgentLimit;
   durationHours: number | null;
@@ -193,6 +196,7 @@ export interface AgentDecisionCandidate {
 
 /** A factual decision record, not hidden chain-of-thought or consciousness. */
 export interface AgentDeliberation {
+  physicalEvidenceSnapshot?: import("./physical-types").PhysicalReading[];
   policyVersion?: number;
   evidenceSnapshot?: AgentObservation[];
   id: string;
@@ -207,6 +211,7 @@ export interface AgentDeliberation {
 export type PlanStepStatus = "pending" | "active" | "complete" | "failed";
 
 export interface SurvivalPlanStep {
+  manipulation?: import("./physical-types").Manipulation;
   experimentDose?: number;
   resource?: "freshwater" | "food";
   amount?: number;
@@ -303,6 +308,7 @@ export interface AgentResearchProject {
 }
 
 export interface SurvivalAgent {
+  physicalMind?: import("./physical-types").PhysicalMind;
   lineage?: { generation: number; predecessorId: string; sponsorId: string; planId: string };
   successionReview?: SuccessionReview;
   /** Admission receipts personally received after a funding attempt, not global knowledge. */
@@ -440,10 +446,11 @@ export interface SurvivalEventWindow {
 }
 
 export interface SurvivalRunState {
+  physical?: import("./physical-types").PhysicalWorld;
   succession?: SuccessionState;
   /** Missing means the preserved original policy; new runs use version 2. */
-  policyVersion?: 1 | 2;
-  schemaVersion: 1 | 2;
+  policyVersion?: 1 | 2 | 3;
+  schemaVersion: 1 | 2 | 3;
   id: string;
   seed: number;
   seedLabel: string;

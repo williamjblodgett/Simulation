@@ -155,6 +155,7 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
   }
 
   function locateEvent(event: SurvivalEvent) {
+    setSheetLevel("peek");
     const agent = event.agentIds.map((id) => world?.agents.find((candidate) => candidate.id === id)).find(Boolean);
     if (agent) setSelectedId(agent.id);
     setFocusPosition(event.position ? { ...event.position } : null);

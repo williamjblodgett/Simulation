@@ -7,6 +7,7 @@ import styles from "./survival-experience.module.css";
 export function SuccessionRecord({ world, agent, onSelectAgent }: { world: SurvivalRunState; agent: SurvivalAgent; onSelectAgent(id: string): void }) {
   const plans = world.succession?.plans.filter(p => p.predecessorId === agent.id || p.sponsorId === agent.id) ?? [];
   const review = agent.successionReview;
+  if(world.policyVersion===3&&!world.config.continuity)return null;
   const relation = (id: string) => { const other = world.agents.find(a => a.id === id); return <button type="button" className={styles.lineageLink} onClick={() => onSelectAgent(id)}>{other?.name ?? id} · entry {other?.slotGeneration ?? "?"}</button>; };
   return <section className={styles.recordSection}>
     <header><GitBranch size={17}/><div><span>Next generation</span><small>Recorded lineage and succession choices</small></div></header>
@@ -19,6 +20,6 @@ export function SuccessionRecord({ world, agent, onSelectAgent }: { world: Survi
       {plan.successorId ? <p>Successor: {relation(plan.successorId)}</p> : null}
     </div>)}
     {review && review.choice !== "planned" ? <div className={styles.successionPlan}><strong>{review.choice === "declined" ? "Declined for now" : "Not ready to commit"}</strong><p>{review.rationale}</p><small>Recorded at day {Math.floor(review.checkedAt / 144) + 1}. Reconsidered no sooner than six modeled hours later.</small></div> : null}
-    {!plans.length && !review ? <p className={styles.emptyCopy}>{world.policyVersion !== 2 ? "This earlier decision model does not plan next generations." : agent.alive ? "No successor is planned. After six modeled hours, this agent may consider the choice using its own conditions and supplies." : "No successor was planned before this life ended. A surviving agent may still choose to sponsor one after observing the death."}</p> : null}
+    {!plans.length && !review ? <p className={styles.emptyCopy}>{world.policyVersion !== 2 && world.policyVersion!==3 ? "This earlier decision model does not plan next generations." : agent.alive ? "No successor is planned. After six modeled hours, this agent may consider the choice using its own conditions and supplies." : "No successor was planned before this life ended. A surviving agent may still choose to sponsor one after observing the death."}</p> : null}
   </section>;
 }

@@ -7,12 +7,14 @@ import type { AgentDecisionCandidate, AgentGoalKind, AgentObservation, SurvivalA
 
 /** This is the entire policy boundary: no resources, other agents or world truth. */
 export interface PrivatePolicyInput {
+  physical?: boolean;
   agent: SurvivalAgent;
   tick: number;
   seed: number;
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 }
 export interface PlannedAction {
+  manipulation?: import("./physical-types").Manipulation;
   experimentDose?: number;
   action: SurvivalActionKind;
   targetId: string | null;
@@ -27,6 +29,7 @@ export interface LocalPlanChoice {
   uncertainty: number;
 }
 interface SearchState {
+  protection?: number;
   needs: SurvivalNeeds;
   inventory: SurvivalInventory;
   remainingSites: Record<string, number>;
@@ -57,7 +60,7 @@ export function survivalPotential(needs: SurvivalNeeds, inventory: SurvivalInven
 }
 
 function decay(node: SearchState, ticks: number, conditions: Omit<NeedConditions, "sheltered" | "byFire">, fires: SurvivalPosition[]): void {
-  for (let i = 0; i < ticks; i++) driftNeeds(node.needs, { ...conditions, sheltered: node.sheltered, byFire: fires.some(p => dist(p, node.position) <= 7) });
+  for (let i = 0; i < ticks; i++) driftNeeds(node.needs, { ...conditions, protection: node.protection, sheltered: node.sheltered, byFire: fires.some(p => dist(p, node.position) <= 7) });
   node.elapsed += ticks;
 }
 
@@ -88,6 +91,7 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
     .sort((a, b) => dist(agent.position, a.position!) - dist(agent.position, b.position!) || a.id.localeCompare(b.id));
   const start: SearchState = { needs: { ...agent.needs }, inventory: { ...agent.inventory }, remainingSites: Object.fromEntries(resources.map(o => [o.subjectId, Number(o.facts.availableEstimate)])), position: { ...agent.position }, actions: [], used: [], evidence: agent.observations.filter(o => o.kind === "weather" || (o.kind === "structure" && o.position && dist(o.position, agent.position) <= 7)).map(o => o.id), elapsed: 0, goal: "wait", targetId: null, informationValue: 0, risk: 0, sheltered: known.some(o => o.kind === "structure" && o.facts.structureKind === "shelter" && Number(o.facts.condition) > 5 && dist(agent.position, o.position!) <= 6), summary: "Wait briefly while preserving reserves." };
   const initialValue = survivalPotential(start.needs, start.inventory);
+  if(input.physical)start.protection=agent.physicalMind?.readings.filter(r=>r.metric==="protection"&&dist(r.position,agent.position)<2&&tick-r.tick<36&&r.weather===conditions.weather).at(-1)?.after??0;
   const rankCache = new WeakMap<SearchState, number>();
   const rank = (node: SearchState) => {
     const cached = rankCache.get(node);
@@ -96,7 +100,7 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
     decay(horizon, Math.max(0, 18 - node.elapsed), conditions, fires);
     const goalExperience = agent.learning.find(item => item.context === `goal:${node.goal}`);
     const learnedLoss = Math.max(0, -(goalExperience?.expectedUtility ?? 0)) * 0.04;
-    const value = survivalPotential(horizon.needs, node.inventory) - initialValue + materialValue(node, agent) + node.informationValue - node.risk - learnedLoss - node.elapsed * 0.12;
+    const value = survivalPotential(horizon.needs, node.inventory) - initialValue + (input.physical ? 0 : materialValue(node, agent)) + node.informationValue - node.risk - learnedLoss - node.elapsed * 0.12;
     rankCache.set(node, value);
     return value;
   };
@@ -110,7 +114,7 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
         if (expansions >= POLICY_SEARCH_BUDGET.expansions || parent.used.includes(key)) return;
         expansions++;
         const node: SearchState = { ...parent, needs: { ...parent.needs }, inventory: { ...parent.inventory }, remainingSites: { ...parent.remainingSites }, position: { ...parent.position }, actions: [...parent.actions, action], used: [...parent.used, key], evidence: [...parent.evidence], goal: parent.actions.length ? parent.goal : goal, targetId: parent.actions.length ? parent.targetId : action.targetId, summary: parent.actions.length ? parent.summary : summary };
-        if (action.action === "move") node.sheltered = false;
+        if (action.action === "move") {node.sheltered = false;if(input.physical)node.protection=0;}
         decay(node, Math.max(0, action.duration - (parent.actions.length ? 0 : 1)), conditions, fires);
         apply(node);
         if (observation) node.evidence.push(observation.id);
@@ -122,7 +126,7 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
       if (parent.inventory.freshwater >= 1 && parent.needs.hydration < 77) add(`drink-${Math.floor(parent.inventory.freshwater)}`, simple("drink"), "secure_water", "Use carried water before hydration falls further.", n => { n.inventory.freshwater--; n.needs.hydration = clip(n.needs.hydration + 34); });
       if (parent.inventory.food >= 1 && parent.needs.nutrition < 79) add(`eat-${Math.floor(parent.inventory.food)}`, simple("eat"), "secure_food", "Eat carried food to protect future nutrition.", n => { n.inventory.food--; n.needs.nutrition = clip(n.needs.nutrition + (agent.technologies.includes("food_smoking") ? 32 : 27)); });
       if (parent.needs.energy < 80) add("rest", simple("rest", 2), "recover", "Rest now so the next journey starts with more energy.", n => { n.needs.energy = clip(n.needs.energy + 26); n.needs.health = clip(n.needs.health + 0.7); });
-      if (!parent.sheltered && (parent.needs.safety < 80 || parent.needs.warmth < 70)) add("reduce-exposure", simple("shelter"), "seek_safety", "Reduce exposure here while considering a built shelter.", n => { n.needs.warmth = clip(n.needs.warmth + 5); n.needs.safety = clip(n.needs.safety + 4); });
+      if (!parent.sheltered && (parent.needs.safety < 80 || parent.needs.warmth < 70)) add("reduce-exposure", simple("shelter"), "seek_safety", input.physical?"Conserve warmth here using observed protection.":"Reduce exposure here while considering a built shelter.", n => { n.needs.warmth = clip(n.needs.warmth + (input.physical?2+(n.protection??0)*3:5)); n.needs.safety = clip(n.needs.safety + (input.physical?(n.protection??0)*2:4)); });
       if (parent.needs.warmth < 82) add("warm", simple("warm"), "stay_warm", "Conserve warmth using the conditions this agent observed.", n => { const fire = agent.technologies.includes("controlled_fire") && n.inventory.wood >= 1; n.needs.warmth = clip(n.needs.warmth + (fire ? 29 : Number(weather?.facts.daylight) > 0.35 ? 9 : 3)); if (fire) n.inventory.wood--; });
       const nearbyResources = [...new Set(resources.map(o => o.facts.resourceKind))].flatMap(kind => resources.filter(o => o.facts.resourceKind === kind).sort((a,b) => dist(parent.position,a.position!) - dist(parent.position,b.position!)).slice(0,3));
       for (const observation of nearbyResources) {
@@ -155,8 +159,8 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
         if (distance > 3) add(`shelter-move-${observation.subjectId}`, { action: "move", targetId: observation.subjectId, destination: observation.position, duration: Math.max(1, Math.ceil((distance - 2.4) / 7.5)) }, "seek_safety", "Move toward an observed shelter before exposure worsens.", n => { n.position = { ...observation.position! }; n.sheltered = true; }, observation);
         else if (parent.needs.warmth < 85 || parent.needs.safety < 85) add("shelter", { action: "shelter", targetId: observation.subjectId, destination: observation.position, duration: 1 }, "seek_safety", "Use the remembered shelter to reduce exposure.", n => { n.sheltered = true; n.needs.warmth = clip(n.needs.warmth + 18); n.needs.safety = clip(n.needs.safety + 16); }, observation);
       }
-      if (!parent.sheltered && parent.inventory.wood >= 4 && parent.inventory.fiber >= (agent.technologies.includes("twisted_cordage") ? 1 : 2)) add("build", { ...simple("build", 2), destination: parent.position }, "build_shelter", "Invest carried materials in shelter to reduce future exposure.", n => { n.inventory.wood -= 4; n.inventory.fiber -= agent.technologies.includes("twisted_cordage") ? 1 : 2; n.sheltered = true; n.needs.energy = clip(n.needs.energy - 2.4); n.needs.safety = clip(n.needs.safety + 18); n.needs.warmth = clip(n.needs.warmth + 12); });
-      if (Math.min(parent.needs.hydration, parent.needs.nutrition, parent.needs.energy, parent.needs.health) > 55) {
+      if (!input.physical && !parent.sheltered && parent.inventory.wood >= 4 && parent.inventory.fiber >= (agent.technologies.includes("twisted_cordage") ? 1 : 2)) add("build", { ...simple("build", 2), destination: parent.position }, "build_shelter", "Invest carried materials in shelter to reduce future exposure.", n => { n.inventory.wood -= 4; n.inventory.fiber -= agent.technologies.includes("twisted_cordage") ? 1 : 2; n.sheltered = true; n.needs.energy = clip(n.needs.energy - 2.4); n.needs.safety = clip(n.needs.safety + 18); n.needs.warmth = clip(n.needs.warmth + 12); });
+      if (!input.physical && Math.min(parent.needs.hydration, parent.needs.nutrition, parent.needs.energy, parent.needs.health) > 55) {
         for (const def of RESEARCH_CATALOG) {
           if (agent.technologies.includes(def.id) || !def.prerequisiteTechnologies.every(id => agent.technologies.includes(id))) continue;
           if (!Object.entries(def.inputs).every(([kind, amount]) => parent.inventory[kind as keyof SurvivalInventory] >= amount)) continue;
@@ -191,7 +195,7 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
           const angle = (survivalUnit(seed, "private-explore", agent.id, tick) + direction / 3) * Math.PI * 2;
           const destination = { x: clip(parent.position.x + Math.cos(angle) * 25, bounds.minX, bounds.maxX), z: clip(parent.position.z + Math.sin(angle) * 25, bounds.minZ, bounds.maxZ) };
           const overlap = known.filter(o => dist(destination, o.position!) < 22).length;
-          add(`explore`, { action: "move", targetId: null, destination, duration: 4 }, "explore", "Explore less-observed terrain for future water, food or shelter options.", n => { n.position = destination; n.sheltered = false; n.informationValue += (resources.some(o => o.facts.resourceKind === "freshwater") ? 3 : 14) / (1 + overlap); n.actions.push({ action: "explore", targetId: null, destination, duration: 1 }); decay(n, 1, conditions, fires); n.needs.energy = clip(n.needs.energy - 1.36); });
+          add(`explore`, { action: "move", targetId: null, destination, duration: 4 }, "explore", "Explore less-observed terrain for future water, food or shelter options.", n => { n.position = destination; n.sheltered = false; n.informationValue += (input.physical ? resources.some(o=>o.facts.resourceKind==="freshwater"&&Number(o.facts.availableEstimate)>2)&&resources.some(o=>o.facts.resourceKind==="food"&&Number(o.facts.availableEstimate)>2)?0:14 : resources.some(o => o.facts.resourceKind === "freshwater") ? 3 : 14) / (1 + overlap); n.actions.push({ action: "explore", targetId: null, destination, duration: 1 }); decay(n, 1, conditions, fires); n.needs.energy = clip(n.needs.energy - 1.36); });
         }
       }
       if (!parent.actions.length) add("wait", simple("wait"), "wait", "Wait briefly while preserving effort.", () => {});

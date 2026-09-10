@@ -1,6 +1,6 @@
 import type { SurvivalNeeds } from "./types";
 
-export interface NeedConditions { temperatureC: number; weather: string; daylight: number; sheltered: boolean; byFire: boolean }
+export interface NeedConditions { temperatureC: number; weather: string; daylight: number; sheltered: boolean; byFire: boolean; protection?: number }
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
 const rounded = (value: number) => Math.round(value * 1000) / 1000;
 
@@ -18,14 +18,16 @@ export function driftNeeds(needs: SurvivalNeeds, conditions: NeedConditions): vo
   else warmthDelta = 0.18;
   if (conditions.weather === "rain") warmthDelta -= 0.18;
   if (conditions.weather === "storm") warmthDelta -= 0.45;
-  if (conditions.sheltered) warmthDelta += 0.46;
+  if (conditions.protection !== undefined) warmthDelta += 0.8 * conditions.protection;
+  else if (conditions.sheltered) warmthDelta += 0.46;
   if (conditions.byFire) warmthDelta += 0.8;
   needs.warmth = rounded(clamp(needs.warmth + warmthDelta));
 
   let safetyDelta = conditions.daylight < 0.08 ? -0.14 : 0.1;
   if (conditions.weather === "storm") safetyDelta -= 0.72;
   if (conditions.weather === "cold_snap" || conditions.weather === "heat_wave") safetyDelta -= 0.17;
-  if (conditions.sheltered) safetyDelta += 0.5;
+  if (conditions.protection !== undefined) safetyDelta += 0.85 * conditions.protection;
+  else if (conditions.sheltered) safetyDelta += 0.5;
   needs.safety = rounded(clamp(needs.safety + safetyDelta));
 
   let healthDelta = 0;

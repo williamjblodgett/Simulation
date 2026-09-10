@@ -55,6 +55,10 @@ export function activityLabel(agent: SurvivalAgent) {
   if (agent.currentAction.status === "awaiting_decision") return "Awaiting decision";
   if (agent.currentAction.status === "blocked") return `Blocked · ${actionLabel(agent.currentAction.kind)}`;
   if (agent.currentAction.status === "resting") return "Resting";
+  const operation=agent.currentPlan?.steps[agent.currentPlan.activeStepIndex]?.manipulation;
+  if(operation)return `${humanize(operation.kind)} · ${operation.kind==="test"?operation.measure:"physical material"}`;
+  if(agent.physicalMind&&agent.currentAction.kind==="shelter")return "Conserving warmth";
+  if(agent.physicalMind&&agent.currentAction.kind==="build")return "Manipulating material";
   return actionLabel(agent.currentAction.kind);
 }
 

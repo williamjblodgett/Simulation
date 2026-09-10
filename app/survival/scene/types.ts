@@ -32,6 +32,7 @@ export interface HabitatClearing {
 }
 
 export interface HabitatTerrainVisual {
+  flatStudy?: boolean;
   seed: number;
   halfSize: number;
   /** Defaults to 82% of halfSize. */
@@ -191,6 +192,7 @@ export interface HabitatAgentVisual {
 }
 
 export interface HabitatVisualSnapshot {
+  physical?: import("../../simulation/survival/physical-types").PhysicalWorld;
   simulationRunning?: boolean;
   simulationTimeSeconds: number;
   terrain: HabitatTerrainVisual;

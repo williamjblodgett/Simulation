@@ -2,6 +2,58 @@
 
 September 9, 2026. Implementation following the Astra review of revision `dce7792`, including the final observer-interface refinement and verified GitHub Pages release.
 
+## Physical construction update — September 9, 2026
+
+Implemented policy 3/schema 3 for newly configured studies. Existing runs retain
+their prior policy and saves. See [physical model](PHYSICAL_MODEL.md) for the action
+language, material/support rules, private planner boundary and explicit limits.
+
+- Agents propose, fund, interrupt, revise and abandon exposure-reduction projects;
+  construct and edit property-bearing parts; test results; and retain fallible
+  estimates and editable procedures. No named shelter recipe grants a bonus.
+- Instanced Three.js parts and connections reflect the authoritative physical
+  state. Geometry governs support, exposure protection and movement collisions.
+- Agent records distinguish proposed targets, attempted operations, measured
+  outcomes and reported evidence. Single-trial procedures are labeled unreplicated.
+- New runs default to survival-only; continuity is separately configurable. Agent
+  self-naming preserves immutable life IDs and stable A1–A5 visual identities.
+- About explains the supplied goal, decision mechanism and limitations. Existing
+  studies explicitly invite a new run rather than silently changing their rules.
+
+### Verification performed
+
+- Full `npm test`: **121/121 passed**, including 16 new physical-model tests,
+  production build and Pages type check/build. `npm run lint` passed.
+- A read-only reviewer compared policy-2 creation and 144-step replay with the
+  previous committed implementation: byte-equivalent JSON. Existing autonomous,
+  succession, persistence and worker regressions passed independently (35/35).
+- The Sites build helper hit the existing Windows npm-shim resolution failure.
+  The repository's normal build commands succeeded. Existing Vite native-import
+  and large-chunk warnings remain; no real-device frame-rate claim is made.
+- Browser QA used the Codex in-app Chromium surface on Windows, with actual
+  viewports confirmed at 390×844, 375×667, 430×932, 844×390 and 1440×900. No
+  horizontal page overflow was observed. This is not mobile Safari, native touch,
+  accessibility enlargement or real-phone performance certification.
+- Started a one-agent **local QA study**, observed the agent name itself, make a
+  real part, measure ~30% modeled protection and retain both satisfied and
+  abandoned projects. Captured actual World, setup, expanded record, Timeline and
+  desktop/landscape screenshots inline in the task. No mock screenshot was used.
+- Paused at day 1 07:20, added four agents, verified the five-agent cap, consistent
+  meters/identity, and the unchanged clock. World → Agents → Timeline → Run →
+  About → return preserved the study and selection. Filtered a real test event,
+  opened details and framed its current location. The review found and fixed
+  event-location navigation leaving the expanded sheet over the site.
+- The inspected browser console returned no warnings/errors. Live production
+  study data was not reset or altered for testing. No credential was used.
+
+### Scope remaining
+
+The delivered sandbox generalizes construction primitives and learning, but is
+not the entirety of unrestricted invention: autonomous project proposals focus
+on exposure. Arbitrary machines, articulated mechanisms, electrical systems,
+full chemistry, assembly carrying and evolving new action verbs are not modeled.
+No random-policy superiority or open-ended-intelligence benchmark is claimed.
+
 ## Next-generation update (subsequent to the observer release below)
 
 - Add agent is available in Agents and Run whenever fewer than five agents are living, including before any death and after extinction. The command uses the existing locked, revision-checked checkpoint transaction; it preserves pause and refuses completed studies. An observer addition may expand an older run's smaller capacity to five, with the previous capacity recorded in its event.

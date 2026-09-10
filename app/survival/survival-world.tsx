@@ -119,9 +119,11 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
     return records.find((agent) => agent.alive) ?? records[0] ?? [];
   });
   return {
+    physical: world.physical,
     simulationRunning: world.status === "running",
     simulationTimeSeconds: world.elapsedMinutes * 60,
     terrain: {
+      flatStudy: world.policyVersion === 3,
       seed: world.seed,
       halfSize: world.environment.size / 2,
       islandRadius: world.environment.size,

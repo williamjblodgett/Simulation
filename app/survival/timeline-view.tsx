@@ -38,7 +38,7 @@ export function TimelineView({ world, onLocate, events: archivedEvents, archiveS
   const filtered = useMemo(() => [...sourceEvents]
     .filter((event) => agentFilter === "all" || event.agentIds.includes(agentFilter))
     .filter((event) => categoryFilter === "all" || event.category === categoryFilter)
-    .filter(event => !milestonesOnly || !["resource_observed", "action_outcome"].includes(event.type))
+    .filter(event => !milestonesOnly || !["resource_observed", "action_outcome"].includes(event.type) || typeof event.facts.operation==="string" || typeof event.facts.name==="string")
     .sort((left, right) => eventSequence(right) - eventSequence(left)), [agentFilter, categoryFilter, sourceEvents, milestonesOnly]);
 
   const groups = useMemo(() => {

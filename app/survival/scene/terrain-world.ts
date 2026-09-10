@@ -36,6 +36,7 @@ function terrainNoise(x: number, z: number, seed: number) {
 }
 
 function baseTerrainHeight(terrain: HabitatTerrainVisual, x: number, z: number) {
+  if(terrain.flatStudy && Math.max(Math.abs(x),Math.abs(z)) <= terrain.halfSize + 4)return 1.5;
   const halfSize = Math.max(12, terrain.halfSize);
   const radius = Math.max(8, terrain.islandRadius ?? halfSize * 0.82);
   const elevation = Math.max(0.5, terrain.elevationScale ?? 4);

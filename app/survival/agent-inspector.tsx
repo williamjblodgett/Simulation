@@ -7,6 +7,7 @@ import { activityLabel, AgentPortrait, ConditionLine, humanize, NeedMeter } from
 import styles from "./survival-experience.module.css";
 import { AgentKnowledge } from "./agent-knowledge";
 import { SuccessionRecord } from "./succession-record";
+import { PhysicalRecord } from "./physical-record";
 
 export type InspectorLevel = "peek" | "half" | "expanded";
 
@@ -67,11 +68,13 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
     </div>
 
     <div className={styles.inspectorExpanded}>
+      <PhysicalRecord agent={agent}/>
       <SuccessionRecord world={world} agent={agent} onSelectAgent={onSelectAgent}/>
       {decision ? <section className={styles.recordSection}>
         <header><Route size={17} /><div><span>Decision evidence</span><small>{decision.id} · {(world.tick - decision.decidedAt) * world.config.stepMinutes} modeled minutes ago</small></div></header>
         <p>{choice?.planActions?.map(humanize).join(" → ") ?? decision.recordedIntent}</p>
         <small>Scores compare modeled survival value; they are not probabilities or private thoughts.</small>
+        {decision.physicalEvidenceSnapshot?.length?<details className={styles.decisionAlternatives}><summary>Physical evidence when chosen · {decision.physicalEvidenceSnapshot.length}</summary><ul>{decision.physicalEvidenceSnapshot.map(r=><li key={r.id}><strong>{r.partId} · {r.metric} · {r.source}</strong><p>{r.summary}</p><small>Measured at step {r.tick} · revision {r.revision??"unknown"}</small></li>)}</ul></details>:null}
         <details className={styles.decisionAlternatives}><summary>Alternatives considered · {Math.max(0, decision.candidates.length - 1)}</summary><ol>{decision.candidates.slice(1, 4).map((candidate, i) => <li key={i}><strong>{humanize(candidate.goal)}{candidate.targetId ? ` · ${candidate.targetId}` : ""}</strong><span>Value {candidate.score.toFixed(1)} · risk {candidate.risk.toFixed(1)} · {candidate.predictedSteps ?? "?"} steps</span><p>{candidate.summary}</p></li>)}</ol></details>
         <details className={styles.decisionAlternatives}><summary>{decision.evidenceSnapshot ? "Evidence when chosen" : "Retained referenced evidence"} · {evidence.length}</summary><ul>{evidence.map(o => <li key={o.id}><strong>{o.subjectId}</strong><span>Observed at step {o.observedAt} · {Math.round(o.confidence * 100)}% confidence</span><p>{Object.entries(o.facts).slice(0, 5).map(([key,value]) => `${humanize(key)}: ${String(value)}`).join(" · ")}</p></li>)}</ul></details>
         {agent.lastOutcome ? <p><strong>{agent.lastOutcome.decisionId === decision.id ? "Result linked to this decision" : "Separate latest result"}:</strong> {agent.lastOutcome.summary}</p> : null}
@@ -92,7 +95,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
         {activePlan ? <div className={styles.planRecord}><strong>{humanize(activePlan.goal)}</strong><p>{activePlan.rationale}</p><ol>{activePlan.steps.map((step) => <li key={step.id} data-status={step.status}><i />{humanize(step.action)}<span>{humanize(step.status)}</span></li>)}</ol></div> : <p className={styles.emptyCopy}>No plan is currently active.</p>}
       </section>
 
-      <section className={styles.recordSection}>
+      <section className={styles.recordSection} hidden={Boolean(agent.physicalMind)}>
         <header><FlaskConical size={17} /><div><span>Research notebook</span><small>Hypotheses require repeatable evidence</small></div></header>
         {project ? <div className={styles.researchRecord}><span>{humanize(project.status)} · {project.successfulTrials}/{project.requiredSuccessfulTrials} supported trials</span><strong>{humanize(project.technologyId)}</strong><p>{project.hypothesis}</p>{project.attempts.at(-1) ? <small>Latest test: {project.attempts.at(-1)!.evidence}</small> : null}</div> : <p className={styles.emptyCopy}>This agent has not opened a research project.</p>}
       </section>

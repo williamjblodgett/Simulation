@@ -36,7 +36,7 @@ export function AgentsView({ world, selectedId, onInspect, onViewInWorld }: Agen
         </button>
         <button type="button" className={styles.viewWorldButton} onClick={() => onViewInWorld(agent)} disabled={!agent.alive}><Eye size={16} />{agent.alive ? "View in world" : "Not in current world"}</button>
       </article>)}
-      {world.stats.livingAgents < 5 && world.status !== "completed" ? <div className={styles.emptyAgentSlot}><span>Room for another life</span><p>You can add an agent above. Agents can also choose to fund a next generation; an empty slot never forces them to do so.</p></div> : null}
+      {world.stats.livingAgents < 5 && world.status !== "completed" ? <div className={styles.emptyAgentSlot}><span>Room for another life</span><p>You can add an agent above. {world.policyVersion===3&&!world.config.continuity?"Autonomous succession is disabled in this survival-only study.":"Agents can also choose to fund a next generation; an empty slot never forces them to do so."}</p></div> : null}
     </div>
   </section>;
 }

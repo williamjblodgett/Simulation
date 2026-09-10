@@ -26,6 +26,7 @@ export function RunView({ world, storageStatus, onStart, methodHref = "/about", 
   const [duration, setDuration] = useState("72");
   const [abundance, setAbundance] = useState<ResourceAbundance>("balanced");
   const [climate, setClimate] = useState<ClimateVolatility>("variable");
+  const [continuity,setContinuity]=useState(false);
   const [seed, setSeed] = useState("");
   const [starting, setStarting] = useState(false);
   const [addMessage, setAddMessage] = useState("");
@@ -50,6 +51,8 @@ export function RunView({ world, storageStatus, onStart, methodHref = "/about", 
     confirmRef.current?.close();
     try {
       await onStart({
+        policyVersion: 3,
+        continuity,
         agentCount,
         agentCap: 5,
         durationHours: duration === "open" ? null : Number(duration),
@@ -65,12 +68,13 @@ export function RunView({ world, storageStatus, onStart, methodHref = "/about", 
     {!setupOpen ? <AgentAdmission world={world}/> : null}
 
     <section className={styles.runStatus} hidden={setupOpen}>
-      <p>Policy {world.policyVersion ?? 1} · {world.policyVersion === 2 ? "Local planning and causal experiments" : "Preserved original decision model"}. Runs while this browser is active, including while you read About.</p>
+      <p>Policy {world.policyVersion ?? 1} · {world.policyVersion === 3 ? "Physical materials, private learning and self-proposed projects" : world.policyVersion === 2 ? "Preserved local planning and causal experiments" : "Preserved original decision model"}. Runs while this browser is active, including while you read About.</p>
+      {world.policyVersion!==3?<p className={styles.inlineNotice}>This study keeps its original rules. Configure a new run to observe physical construction and self-proposed experiments; the current study will remain archived.</p>:<p>{world.physical?.parts.length??0} physical parts · {world.physical?.joints.length??0} connections · {world.physical?.tests??0} material tests. Material and search limits keep this a bounded model, not unrestricted general intelligence.</p>}
       <div className={styles.runStatusHeading}><span data-status={world.status} /><div><small>Current run</small><strong>{humanize(world.status)}</strong></div></div>
       <dl><div><dt>Goal</dt><dd>{world.config.objective.statement}</dd></div><div><dt>Elapsed</dt><dd>Day {world.day} · {formatClock(world.elapsedMinutes)}</dd></div><div><dt>Survivors</dt><dd>{living} of {world.config.agentCap}</dd></div><div><dt>Environment</dt><dd>{humanize(world.config.resourceAbundance)} resources · {humanize(world.config.climateVolatility)} climate</dd></div><div><dt>Record</dt><dd>{storageStatus === "saved-on-device" ? "Saved on this device" : "Save unavailable · advancement stopped"}</dd></div><div><dt>Seed</dt><dd>{world.seedLabel}</dd></div><div><dt>Remaining</dt><dd>{remainingMinutes === null ? "Open-ended" : `${Math.floor(remainingMinutes / 60)}h ${remainingMinutes % 60}m modeled time`}</dd></div></dl>
-      <section className={styles.successionSummary}><h2>Next generations</h2><p>{world.policyVersion === 2 ? "Agents can choose to reserve supplies for a successor before their own death, or sponsor one after observing another death. Immediate survival comes first; they may decline or wait." : "This preserved early policy only considers a companion when one survivor remains. Start a new study for next-generation planning."}</p><p>{world.succession?.plans.filter(p => p.status === "pending").length ?? 0} planned · {world.succession?.plans.filter(p => p.status === "fulfilled").length ?? 0} entered</p><small>These are modeled new-agent admissions, not biological reproduction or resurrection. Each agent&apos;s record shows the decision and lineage.</small></section>
+      <section className={styles.successionSummary}><h2>Next generations</h2><p>{world.policyVersion===3&&!world.config.continuity?"Survival-only study. Autonomous succession is disabled; you can still introduce an agent as a recorded intervention.":world.policyVersion === 2 || world.policyVersion===3 ? "Optional continuity objective enabled. Agents can reserve supplies for a successor before their own death, or sponsor one after observing another death. They may decline or wait." : "This preserved early policy only considers a companion when one survivor remains."}</p><p>{world.succession?.plans.filter(p => p.status === "pending").length ?? 0} planned · {world.succession?.plans.filter(p => p.status === "fulfilled").length ?? 0} entered</p><small>These are modeled new-agent admissions, not biological reproduction or resurrection.</small></section>
       {addMessage ? <p className={styles.inlineNotice} role="status">{addMessage}</p> : null}
-      {world.status === "completed" || world.status === "extinct" ? <div className={styles.outcomeSummary}><strong>Run outcome</strong><p>{world.status === "completed" ? `${living} agent${living === 1 ? "" : "s"} survived the configured observation period.` : "No agents remain alive. Agents shows the latest record for each habitat slot, and recent deaths remain in the bounded Timeline."}</p><small>{world.stats.decisions} decisions · {world.stats.experiments} experiments · {world.stats.discoveries} discoveries · {world.stats.deaths} deaths</small></div> : null}
+      {world.status === "completed" || world.status === "extinct" ? <div className={styles.outcomeSummary}><strong>Run outcome</strong><p>{world.status === "completed" ? `${living} agent${living === 1 ? "" : "s"} survived the configured observation period.` : "No agents remain alive. Agents shows the latest record for each habitat slot, and recent deaths remain in the bounded Timeline."}</p><small>{world.stats.decisions} decisions · {world.physical?.tests??world.stats.experiments} experiments · {world.physical?`${world.agents.reduce((n,a)=>n+(a.physicalMind?.procedures.length??0),0)} retained prototype procedures`:`${world.stats.discoveries} discoveries`} · {world.stats.deaths} deaths</small></div> : null}
     </section>
 
     {!setupOpen ? <div className={styles.runLinks}><a className={styles.methodLink} href={methodHref}>How agent autonomy works</a><a className={styles.methodLink} href={planetHref}>Open the prior planetary study</a></div> : null}
@@ -87,8 +91,9 @@ export function RunView({ world, storageStatus, onStart, methodHref = "/about", 
         <label><span>Survival duration</span><select value={duration} onChange={(event) => setDuration(event.target.value)}><option value="24">24 modeled hours</option><option value="72">72 modeled hours</option><option value="168">7 modeled days</option><option value="open">Open-ended</option></select></label>
         <label><span>Resources</span><select value={abundance} onChange={(event) => setAbundance(event.target.value as ResourceAbundance)}><option value="scarce">Scarce</option><option value="balanced">Balanced</option><option value="plentiful">Plentiful</option></select></label>
         <label><span>Climate</span><select value={climate} onChange={(event) => setClimate(event.target.value as ClimateVolatility)}><option value="stable">Stable</option><option value="variable">Variable</option><option value="harsh">Harsh</option></select></label>
+        <label><span>Agent objective</span><select value={continuity?"continuity":"survival"} onChange={e=>setContinuity(e.target.value==="continuity")}><option value="survival">Individual survival only</option><option value="continuity">Survival + optional next generation</option></select></label>
       </div>
-      <div className={styles.fixedGoal}><ShieldCheck size={18} /><div><span>Primary goal</span><strong>Survive as long as possible.</strong><small>Agents also have an optional continuity objective: decide whether to fund a next generation. You can add agents later, up to five living.</small></div></div>
+      <div className={styles.fixedGoal}><ShieldCheck size={18} /><div><span>Primary goal</span><strong>Survive as long as possible.</strong><small>Agents propose their own material experiments and construction projects when predicted survival benefit outweighs cost. No assigned invention or job. {continuity?"Optional continuity is also enabled.":"No continuity reward is enabled."} You can add agents later, up to five living.</small></div></div>
       <details className={styles.advancedSetup}><summary><ChevronDown size={16} /> Advanced configuration</summary><label><span>Seed</span><input value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="Generated automatically" autoComplete="off" /><small>Use the same seed and settings to reproduce a run.</small></label></details>
       {addMessage ? <p className={styles.inlineNotice} role="status">{addMessage}</p> : null}
     </section> : null}

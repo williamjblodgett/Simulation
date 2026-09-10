@@ -3,6 +3,7 @@ import { renderCharacterPortraits } from "./character-model";
 import { getPortraits, publishPortraits, publishHabitatPreview } from "../portraits";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createAgentCollection, createResourceCollection, createShelterCollection, disposeObject } from "./scene-models";
+import { createPhysicalCollection } from "./physical-models";
 import { createTerrainWorld, type TerrainWorld } from "./terrain-world";
 import {
   type HabitatCameraMode,
@@ -175,6 +176,7 @@ function terrainSignature(snapshot: HabitatVisualSnapshot) {
     .map((clearing) => [clearing.position.x, clearing.position.z, clearing.radius].join(":"))
     .join("|");
   return [
+    terrain.flatStudy ?? false,
     terrain.seed,
     terrain.halfSize,
     terrain.islandRadius ?? "default",
@@ -256,8 +258,9 @@ export function createSurvivalHabitatScene(
 
   const resources = createResourceCollection();
   const shelters = createShelterCollection();
+  const physical = createPhysicalCollection();
   const agents = createAgentCollection();
-  scene.add(resources.group, shelters.group, agents.group);
+  scene.add(resources.group, shelters.group, physical.group, agents.group);
 
   let terrainWorld: TerrainWorld | null = null;
   let currentTerrainSignature = "";
@@ -450,6 +453,7 @@ export function createSurvivalHabitatScene(
     if (!terrainWorld) return;
     resources.sync(nextSnapshot.resourceNodes, terrainWorld.heightAt);
     shelters.sync(nextSnapshot.shelters, terrainWorld.heightAt);
+    physical.sync(nextSnapshot.physical);
     agents.sync(nextSnapshot.agents, nextSelectedId, terrainWorld.heightAt);
     applyDaylight();
     if (cameraMode === "overview" && !manualOverride) frameOverview(false);
@@ -638,6 +642,7 @@ export function createSurvivalHabitatScene(
     terrainWorld?.dispose();
     resources.dispose();
     shelters.dispose();
+    physical.dispose();
     agents.dispose();
     disposeObject(sky.mesh);
     disposeObject(stars);
