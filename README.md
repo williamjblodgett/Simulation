@@ -22,7 +22,7 @@ Policy-2 agents may plan their own successor before death, or sponsor one after 
 
 Older policy-2 saves enable these additional rules on their next advancing tick with an audit event; normalization invents no historical decisions. Policy-1 autonomous advancement stays frozen, while the observer's ability to add up to five agents applies to either policy. Long open-ended studies retain all life/lineage records, so checkpoint size can grow even with only five agents alive.
 
-The September 9 observer release is published to GitHub Pages. See [implementation and verification report](docs/IMPLEMENTATION_REPORT.md) for the deployed revision, delivered changes, benchmark results, actual browser coverage and remaining strategy work. Future local changes still require an explicit release.
+The observer and next-generation updates are published to GitHub Pages. See [implementation and verification report](docs/IMPLEMENTATION_REPORT.md) for deployed revisions, delivered changes, historical benchmark results, actual browser coverage and remaining strategy work. Refresh already-open tabs after updating; the new save version prevents older clients from advancing the previous rules. Future local changes still require an explicit release.
 
 ## Security boundary
 

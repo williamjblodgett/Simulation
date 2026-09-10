@@ -22,7 +22,11 @@ September 9, 2026. Implementation following the Astra review of revision `dce779
 - Confirmed an old open tab could no longer resume its stale checkpoint after migration; refreshing loaded the current saved study. Recovery regression covers both a newly fenced backup and a pre-update backup. Backup fencing preserves the prior world values while raising its supported reader version. An old UI may call the new format “invalid”; refresh rather than using old recovery controls.
 - The inspected current-client console had no warnings or errors. Existing build warnings remain for the ~941 kB initial Pages chunk, Vinext plugin timings and the future Vite native-config import-attribute requirement. This update does not remove those prior limitations.
 
-Publication details are recorded after release verification.
+### Published next-generation release
+
+- Source: `0730c72`; Pages branch: `98c0fcca813cf9890c4acb80e26c4763964bcd0e`. Pushed together, without force. All 16 copied build artifacts matched the local build hashes; older hashed assets remain available for cached clients.
+- [Pages deployment 34422825488](https://github.com/williamjblodgett/Simulation/actions/runs/34422825488) completed successfully. Live URL: [Simulation](https://williamjblodgett.github.io/Simulation/).
+- Public verification loaded `index-CZMqY2a-.js` and `index-CGYHxiuy.css`, matching the final build. The live Agents screen offers Add agent at 3 of 5 living. Run → About → World works, the actual Three.js scene is nonblank, and the inspector includes Next generation. The public study remained paused at day 1 03:10 with three agents; no public agent was added or study reset for QA. The current public console returned no warnings/errors. The browser was left on Agents with the new control available.
 
 ## Previous observer release (historical verification)
 
