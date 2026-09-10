@@ -46,7 +46,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
 
   return <article className={styles.agentInspector} data-level={level} aria-label={`${agent.label} agent inspector`}>
     <div className={styles.peekSummary}>
-      <div><strong>{agent.label} <span>· {agent.name.startsWith("Agent ") ? "Unnamed" : agent.name}</span></strong><p>{activityLabel(agent)}</p><ConditionLine agent={agent} /></div>
+      <div><strong>{agent.label} <span>· {agent.name.startsWith("Agent ") ? "Unnamed" : agent.name}</span></strong><p>{activityLabel(agent,world.environment)}</p><ConditionLine agent={agent} /></div>
       <button type="button" onClick={() => onLevelChange("half")} aria-label="Expand agent details"><ChevronUp size={19} /></button>
     </div>
     <div className={styles.sheetHandle} aria-label="Agent detail height controls">
@@ -57,7 +57,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
 
     <div className={styles.inspectorIdentity}>
       <AgentPortrait id={agent.label} name={agent.name} size="hero" />
-      <div><span>{agent.label}{agent.slotGeneration > 1 ? ` · Entry ${agent.slotGeneration}` : ""} / {agent.alive ? "Living agent" : "Life record"}</span><h2>{agent.name.startsWith("Agent ") ? "Unnamed" : agent.name}</h2><p>{activityLabel(agent)}</p><small>{agent.name.startsWith("Agent ") ? "Has not chosen a name" : "Self-chosen name"}</small></div>
+      <div><span>{agent.label}{agent.slotGeneration > 1 ? ` · Entry ${agent.slotGeneration}` : ""} / {agent.alive ? "Living agent" : "Life record"}</span><h2>{agent.name.startsWith("Agent ") ? "Unnamed" : agent.name}</h2><p>{activityLabel(agent,world.environment)}</p><small>{agent.name.startsWith("Agent ") ? "Has not chosen a name" : "Self-chosen name"}</small></div>
       <ConditionLine agent={agent} />
     </div>
 

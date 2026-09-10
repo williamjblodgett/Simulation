@@ -34,9 +34,15 @@ bounded (24 physical proposals plus the preserved 700-expansion survival search)
 - Protection depends on nearby surface geometry, orientation, condition and
   porosity. Physiology uses a numeric protective fraction. No named shelter
   recipe or technology flag grants policy-3 construction bonuses.
-- Freshwater/solid collision sensing prevents walking straight through modeled
-  components or ponds. The construction study ground is flat; surrounding
-  scenery is illustrative. This is not a navigation/rigid-body physics engine.
+- Solid collision sensing prevents movement through modeled components. Freshwater
+  supports wading and swimming with a shared bowl-depth model, slower travel,
+  energy use and cold exposure. Agents compare crossings and bank waypoints from
+  privately observed water outlines; immersed agents seek dry ground before resting
+  or working. Exhaustion in deep water can damage health. Water entry and reaching
+  shore are recorded, not mistaken for collecting/drinking. These movement rules
+  apply to active policies 2/3 without replacing their records or changing policy 1.
+  The construction ground outside ponds stays flat; distant coastal water is still
+  scenery outside the study bounds. This is not a fluid/rigid-body physics engine.
 - One instanced physical collection renders actual dimensions, rotations,
   hollow surfaces, damaged remnants and bindings. No timer-generated buildings.
 

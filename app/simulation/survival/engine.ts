@@ -3,6 +3,7 @@ import { agePhysicalWorld, executeManipulation, freshPhysicalMind, freshPhysical
 import { completePhysicalOperation, learnPhysicalReading, planPhysicalKnowledge, preparePhysicalProjects } from "./physical-policy";
 import { validatePhysicalState } from "./physical-validation";
 import { physicalNextPosition } from "./physical-navigation";
+import { depthAt, estimateWaterTravel, freshwaterFeatures, freshwaterFootprint, immersionCost, locomotionAt, SWIMMING_DEPTH } from "./water";
 import { driftNeeds } from "./physiology";
 import { researchMaterialEvidence } from "./research-evidence";
 import { advanceSurvivalRun as advanceBaseline } from "./baseline-engine";
@@ -185,11 +186,8 @@ function distance(left: SurvivalPosition, right: SurvivalPosition): number {
 export function freshwaterVisualFootprint(
   site: Pick<SurvivalResourceSite, "capacity" | "position">,
 ): { radiusX: number; radiusZ: number; rotation: number } {
-  return {
-    radiusX: 5 + site.capacity / 110,
-    radiusZ: 3.5 + site.capacity / 170,
-    rotation: (site.position.x + site.position.z) * 0.03,
-  };
+  const { radiusX, radiusZ, rotation } = freshwaterFootprint(site);
+  return { radiusX, radiusZ, rotation };
 }
 
 /** A deterministic dry-land access point just beyond the pond's minor-axis edge. */
@@ -759,6 +757,11 @@ function perceive(state: SurvivalRunState, agent: SurvivalAgent): void {
         resourceKind: site.kind,
         availableEstimate: Math.max(0, Math.round(site.quantity)),
         contaminated: site.contaminated,
+        ...(site.kind === "freshwater" ? {
+          waterCenterX: site.position.x, waterCenterZ: site.position.z,
+          waterRadiusX: freshwaterVisualFootprint(site).radiusX, waterRadiusZ: freshwaterVisualFootprint(site).radiusZ,
+          waterRotation: freshwaterVisualFootprint(site).rotation,
+        } : {}),
         ...(state.policyVersion === 3 && site.kind in MATERIALS ? { bulkDensity: MATERIALS[site.kind as keyof typeof MATERIALS].density, measurement: "Visible batch mass per bulk volume; strength and performance remain untested." } : {}),
       },
     });
@@ -1517,24 +1520,18 @@ function moveToward(state: SurvivalRunState, agent: SurvivalAgent, step: Surviva
   }
   step.destination = { ...destination };
   const remaining = distance(agent.position, destination);
-  if (remaining <= 2.4) {
+  const water = freshwaterFeatures(state.environment);
+  const arrived = () => distance(agent.position, destination) <= 2.4
+    && (depthAt(water, destination) > 0 || depthAt(water, agent.position) === 0);
+  if (remaining <= 2.4 && arrived()) {
     finishStep(state, agent, step, true);
     return;
   }
-  const travel = Math.min(7.5, remaining);
-  if(state.physical){
-    const position=physicalNextPosition(state.environment,state.physical,agent.position,destination);
-    agent.needs.energy=rounded(clamp(agent.needs.energy-0.34));
-    if(!position){recordOutcome(state,agent,"move",step.targetId,false,-0.34,"Movement was blocked by water or solid geometry; no movement order bypassed the collision.");finishStep(state,agent,step,false);return;}
-    agent.position={x:rounded(position.x,3)||0,z:rounded(position.z,3)||0};
-    if(distance(agent.position,destination)<=2.4)finishStep(state,agent,step,true);return;
-  }
-  agent.position = {
-    x: rounded(clamp(agent.position.x + ((destination.x - agent.position.x) / remaining) * travel, state.environment.bounds.minX, state.environment.bounds.maxX), 3),
-    z: rounded(clamp(agent.position.z + ((destination.z - agent.position.z) / remaining) * travel, state.environment.bounds.minZ, state.environment.bounds.maxZ), 3),
-  };
+  const position=physicalNextPosition(state.environment,state.physical,agent.position,destination);
   agent.needs.energy = rounded(clamp(agent.needs.energy - 0.34));
-  if (distance(agent.position, destination) <= 2.4) finishStep(state, agent, step, true);
+  if(!position){recordOutcome(state,agent,"move",step.targetId,false,-0.34,"Movement was blocked by solid geometry or the study boundary.");finishStep(state,agent,step,false);return;}
+  agent.position={x:rounded(position.x,3)||0,z:rounded(position.z,3)||0};
+  if (arrived()) finishStep(state, agent, step, true);
 }
 
 function consumeMaterial(agent: SurvivalAgent, kind: SurvivalResourceKind, amount: number): void {
@@ -2002,6 +1999,10 @@ function executePlanStep(state: SurvivalRunState, agent: SurvivalAgent): void {
   }
   if (step.status === "pending") step.status = "active";
   setCurrentAction(state, agent, step);
+  if (step.action !== "move" && depthAt(freshwaterFeatures(state.environment),agent.position)>0) {
+    recordOutcome(state,agent,step.action,step.targetId,false,0,"This action needs dry ground; the agent must reach a bank first.");
+    finishStep(state,agent,step,false);return;
+  }
   if (state.physical && step.manipulation) {
     const result = executeManipulation(state.physical,agent,step.manipulation,state.environment,state.tick);
     completePhysicalOperation(agent,step.manipulation,result.ok,result.partId,state.tick,result.effort);
@@ -2081,7 +2082,7 @@ function markDead(state: SurvivalRunState, agent: SurvivalAgent): void {
   if (!agent.alive) return;
   agent.alive = false;
   agent.diedAt = state.tick;
-  agent.causeOfDeath = causeOfDeath(agent);
+  agent.causeOfDeath = agent.needs.energy <= 0 && depthAt(freshwaterFeatures(state.environment),agent.position) >= SWIMMING_DEPTH ? "exhaustion in deep water" : causeOfDeath(agent);
   if (agent.currentPlan?.status === "active") agent.currentPlan.status = "abandoned";
   agent.currentAction = {
     kind: agent.currentAction.kind,
@@ -2254,13 +2255,33 @@ function advanceOneStep(state: SurvivalRunState): void {
       }
     }
     reviewSuccession(state, agent);
+    const water = freshwaterFeatures(state.environment), depth = depthAt(water, agent.position);
+    const pending = agent.currentPlan?.steps[agent.currentPlan.activeStepIndex];
+    // Reconsider a land activity while immersed, or a crossing when reserves collapse.
+    // The replacement destination still comes from the private planner, not the observer.
+    if (depth > 0 && agent.currentPlan?.status === "active" && (pending?.action !== "move"
+      || ((agent.needs.energy < 18 || agent.needs.warmth < 18) && agent.currentPlan.goal !== "seek_safety"))) agent.currentPlan.status = "abandoned";
     if (agent.currentPlan?.status === "active" && shouldAbandonForUrgency(agent)) {
       agent.currentPlan.status = "abandoned";
     }
     if (!agent.currentPlan || agent.currentPlan.status !== "active") {
       deliberate(state, agent);
     }
+    const beforeMove = { ...agent.position };
     executePlanStep(state, agent);
+    const travel = estimateWaterTravel(water, beforeMove, agent.position, state.environment.temperatureC, state.environment.weather === "storm");
+    const exposure = distance(beforeMove, agent.position) > 0
+      ? travel : immersionCost(locomotionAt(water, agent.position), state.environment.temperatureC, state.environment.weather === "storm");
+    agent.needs.energy = rounded(clamp(agent.needs.energy - exposure.energy));
+    agent.needs.warmth = rounded(clamp(agent.needs.warmth - exposure.warmth));
+    if (depthAt(water, agent.position) >= SWIMMING_DEPTH && agent.needs.energy <= 0) agent.needs.health = rounded(clamp(agent.needs.health - 8));
+    const entered = depth === 0 && depthAt(water, agent.position) > 0;
+    const exited = depth > 0 && depthAt(water, agent.position) === 0;
+    if (entered || exited) {
+      const summary = entered ? `${agent.label} entered freshwater; wading and swimming take extra effort and warmth.` : `${agent.label} reached dry ground after crossing freshwater.`;
+      const outcome = recordOutcome(state,agent,"move",agent.currentAction.targetId,true,-exposure.energy || 0,summary,false);
+      makeEvent(state,{type:"action_outcome",category:"survival",agentIds:[agent.id],summary,outcome:entered?"Water entry confirmed. No water was collected or consumed.":"Shore reached; the crossing is complete.",position:agent.position,facts:{action:"move",success:true,locomotion:locomotionAt(water,agent.position),energyCost:rounded(exposure.energy),warmthCost:rounded(exposure.warmth),decisionId:outcome.decisionId??null}});
+    }
     if (agent.needs.health <= 0) markDead(state, agent);
   }
   fulfillSuccession(state);

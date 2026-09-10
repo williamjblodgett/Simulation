@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { basinMaterial, meadowMaterial } from "./landscape-materials";
+import { waterDepth } from "../../simulation/survival/water";
 import type { HabitatPoint, HabitatTerrainVisual, HabitatWaterFeature } from "./types";
 
 export interface TerrainWorld {
@@ -76,9 +77,9 @@ export function terrainHeightAt(terrain: HabitatTerrainVisual, point: HabitatPoi
       (localX / Math.max(0.5, feature.radiusX)) ** 2 +
         (localZ / Math.max(0.5, feature.radiusZ)) ** 2,
     );
-    const depression = 1 - smoothstep(0.78, 1.16, distance);
     const waterLevel = terrainWaterHeight(terrain, feature);
-    height = THREE.MathUtils.lerp(height, waterLevel - 0.38, depression);
+    if(distance < 1) height = Math.min(height,waterLevel + .02 - waterDepth({...feature,rotation:feature.rotation??0},point));
+    else height = Math.min(height,THREE.MathUtils.lerp(waterLevel + .02, height, smoothstep(1,1.16,distance)));
   }
 
   return height;

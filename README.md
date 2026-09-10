@@ -26,6 +26,16 @@ Older policy-2 saves enable these additional rules on their next advancing tick 
 
 The observer and next-generation updates are published to GitHub Pages. See [implementation and verification report](docs/IMPLEMENTATION_REPORT.md) for deployed revisions, delivered changes, historical benchmark results, actual browser coverage and remaining strategy work. Refresh already-open tabs after updating; the new save version prevents older clients from advancing the previous rules. Future local changes still require an explicit release.
 
+### Moving through water
+
+Active survival studies support autonomous wading and swimming through inland
+freshwater. Crossings are slower and cost energy and warmth; agents can compare a
+crossing with an observed bank route and head ashore before resting or working.
+Severe exhaustion in deep water can injure an agent. The world, roster and inspector
+show the same movement state, and Timeline records entry and reaching dry land.
+Crossing does not collect or drink water. Existing studies need no reset; refresh
+the page to load the updated rules. The distant ocean remains outside study bounds.
+
 ## Security boundary
 
 Never place an API key in source code, browser storage, a static Pages build, a commit, an issue, or chat. This edition uses the deterministic local planner and requires no model credential.

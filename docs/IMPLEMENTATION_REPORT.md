@@ -2,6 +2,52 @@
 
 September 9, 2026. Implementation following the Astra review of revision `dce7792`, including the final observer-interface refinement and verified GitHub Pages release.
 
+## Autonomous freshwater traversal — September 9, 2026
+
+- Removed the pond-as-solid-wall restriction. Active policies 2/3 can wade and
+  swim; solid components and study boundaries remain collision-checked with short
+  movement substeps. Frozen policy 1 is unchanged. Existing records need no reset.
+- Shared rotated pond outlines and a continuous shallow-bank/deeper-center model
+  now drive movement, basin geometry, immersion and character poses. Nominal speeds
+  are 7.5 / 4.5 / 2.8 world units per ten-minute step for walking / wading / swimming;
+  transitions can end a movement step early. These are abstract simulation rules.
+- Private observation records expose only sensed water outlines. Ordinary and
+  physical-project planning charge observed crossings for extra time, effort and
+  cooling. Bank waypoints compete with crossing; immersed agents plan a dry bank
+  before resting/working. Deep-water exhaustion can damage health. Travel estimates
+  are cached only within a decision, not persisted or shared between minds.
+- Water entry and reaching shore appear as normal Timeline milestones with factual
+  results. Crossing never grants water inventory or hydration. Roster, inspector
+  and scene agree on Swimming/Wading; reduced motion keeps an identifiable pose.
+- No API calls, new observer movement orders, dependencies or storage replacement.
+
+### Verification
+
+- Final full regression suite: **128/128 passed**. Vinext and GitHub Pages
+  production builds, Pages TypeScript checks and lint passed on the final source.
+  The final browser check loaded `index-C6c_UNoK.js` and completed the crossing
+  with the production worker. The bundled Sites build helper still hits its
+  known Windows npm-shim issue; the repository's normal build scripts succeeded.
+- Targeted physical/scene suite: 26 tests passed, including rotated depth and
+  speed, collision/bounds, both active policies crossing, cold/effort costs,
+  no accidental drinking, pause/save/restore agreement, private-knowledge isolation,
+  low-energy bank choice and swimming-to-land pose reset.
+- Local Chromium browser: naturally generated five-agent seed `water-observation-1`,
+  A3 entered water at 01:20, was swimming at 01:50, reached dry land at 02:10 and
+  resumed gathering by 02:30 in the final production build. No movement order or fixture
+  injection was used in the browser. Inspected 390×844 and 1280×720, follow camera,
+  roster, agent-filtered timeline, tab return and reload while paused. One canvas,
+  no horizontal overflow and no browser errors/warnings after reload.
+- Earlier local studies were archived rather than deleted for this isolated test.
+  Public saved studies were not advanced or replaced during testing.
+- Updated the social consent regression to test both a depleted and a provisioned
+  responder directly, including exact inventory conservation. It no longer requires
+  one particular randomly seeded encounter to include a refusal after routes change.
+
+Limitations: freshwater is a simplified bowl, not fluid physics. No ocean
+navigation, currents, diving, boats or bridges are claimed; distant coastal water
+remains scenery beyond the study bounds. Physical-device/Safari testing was not run.
+
 ## Observatory visual redesign — September 9, 2026
 
 Implemented the supplied Observatory direction in the existing React/Three.js app,

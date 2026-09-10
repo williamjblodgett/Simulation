@@ -4,7 +4,9 @@ import { createSurvivalRun, advanceSurvivalRun, restoreSurvivalRun, serializeSur
 import { executeManipulation, protectionAt, settleAssemblies, properties, agePhysicalWorld } from "../app/simulation/survival/physical-world.ts";
 import { planPhysicalKnowledge, preparePhysicalProjects, learnPhysicalReading, completePhysicalOperation, procedureForObservation } from "../app/simulation/survival/physical-policy.ts";
 import { validManipulation } from "../app/simulation/survival/physical-validation.ts";
-import { physicalNextPosition, physicalWalkable } from "../app/simulation/survival/physical-navigation.ts";
+import { physicalNextPosition, physicalWalkable, physicalTraversable } from "../app/simulation/survival/physical-navigation.ts";
+import { depthAt, freshwaterFeatures, locomotionAt, observedWater, waterDepth, estimateWaterTravel } from "../app/simulation/survival/water.ts";
+import { planFromPrivateKnowledge } from "../app/simulation/survival/planner.ts";
 import { createPhysicalCollection } from "../app/survival/scene/physical-models.ts";
 import * as THREE from "three";
 
@@ -137,11 +139,86 @@ test("physical validation rejects malformed actions, material, bindings and priv
   assert.equal(validManipulation({kind:"join",a:"part-1",b:"part-1",fiber:1}),false);
 });
 
-test("navigation cannot cross solid components or water and produces an explicit alternative",()=>{
+test("navigation steers around solid components; water is traversable but not dry walkable ground",()=>{
   const s=fixture();shape(s);const p=s.physical.parts[0];p.position={x:62,y:0.5,z:60};
   assert.equal(physicalWalkable(s.environment,s.physical,{x:62,z:60}),false);
   const next=physicalNextPosition(s.environment,s.physical,{x:60,z:60},{x:66,z:60});assert.ok(next);assert.notEqual(next.z,60);
   const pond=s.environment.resources.find(r=>r.kind==="freshwater");assert.equal(physicalWalkable(s.environment,s.physical,pond.position),false);
+  assert.equal(physicalTraversable(s.environment,s.physical,pond.position),true);
+});
+
+function crossingFixture(policyVersion=3){
+  const s=createSurvivalRun("water-crossing",{policyVersion,agentCount:1,climateVolatility:"stable"});
+  const pond=s.environment.resources.find(r=>r.kind==="freshwater");
+  pond.position={x:0,z:0};pond.capacity=55;pond.quantity=55;s.environment.resources=[pond];
+  const a=s.agents[0];a.position={x:-8,z:0};a.needs={health:95,hydration:95,nutrition:95,energy:95,warmth:95,safety:95};
+  a.observations=[];const destination={x:8,z:0};
+  a.currentPlan={id:"plan-1",formedAt:0,goal:"explore",targetId:null,targetPosition:destination,status:"active",rationale:"Cross to a selected exploration destination.",activeStepIndex:0,steps:[{id:"step-1",action:"move",targetId:null,destination,remainingSteps:1,status:"pending"}]};
+  s.nextIds.plan=2;s.nextIds.decision=2;s.stats.decisions=1;s.nextIds.step=2;s.stats.planSteps=1;
+  return s;
+}
+
+test("rotated water depth and movement distinguish walking, wading and swimming",()=>{
+  const f={position:{x:4,z:6},radiusX:9,radiusZ:2,rotation:Math.PI/4};
+  assert.equal(locomotionAt([f],f.position),"swim");
+  const nearEdge={x:4+Math.cos(f.rotation)*8.5,z:6-Math.sin(f.rotation)*8.5};
+  assert.equal(locomotionAt([f],nearEdge),"wade");
+  assert.equal(waterDepth(f,{x:20,z:20}),0);
+  const s=crossingFixture(),water=freshwaterFeatures(s.environment);
+  const dry=physicalNextPosition(s.environment,s.physical,{x:-20,z:15},{x:20,z:15});
+  assert.ok(Math.abs(dry.x+12.5)<1e-8);
+  const swim=physicalNextPosition(s.environment,s.physical,{x:0,z:0},{x:8,z:0});
+  assert.ok(swim.x>2.7&&swim.x<3);
+  const travel=estimateWaterTravel(water,{x:-8,z:0},{x:8,z:0},8);
+  assert.ok(travel.duration>16/7.5);assert.ok(travel.energy>0);assert.ok(travel.warmth>0);
+  assert.equal(physicalTraversable(s.environment,s.physical,{x:s.environment.bounds.maxX+1,z:0}),false);
+});
+
+test("both active policies cross freshwater with costs, shore outcomes and resumable checkpoints",()=>{
+  for(const version of [2,3]){
+    let s=crossingFixture(version);assert.equal(validateSurvivalRun(s),true);
+    const initial=structuredClone(s),events=[];let swimming=false,wading=false;
+    for(let i=0;i<12&&s.agents[0].currentPlan.status==="active";i++){
+      const result=advanceSurvivalRun(s);s=result.state;events.push(...result.events);
+      const mode=locomotionAt(freshwaterFeatures(s.environment),s.agents[0].position);
+      swimming ||= mode==="swim";wading ||= mode==="wade";
+      assert.equal(validateSurvivalRun(s),true);
+      const restored=restoreSurvivalRun(serializeSurvivalRun(s));
+      assert.deepEqual(advanceSurvivalRun(restored),advanceSurvivalRun(s));
+      assert.equal(advanceSurvivalRun(setSurvivalRunPaused(s,true),20).stepsProcessed,0);
+    }
+    assert.ok(swimming&&wading);assert.ok(s.agents[0].position.x>5.5);
+    assert.equal(s.agents[0].currentPlan.status,"complete");
+    assert.deepEqual(s.agents[0].inventory,initial.agents[0].inventory);
+    assert.ok(s.agents[0].needs.energy<initial.agents[0].needs.energy);
+    assert.ok(events.some(e=>e.summary.includes("entered freshwater")));
+    assert.ok(events.some(e=>e.summary.includes("reached dry ground")));
+    assert.ok(!events.some(e=>e.facts.action==="drink"||e.facts.action==="collect"));
+    assert.deepEqual(initial,crossingFixture(version));
+  }
+});
+
+test("private water observations inform routes without exposing unseen ponds",()=>{
+  const s=advanceSurvivalRun(crossingFixture(),1).state,a=s.agents[0];
+  const privateInput={agent:structuredClone(a),tick:s.tick,seed:s.seed,bounds:s.environment.bounds,physical:true};
+  assert.ok(observedWater(a.observations).length>0);
+  const first=planFromPrivateKnowledge(privateInput);
+  s.environment.resources[0].position={x:70,z:70};
+  assert.deepEqual(planFromPrivateKnowledge(privateInput),first);
+  const unaware=structuredClone(privateInput);unaware.agent.observations=[];
+  assert.equal(observedWater(unaware.agent.observations).length,0);
+  assert.ok(first.some(c=>c.candidate.summary.includes("water")));
+});
+
+test("an exhausted swimmer chooses an observed bank instead of recovering underwater",()=>{
+  let s=crossingFixture();s.agents[0].position={x:0,z:0};s.agents[0].needs.energy=15;
+  s=advanceSurvivalRun(s).state;
+  assert.equal(s.agents[0].currentPlan.goal,"seek_safety");
+  assert.equal(s.agents[0].currentPlan.steps[0].action,"move");
+  assert.equal(depthAt(freshwaterFeatures(s.environment),s.agents[0].currentPlan.steps[0].destination),0);
+  for(let i=0;i<7&&depthAt(freshwaterFeatures(s.environment),s.agents[0].position)>0;i++)s=advanceSurvivalRun(s).state;
+  assert.equal(s.agents[0].alive,true);
+  assert.equal(depthAt(freshwaterFeatures(s.environment),s.agents[0].position),0);
 });
 
 test("the instanced renderer uses exact physical dimensions and releases removed geometry",()=>{

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
 import { createCharacter, disposeCharacter } from "../app/survival/scene/character-model.ts";
-import { createResourceCollection } from "../app/survival/scene/scene-models.ts";
-import { createTerrainWorld, terrainHeightAt, waterLocalPoint } from "../app/survival/scene/terrain-world.ts";
+import { createResourceCollection, createAgentCollection } from "../app/survival/scene/scene-models.ts";
+import { createTerrainWorld, terrainHeightAt, terrainWaterHeight, waterLocalPoint } from "../app/survival/scene/terrain-world.ts";
+import { waterDepth } from "../app/simulation/survival/water.ts";
 import { SURVIVAL_AGENT_IDS, SURVIVAL_AGENT_COLORS } from "../app/survival/scene/types.ts";
 
 test("all five world/portrait identities have consistent scale, colors and forward-facing geometry", () => {
@@ -90,4 +91,25 @@ test("articulated legs move at the hip and seated feet remain above the study su
     assert.ok(bounds.max.y<2);
     disposeCharacter(actor);
   }
+});
+
+test("water poses use real depth, keep the head above the surface and reset cleanly on land",()=>{
+  const previous=globalThis.document;
+  globalThis.document={createElement:()=>({width:0,height:0,getContext:()=>null})};
+  const collection=createAgentCollection();
+  try{
+    const agent={id:"A1",position:{x:0,z:0},heading:0,alive:true,status:"moving",action:{kind:"move",label:"Swimming"},carriedItem:null,needs:{health:1,hydration:1,energy:1},waterDepth:2.1};
+    collection.sync([agent],"A1",()=>1.3);collection.animate(1,true);
+    const root=collection.group.getObjectByName("agent-A1"),actor=root.children[0];
+    assert.ok(actor.rotation.x>.9);assert.equal(root.position.y,1.3);
+    root.updateWorldMatrix(true,true);
+    const bounds=new THREE.Box3().setFromObject(actor);assert.ok(bounds.max.y>1.3);
+    collection.sync([{...agent,waterDepth:.4}],"A1",()=>1.3);collection.animate(2,true);
+    assert.equal(actor.rotation.x,0);assert.equal(actor.position.y,-.4);
+    collection.sync([{...agent,waterDepth:0}],"A1",()=>1.5);collection.animate(3,true);
+    assert.equal(actor.rotation.x,0);assert.equal(actor.position.y,0);assert.equal(actor.position.z,0);
+  }finally{collection.dispose();if(previous===undefined)delete globalThis.document;else globalThis.document=previous;}
+  const feature={position:{x:0,z:0},radiusX:6,radiusZ:4,rotation:.7};
+  const terrain={seed:109,halfSize:32,flatStudy:true,freshwater:[{id:"pond",...feature}]};
+  for(const p of [{x:0,z:0},{x:1,z:1}])assert.ok(Math.abs(terrainWaterHeight(terrain,feature)+.02-terrainHeightAt(terrain,p)-waterDepth(feature,p))<1e-8);
 });

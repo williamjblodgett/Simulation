@@ -1,6 +1,7 @@
 import { driftNeeds } from "./physiology";
 import { planFromPrivateKnowledge, survivalPotential, type LocalPlanChoice, type PrivatePolicyInput } from "./planner";
 import { survivalUnit } from "./random";
+import { depthAt, estimateWaterTravel, observedWater } from "./water";
 import type { LearnedProcedure, Manipulation, MaterialKind, PhysicalProject, PhysicalReading, Vec3 } from "./physical-types";
 import type { SurvivalAgent } from "./types";
 
@@ -82,6 +83,7 @@ function projectChoice(input:PrivatePolicyInput,project:PhysicalProject):LocalPl
 /** Bounded geometry search with empirical, uncertain coefficients. No named building catalog. */
 export function preparePhysicalProjects(input:PrivatePolicyInput):void {
   const a=input.agent,mind=a.physicalMind;if(!mind)return;
+  if(depthAt(observedWater(a.observations),a.position)>0)return;
   const emergency=Math.min(a.needs.health,a.needs.hydration,a.needs.nutrition,a.needs.energy)<32;
   const current=mind.projects.find(p=>p.status==="active"||p.status==="interrupted");
   if(current){
@@ -169,8 +171,20 @@ export function preparePhysicalProjects(input:PrivatePolicyInput):void {
 
 export function planPhysicalKnowledge(input:PrivatePolicyInput):LocalPlanChoice[]{
   const choices=planFromPrivateKnowledge({...input,physical:true});
+  if(depthAt(observedWater(input.agent.observations),input.agent.position)>0)return choices;
   const project=input.agent.physicalMind?.projects.find(p=>p.status==="active");
-  if(project){const proposed=projectChoice(input,project);if(proposed)choices.push(proposed);}
+  if(project){const proposed=projectChoice(input,project);if(proposed){
+    const water=observedWater(input.agent.observations),weather=input.agent.observations.find(o=>o.kind==="weather");
+    let from=input.agent.position,cost=0;
+    for(const action of proposed.actions){
+      if(action.action!=="move"||!action.destination)continue;
+      const travel=estimateWaterTravel(water,from,action.destination,Number(weather?.facts.temperatureC??13),weather?.facts.weather==="storm");
+      from=action.destination;
+      if(travel.wetDuration>0){action.duration=Math.max(action.duration,Math.ceil(travel.duration));cost+=travel.energy+travel.warmth*.75+travel.wetDuration*.12;}
+    }
+    if(cost>0){proposed.candidate.score-=cost;proposed.candidate.risk+=cost;proposed.candidate.summary+=" Observed water adds swimming effort, slower travel and cooling.";proposed.candidate.knownObservationIds=[...new Set([...proposed.candidate.knownObservationIds,...input.agent.observations.filter(o=>o.facts.resourceKind==="freshwater"&&typeof o.facts.waterRadiusX==="number").map(o=>o.id)])];}
+    choices.push(proposed);
+  }}
   return choices.sort((a,b)=>b.candidate.score-a.candidate.score||a.candidate.summary.localeCompare(b.candidate.summary)).slice(0,8);
 }
 

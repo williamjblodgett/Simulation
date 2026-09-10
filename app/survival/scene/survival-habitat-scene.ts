@@ -476,7 +476,13 @@ export function createSurvivalHabitatScene(
     resources.sync(nextSnapshot.resourceNodes, terrainWorld.heightAt);
     shelters.sync(nextSnapshot.shelters, terrainWorld.heightAt);
     physical.sync(nextSnapshot.physical);
-    agents.sync(nextSnapshot.agents, nextSelectedId, terrainWorld.heightAt);
+    agents.sync(nextSnapshot.agents, nextSelectedId, point => {
+      const feature = nextSnapshot.terrain.freshwater.find(f => {
+        const angle=f.rotation??0,dx=point.x-f.position.x,dz=point.z-f.position.z;
+        return ((Math.cos(angle)*dx-Math.sin(angle)*dz)/f.radiusX)**2+((Math.sin(angle)*dx+Math.cos(angle)*dz)/f.radiusZ)**2<1;
+      });
+      return feature ? terrainWorld!.waterHeight(feature)+.02 : terrainWorld!.heightAt(point);
+    });
     applyDaylight();
     if (cameraMode === "overview" && !manualOverride) frameOverview(false);
 

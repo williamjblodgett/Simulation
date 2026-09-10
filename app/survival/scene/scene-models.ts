@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { createCharacter } from "./character-model";
+import { SWIMMING_DEPTH } from "../../simulation/survival/water";
 import {
   SURVIVAL_AGENT_COLORS,
   SURVIVAL_AGENT_IDS,
@@ -682,6 +683,7 @@ export function createAgentCollection(): AgentCollection {
       model.actor.rotation.z = 0;
       model.actor.position.y = 0;
       model.actor.position.x = 0;
+      model.actor.position.z = 0;
       const action = data.action.kind;
       if (!data.alive || data.status === "dead") {
         model.actor.rotation.z = -Math.PI / 2;
@@ -689,8 +691,17 @@ export function createAgentCollection(): AgentCollection {
         model.statusDisc.visible = false;
         continue;
       }
-      if (data.status === "blocked" || data.status === "awaiting-decision" || data.status === "connection-lost") continue;
       const motion = reducedMotion ? 0 : 1;
+      const immersed = data.waterDepth ?? 0;
+      if (immersed >= SWIMMING_DEPTH) {
+        const stroke=Math.sin(timeSeconds*3+Number(model.id.slice(1)))*.55*motion;
+        model.actor.rotation.x=Math.PI/3;
+        model.actor.position.set(0,-.74,-.72);
+        model.leftArm.rotation.x=-1.5+stroke;model.rightArm.rotation.x=-1.5-stroke;
+        model.leftLeg.rotation.x=stroke*.35;model.rightLeg.rotation.x=-stroke*.35;
+        continue;
+      }
+      if (data.status === "blocked" || data.status === "awaiting-decision" || data.status === "connection-lost") {model.actor.position.y=-immersed;continue;}
 
       if (["move", "explore", "relocate"].includes(action) || data.status === "moving") {
         const stride = Math.sin(timeSeconds * 7 + Number(model.id.slice(1))) * 0.48 * motion;
@@ -698,7 +709,7 @@ export function createAgentCollection(): AgentCollection {
         model.rightArm.rotation.x = -stride;
         model.leftLeg.rotation.x = -stride;
         model.rightLeg.rotation.x = stride;
-        model.actor.position.y = Math.abs(Math.sin(timeSeconds * 7)) * .04 * motion;
+        model.actor.position.y = -immersed + Math.abs(Math.sin(timeSeconds * 7)) * .04 * motion;
       } else if (["gather", "build", "craft", "defend"].includes(action)) {
         model.rightArm.rotation.x = -.9 + Math.sin(timeSeconds * 4.1) * .38 * motion;
         model.leftArm.rotation.x = -.65;

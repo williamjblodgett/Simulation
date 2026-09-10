@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { freshwaterVisualFootprint, type SurvivalAgent, type SurvivalRunState } from "../simulation/survival";
 import type { InspectorLevel } from "./agent-inspector";
 import { activityLabel } from "./presentation";
+import { depthAt, freshwaterFeatures } from "../simulation/survival/water";
 import {
   createSurvivalHabitatScene,
   type HabitatActionKind,
@@ -177,12 +178,13 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
         lifeId: agent.id,
         displayName: agent.name,
         position: agent.position,
+        waterDepth: depthAt(freshwaterFeatures(world.environment),agent.position),
         heading: headingFor(agent),
         alive: agent.alive,
         status: agentStatus(agent),
         action: {
           kind: actionKind(agent),
-          label: activityLabel(agent),
+          label: activityLabel(agent,world.environment),
           targetPosition,
           tool: toolFor(agent),
         },

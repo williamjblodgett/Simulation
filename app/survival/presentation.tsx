@@ -3,7 +3,8 @@
 import { AlertTriangle, HeartPulse } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { getPortraits, getServerPortraits, subscribePortraits } from "./portraits";
-import type { SurvivalActionKind, SurvivalAgent, SurvivalNeeds } from "../simulation/survival";
+import type { SurvivalActionKind, SurvivalAgent, SurvivalEnvironment, SurvivalNeeds } from "../simulation/survival";
+import { freshwaterFeatures, locomotionAt } from "../simulation/survival/water";
 import { SURVIVAL_AGENT_COLORS, type SurvivalAgentId } from "./scene";
 import styles from "./survival-experience.module.css";
 
@@ -50,8 +51,10 @@ export function actionLabel(action: SurvivalActionKind) {
   return labels[action] ?? humanize(action);
 }
 
-export function activityLabel(agent: SurvivalAgent) {
+export function activityLabel(agent: SurvivalAgent, environment?: SurvivalEnvironment) {
   if (!agent.alive) return agent.causeOfDeath ? `Died · ${agent.causeOfDeath}` : "Historical record";
+  const mode = environment ? locomotionAt(freshwaterFeatures(environment),agent.position) : "walk";
+  if (mode !== "walk") return agent.currentAction.status === "blocked" ? "Blocked in water" : mode === "swim" ? "Swimming" : "Wading";
   if (agent.currentAction.status === "awaiting_decision") return "Awaiting decision";
   if (agent.currentAction.status === "blocked") return `Blocked · ${actionLabel(agent.currentAction.kind)}`;
   if (agent.currentAction.status === "resting") return "Resting";

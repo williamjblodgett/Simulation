@@ -3,6 +3,7 @@ import { researchMaterialEvidence } from "./research-evidence";
 import { driftNeeds, type NeedConditions } from "./physiology";
 import { survivalUnit } from "./random";
 import { chooseExperimentDose, preparedMaterialContext } from "./experiments";
+import { depthAt, estimateWaterTravel, observedWater, shorePoints } from "./water";
 import type { AgentDecisionCandidate, AgentGoalKind, AgentObservation, SurvivalActionKind, SurvivalAgent, SurvivalInventory, SurvivalNeeds, SurvivalPosition } from "./types";
 
 /** This is the entire policy boundary: no resources, other agents or world truth. */
@@ -85,6 +86,16 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
   const temperature = Number(weather?.facts.temperatureC ?? 13);
   const storm = weather?.facts.weather === "storm";
   const conditions = { temperatureC: temperature, weather: String(weather?.facts.weather ?? "clear"), daylight: Number(weather?.facts.daylight ?? 0.5) };
+  const water = observedWater(agent.observations);
+  const travelCache = new Map<string, ReturnType<typeof estimateWaterTravel>>();
+  const waterTravel = (from: SurvivalPosition, to: SurvivalPosition) => {
+    const key = `${from.x},${from.z}:${to.x},${to.z}`;
+    let result = travelCache.get(key);
+    if (!result) { result = estimateWaterTravel(water,from,to,temperature,storm); travelCache.set(key,result); }
+    return result;
+  };
+  const waterEvidence = agent.observations.filter(o => o.kind === "resource" && o.facts.resourceKind === "freshwater" && typeof o.facts.waterRadiusX === "number").map(o => o.id);
+  const insideBounds = (p: SurvivalPosition) => p.x >= bounds.minX && p.x <= bounds.maxX && p.z >= bounds.minZ && p.z <= bounds.maxZ;
   const known = agent.observations.filter(o => o.position && o.facts.researchEvidence !== true);
   const fires = known.filter(o => o.kind === "structure" && o.facts.structureKind === "fire" && Number(o.facts.condition) > 5).map(o => o.position!);
   const resources = known.filter(o => o.kind === "resource" && Number(o.facts.availableEstimate) > 0)
@@ -112,17 +123,37 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
     for (const parent of beam) {
       const add = (key: string, action: PlannedAction, goal: AgentGoalKind, summary: string, apply: (node: SearchState) => void, observation?: AgentObservation) => {
         if (expansions >= POLICY_SEARCH_BUDGET.expansions || parent.used.includes(key)) return;
+        // Resting, warming and material work require a dry place. A swim is not rest.
+        if (depthAt(water, parent.position) > 0 && action.action !== "move") return;
+        const crossing = action.action === "move" && action.destination
+          ? waterTravel(parent.position,action.destination) : null;
+        if (crossing && crossing.wetDuration > 0) {
+          action = { ...action, duration: Math.max(action.duration, Math.ceil(crossing.duration)) };
+          summary += " Observed water adds slower travel, energy use and cooling.";
+        }
         expansions++;
         const node: SearchState = { ...parent, needs: { ...parent.needs }, inventory: { ...parent.inventory }, remainingSites: { ...parent.remainingSites }, position: { ...parent.position }, actions: [...parent.actions, action], used: [...parent.used, key], evidence: [...parent.evidence], goal: parent.actions.length ? parent.goal : goal, targetId: parent.actions.length ? parent.targetId : action.targetId, summary: parent.actions.length ? parent.summary : summary };
         if (action.action === "move") {node.sheltered = false;if(input.physical)node.protection=0;}
         decay(node, Math.max(0, action.duration - (parent.actions.length ? 0 : 1)), conditions, fires);
         apply(node);
+        if (crossing && crossing.wetDuration > 0) {
+          node.needs.energy = clip(node.needs.energy - crossing.energy);
+          node.needs.warmth = clip(node.needs.warmth - crossing.warmth);
+          node.evidence.push(...waterEvidence);
+          // Avoid treating an underwater destination as a free place to recover.
+          if (depthAt(water,node.position)>0) node.risk += 8;
+        }
         if (observation) node.evidence.push(observation.id);
         if (node.needs.health <= 0 || node.elapsed > 40) return;
         next.push(node);
         if (action.action !== "move" || goal === "explore") terminals.push(node);
       };
       const simple = (action: SurvivalActionKind, duration = 1): PlannedAction => ({ action, targetId: null, destination: null, duration });
+      if (depthAt(water,parent.position)>0) {
+        const shores = water.flatMap(shorePoints).filter(p => insideBounds(p) && depthAt(water,p) === 0)
+          .sort((a,b) => dist(parent.position,a)-dist(parent.position,b)).slice(0,4);
+        for (const [i,destination] of shores.entries()) add(`shore-${i}`,{action:"move",targetId:null,destination,duration:Math.max(1,Math.ceil(dist(parent.position,destination)/7.5))},"seek_safety","Reach an observed dry bank before resting or working.",n=>{n.position={...destination};n.needs.energy=clip(n.needs.energy-dist(parent.position,destination)/7.5*.34);});
+      }
       if (parent.inventory.freshwater >= 1 && parent.needs.hydration < 77) add(`drink-${Math.floor(parent.inventory.freshwater)}`, simple("drink"), "secure_water", "Use carried water before hydration falls further.", n => { n.inventory.freshwater--; n.needs.hydration = clip(n.needs.hydration + 34); });
       if (parent.inventory.food >= 1 && parent.needs.nutrition < 79) add(`eat-${Math.floor(parent.inventory.food)}`, simple("eat"), "secure_food", "Eat carried food to protect future nutrition.", n => { n.inventory.food--; n.needs.nutrition = clip(n.needs.nutrition + (agent.technologies.includes("food_smoking") ? 32 : 27)); });
       if (parent.needs.energy < 80) add("rest", simple("rest", 2), "recover", "Rest now so the next journey starts with more energy.", n => { n.needs.energy = clip(n.needs.energy + 26); n.needs.health = clip(n.needs.health + 0.7); });
@@ -139,6 +170,13 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
         const goal: AgentGoalKind = kind === "freshwater" ? "secure_water" : kind === "food" ? "secure_food" : "gather_material";
         if (distance > 3) {
           add(`move-${observation.subjectId}`, { action: "move", targetId: observation.subjectId, destination: { ...observation.position! }, duration: Math.max(1, Math.ceil((distance - 2.4) / 7.5)) }, goal, `Travel to remembered ${kind}; estimated travel cost includes falling needs.`, n => { n.position = { ...observation.position! }; n.needs.energy = clip(n.needs.energy - distance / 7.5 * 0.34); n.sheltered = false; }, observation);
+          if (depthAt(water,parent.position) === 0 && waterTravel(parent.position,observation.position!).wetDuration > 0) {
+            // A dry-bank waypoint competes with the direct crossing; neither is compulsory.
+            const detours = water.flatMap(shorePoints).filter(p=>insideBounds(p)&&depthAt(water,p)===0&&dist(parent.position,p)>3)
+              .filter(p=>waterTravel(parent.position,p).wetDuration===0)
+              .sort((a,b)=>(dist(parent.position,a)+dist(a,observation.position!))-(dist(parent.position,b)+dist(b,observation.position!))).slice(0,2);
+            for(const [i,destination] of detours.entries()) add(`bank-${observation.subjectId}-${i}`,{action:"move",targetId:observation.subjectId,destination,duration:Math.max(1,Math.ceil(dist(parent.position,destination)/7.5))},goal,`Approach remembered ${kind} by an observed bank; compare the detour against swimming.`,n=>{n.position={...destination};n.needs.energy=clip(n.needs.energy-dist(parent.position,destination)/7.5*.34);n.evidence.push(...waterEvidence);},observation);
+          }
         } else {
           const action = kind === "freshwater" || kind === "food" ? "collect" : "gather";
           const learned = agent.learning.find(l => l.context === `site:${observation.subjectId}:${action}`);

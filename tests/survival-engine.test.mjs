@@ -337,14 +337,27 @@ test("an agent follows a local position snapshot and updates a nearby observatio
 });
 
 test("social actions record independent consent and never treat refusal as a completed transfer", () => {
-  const state = advanceSurvivalRun(createSurvivalRun("consent", {
-    agentCount: 5,
-    agentCap: 5,
-    durationHours: null,
-  }), 120).state;
-  const proposals = state.events.filter(({ type }) => type === "social_proposal");
-  const accepted = state.events.filter(({ type }) => type === "social_accepted");
-  const refused = state.events.filter(({ type }) => type === "social_refused");
+  // Test the consent protocol directly. Changed routes need not reproduce a
+  // particular refused encounter in the first 120 steps of one arbitrary seed.
+  let state = createSurvivalRun("consent", { agentCount: 2, durationHours: null });
+  for (const site of state.environment.resources) site.position={x:-80,z:-80};
+  for (const agent of state.agents) agent.position={x:60,z:60};
+  const events=[];
+  for (const reserves of [0,4]) {
+    const [requester,responder]=state.agents;
+    requester.needs.hydration=20;requester.inventory.freshwater=0;
+    responder.needs.hydration=95;responder.inventory.freshwater=reserves;
+    setForcedStep(state,"request",responder.id,null,"request_help");
+    requester.currentPlan.steps[0].resource="freshwater";
+    // Hold the responder's own activity only; its resource/consent choice remains independent.
+    responder.currentPlan={...structuredClone(requester.currentPlan),id:"held-responder",goal:"wait",steps:[{id:"held-step",action:"wait",targetId:null,destination:null,remainingSteps:1,status:"pending"}]};
+    const result=advanceSurvivalRun(state,1);state=result.state;events.push(...result.events);
+    assert.equal(state.agents[0].inventory.freshwater,reserves===0?0:1);
+    assert.equal(state.agents[1].inventory.freshwater,reserves===0?0:3);
+  }
+  const proposals = events.filter(({ type }) => type === "social_proposal");
+  const accepted = events.filter(({ type }) => type === "social_accepted");
+  const refused = events.filter(({ type }) => type === "social_refused");
   assert.ok(proposals.length > 0);
   assert.ok(accepted.length > 0);
   assert.ok(refused.length > 0);

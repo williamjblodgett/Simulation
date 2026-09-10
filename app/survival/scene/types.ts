@@ -178,6 +178,8 @@ export interface HabitatNeedsVisual {
 }
 
 export interface HabitatAgentVisual {
+  /** Derived from the authoritative freshwater footprint, not animation timing. */
+  waterDepth?: number;
   lifeId?: string;
   id: SurvivalAgentId;
   displayName?: string;
