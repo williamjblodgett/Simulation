@@ -303,6 +303,10 @@ export interface AgentResearchProject {
 }
 
 export interface SurvivalAgent {
+  lineage?: { generation: number; predecessorId: string; sponsorId: string; planId: string };
+  successionReview?: SuccessionReview;
+  /** Admission receipts personally received after a funding attempt, not global knowledge. */
+  knownSuccessionPredecessors?: string[];
   materialSamples?: Partial<Record<SurvivalResourceKind, { sourceId: string; sampledAt: number; contamination: number | null; activity: number | null }>>;
   id: string;
   label: `A${AgentLimit}`;
@@ -310,7 +314,7 @@ export interface SurvivalAgent {
   /** Increments when a deceased occupant's visual slot is reused. */
   slotGeneration: number;
   name: string;
-  spawnSource: "initial" | "observer" | "autonomous_companion";
+  spawnSource: "initial" | "observer" | "autonomous_companion" | "autonomous_successor";
   spawnedAt: number;
   alive: boolean;
   diedAt: number | null;
@@ -344,6 +348,8 @@ export type SurvivalEventType =
   | "experiment"
   | "discovery"
   | "sole_survivor_decision"
+  | "succession_enabled"
+  | "succession_decision"
   | "run_completed"
   | "run_extinct";
 
@@ -373,6 +379,42 @@ export interface SoleSurvivorState {
   companionAgentId: string | null;
 }
 
+/** Optional continuity objective, separate from the original survival planner. */
+export interface SuccessionReview {
+  predecessorId: string;
+  mode: "before_death" | "after_death";
+  checkedAt: number;
+  reconsiderAfter: number;
+  choice: "planned" | "deferred" | "declined";
+  score: number;
+  rationale: string;
+  evidence: AgentObservation[];
+}
+
+export interface SuccessionPlan {
+  id: string;
+  predecessorId: string;
+  sponsorId: string;
+  mode: SuccessionReview["mode"];
+  plannedAt: number;
+  position: SurvivalPosition;
+  rationale: string;
+  score: number;
+  evidence: AgentObservation[];
+  /** Debited from the sponsor once at commitment, transferred once at admission. */
+  provisions: { freshwater: number; food: number };
+  status: "pending" | "fulfilled";
+  successorId: string | null;
+  fulfilledAt: number | null;
+}
+
+export interface SuccessionState {
+  version: 1;
+  enabledAt: number;
+  /** One entitlement per immutable predecessor ID, retained beyond the event tail. */
+  plans: SuccessionPlan[];
+}
+
 export interface SurvivalRunStats {
   livingAgents: number;
   peakLivingAgents: number;
@@ -398,9 +440,10 @@ export interface SurvivalEventWindow {
 }
 
 export interface SurvivalRunState {
+  succession?: SuccessionState;
   /** Missing means the preserved original policy; new runs use version 2. */
   policyVersion?: 1 | 2;
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
   seed: number;
   seedLabel: string;

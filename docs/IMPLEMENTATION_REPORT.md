@@ -2,7 +2,29 @@
 
 September 9, 2026. Implementation following the Astra review of revision `dce7792`, including the final observer-interface refinement and verified GitHub Pages release.
 
-## Live release
+## Next-generation update (subsequent to the observer release below)
+
+- Add agent is available in Agents and Run whenever fewer than five agents are living, including before any death and after extinction. The command uses the existing locked, revision-checked checkpoint transaction; it preserves pause and refuses completed studies. An observer addition may expand an older run's smaller capacity to five, with the previous capacity recorded in its event.
+- Policy-2 agents may fund a pre-death successor or sponsor a personally observed death. This deliberately adds optional continuity value beyond individual survival. The pure evaluator uses private evidence, needs, retained supplies and helpful social outcomes; immediate survival and six modeled hours of experience gate commitment. It may defer or decline.
+- A plan escrows 0.5 food and 0.5 water once. The engine admits one fresh life per predecessor after death and only into a vacancy. Duplicate private requests receive an explicit admission receipt without payment. These receipts, not global entitlement state, inform later target selection. Duration completion wins over new funding and admission; newborn agents cannot act on their birth tick.
+- IDs and all old lives remain immutable. Lineage links predecessor, sponsor and successor; slot entry number is distinct from generation. No memories, roles, research or personality are copied. This is an abstract admission model, not biological reproduction or a claim of general intelligence.
+- Existing policy-2 saves enable the additive rules on their next advancing tick with a recorded rules event. Policy-1 autonomous advancement remains frozen; observer admission is intentionally expanded for both policies. Old checkpoints and the earlier planet study are preserved.
+- A browser check found older open tabs could retain advancement authority. Schema 2 now fences policy-2 saves against pre-succession clients. Loading the new UI commits this version-only migration under the existing lock without advancing time; older clients reject the unsupported version instead of saving old-rule output. Refresh older tabs after updating. The previous checkpoint is retained by the existing last-good-save transaction.
+- The new focused regression suite covers funding and refusal, last-agent death, conflicting sponsors, capacity deferral, shared/uncertain evidence, duration, save migration, batch replay, timeline eviction and malformed lineage/escrow. Review caught and fixed low-confidence death targeting and original-age versus receipt-age validation for shared evidence.
+- Prior benchmark numbers below predate this feature. No survival-performance improvement is claimed. Infinite-duration life archives still grow despite the five-living-agent cap.
+
+### Verification of this update
+
+- `npm test`: **105 tests passed**, zero failures, including both production builds and Pages TypeScript. `npm run lint` and `git diff --check` passed. A focused 22-test succession/persistence run also passed. Credential-pattern scanning of application, Pages source, tests and documentation returned no matches.
+- In the Chromium-based in-app browser, added A2–A5 to an existing one-agent paused study using both Agents and Run. Day 3 00:50, A1's state and the existing history were retained; each addition was recorded once and the sixth admission was disabled. World rendered all five markers and matching portraits. Selecting A5, expanding its shared inspector, filtering its Timeline entry, visiting About and returning retained the selected life and paused clock. Reload preserved the five-agent checkpoint (selection itself defaults to A1 on a full reload).
+- Captured actual viewport screenshots of mobile Agents/World/expanded inspector/filtered Timeline at 390×844; Agents at 375×667; Run at 430×932; landscape World at 844×390; desktop World/inspector and setup at 1440×900. Checked page overflow at the inspected dimensions. The new controls remain above reachable navigation. This is desktop Chromium viewport testing, not real-device/Safari/touch/performance certification.
+- After the schema fence, resumed the existing study and observed actual deferred successor decisions, then normal completion at day 4 00:00. No funded birth occurred in that browser run; funded births, lineage, capacity waits and escrow transfers are covered by deterministic engine tests, not claimed as browser-observed. Completed studies correctly disable admission and playback.
+- Confirmed an old open tab could no longer resume its stale checkpoint after migration; refreshing loaded the current saved study. Recovery regression covers both a newly fenced backup and a pre-update backup. Backup fencing preserves the prior world values while raising its supported reader version. An old UI may call the new format “invalid”; refresh rather than using old recovery controls.
+- The inspected current-client console had no warnings or errors. Existing build warnings remain for the ~941 kB initial Pages chunk, Vinext plugin timings and the future Vite native-config import-attribute requirement. This update does not remove those prior limitations.
+
+Publication details are recorded after release verification.
+
+## Previous observer release (historical verification)
 
 - Live: [Simulation](https://williamjblodgett.github.io/Simulation/).
 - Implementation source: `35358a7`; published static branch: `a29376624ca26a1c28367f507fcd512fe7f02540`. Both branches were pushed together without force.
@@ -13,7 +35,7 @@ September 9, 2026. Implementation following the Astra review of revision `dce779
 
 ## Delivered
 
-This is a working no-API autonomy, continuity and observability upgrade, not a claim that every long-term research goal in the strategy is complete. No model credential, remote inference or paid API call is required. The only supplied terminal objective remains **survive as long as possible**; the observation duration is an observer setting.
+The observer release delivered a working no-API autonomy, continuity and observability upgrade, not every long-term research goal in the strategy. No model credential, remote inference or paid API call is required. At that release the only supplied terminal objective was **survive as long as possible**; the subsequent next-generation update above explicitly adds optional continuity. Observation duration remains an observer setting.
 
 ### Independent decisions and experiments
 
@@ -23,7 +45,7 @@ This is a working no-API autonomy, continuity and observability upgrade, not a c
 - Social proposals preserve the actual resource and amount. A donation request is evaluated against the responding agent's own needs and retained reserves; incoming sharing and cooperation use simpler consent heuristics. Refusal transfers nothing. Both sides retain outcomes, and shared observations retain their original age and provenance. An unavailable remembered partner is not treated as currently present.
 - Seven bounded research domains now have deterministic parameterized material consequences, controls, failed/null results and replication requirements. Success no longer comes from retry luck. Unknown contamination or herbal activity cannot establish a valid test result; other domains also use disclosed authored dryness/integrity priors. Consuming or mixing stock invalidates unsupported sample measurements; an old dirty-water sample cannot be applied to newly received water.
 - Decision records expose the chosen sequence, alternatives, cited evidence and linked results. Scores are disclosed as heuristic estimates, not survival probabilities or hidden human-like thoughts.
-- The one-to-five limit, permanent death, explicit observer replacement and sole-survivor companion decision remain covered by regression tests. No survival score is improved through hidden respawning.
+- The one-to-five limit and permanent death remain covered by regression tests. The sole-survivor companion decision is retained only in the frozen legacy engine; policy 2 now uses the explicit succession rules above.
 
 ### Continuity and retained evidence
 

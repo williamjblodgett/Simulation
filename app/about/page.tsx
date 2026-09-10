@@ -5,7 +5,7 @@ import styles from "./about.module.css";
 
 export const metadata: Metadata = {
   title: "How agent autonomy works · Simulation",
-  description: "A plain-language explanation of the Simulation survival agents, their one supplied goal, and how they decide what to do.",
+  description: "How Simulation agents make survival decisions and choose whether to support a next generation.",
 };
 
 const cycle = [
@@ -26,9 +26,9 @@ export default function AboutPage() {
       </section>
       <section className={styles.goal}>
         <HeartPulse size={26} />
-        <span>The only pre-given objective</span>
+        <span>The original primary objective</span>
         <h2>Survive as long as possible.</h2>
-        <p>Every agent starts from this same broad objective. No agent receives a preset personality, profession, job, faction, preferred strategy, religion, enemy, or scripted life story.</p>
+        <p>Every agent starts from this same primary objective. No agent receives a preset personality, profession, job, faction, preferred strategy, religion, enemy, or scripted life story. The next-generation update adds a separate optional continuity objective: an agent can choose to fund a successor, but its immediate survival takes priority.</p>
       </section>
       <section className={styles.cycle}>
         <div><p>ONE DECISION CYCLE</p><h2>What autonomy means here</h2></div>
@@ -41,7 +41,9 @@ export default function AboutPage() {
       <section className={styles.boundary}>
         <h2>Autonomous does not mean conscious.</h2>
         <p>These are deterministic simulation agents with bounded perception, planning, uncertainty, memory, and outcome learning—not sentient beings and not hidden chatbots. Their recorded intent explains the simulation factors used in a decision; it is not private chain-of-thought.</p>
-        <p>Death is permanent. The simulation never silently replaces an agent. After a death leaves a vacant configured slot, a user may explicitly introduce one new independent agent, and that intervention is logged. If exactly one survivor remains, that agent alone may decide whether to request one companion.</p>
+        <p>You can add an independent agent at any time before the observation period ends, up to five living agents. Additions are logged and do not restart the world. This also works after extinction.</p>
+        <p>Death remains permanent. After gaining six modeled hours of experience, an agent can choose to reserve 0.5 food and 0.5 water for a successor, while retaining its own reserves. A living agent can also sponsor a successor after personally observing a death. It can decline or wait; a repeated random roll never forces the choice.</p>
+        <p>A funded plan creates one new life after the predecessor dies and a slot is vacant, even if the plan was made before the last agent died. The supplies transfer once. The new agent has a lineage record but no inherited memories, research, personality or role. This is an abstract admission model—not biological reproduction, resurrection, or proof that an individual can benefit after death. The continuity preference is explicitly designed, not discovered intelligence. No new life is admitted after the configured observation duration ends.</p>
       </section>
     </main>
   );

@@ -58,8 +58,8 @@ export function TimelineView({ world, onLocate, events: archivedEvents, archiveS
   function eventAgentLabel(id: string, compact = false) {
     const agent = world.agents.find((candidate) => candidate.id === id);
     if (!agent) return compact ? "A?" : `Unknown agent · ${id}`;
-    if (compact) return `${agent.label}·G${agent.slotGeneration}`;
-    return `${agent.label} · generation ${agent.slotGeneration} · ${agent.name}`;
+    if (compact) return `${agent.label}·E${agent.slotGeneration}`;
+    return `${agent.label} · entry ${agent.slotGeneration} · generation ${agent.lineage?.generation ?? 1} · ${agent.name}`;
   }
 
   function revealNewest() {

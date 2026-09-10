@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { SurvivalAgent, SurvivalRunState } from "../simulation/survival";
 import { activityLabel, AgentPortrait, ConditionLine, NeedMeter } from "./presentation";
 import styles from "./survival-experience.module.css";
+import { AgentAdmission } from "./agent-admission";
 
 interface AgentsViewProps {
   world: SurvivalRunState;
@@ -24,6 +25,7 @@ export function AgentsView({ world, selectedId, onInspect, onViewInWorld }: Agen
   });
   return <section className={styles.screenView} aria-labelledby="agents-heading">
     <header className={styles.screenHeading}><div><span>Independent lives</span><h1 id="agents-heading">Agents</h1></div><div className={styles.recordCount}><Users size={15} />{world.stats.livingAgents} living</div></header>
+    <AgentAdmission world={world}/>
     <div className={styles.scopeButtons}><button type="button" aria-pressed={!allLives} onClick={() => setAllLives(false)}>Current agents</button><button type="button" aria-pressed={allLives} onClick={() => setAllLives(true)}>All lives · {world.agents.length}</button></div>
     <div className={styles.agentDirectory}>
       {(allLives ? world.agents : currentRecords).map((agent) => <article key={agent.id} data-selected={selectedId === agent.id} data-alive={agent.alive}>
@@ -34,7 +36,7 @@ export function AgentsView({ world, selectedId, onInspect, onViewInWorld }: Agen
         </button>
         <button type="button" className={styles.viewWorldButton} onClick={() => onViewInWorld(agent)} disabled={!agent.alive}><Eye size={16} />{agent.alive ? "View in world" : "Not in current world"}</button>
       </article>)}
-      {world.stats.livingAgents < world.config.agentCap ? <div className={styles.emptyAgentSlot}><span>Vacant habitat slot</span><p>Only an explicit observer replacement—or a sole survivor&apos;s independent companion request—can fill this slot.</p></div> : null}
+      {world.stats.livingAgents < 5 && world.status !== "completed" ? <div className={styles.emptyAgentSlot}><span>Room for another life</span><p>You can add an agent above. Agents can also choose to fund a next generation; an empty slot never forces them to do so.</p></div> : null}
     </div>
   </section>;
 }

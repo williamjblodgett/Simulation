@@ -3,6 +3,7 @@ import { driftNeeds } from "./physiology";
 import { researchMaterialEvidence } from "./research-evidence";
 import { advanceSurvivalRun as advanceBaseline } from "./baseline-engine";
 import { evaluateDonation, planFromPrivateKnowledge, survivalPotential } from "./planner";
+import { evaluateSuccession, SUCCESSION_MATURITY_STEPS, SUCCESSION_PROVISIONS, SUCCESSION_REVIEW_STEPS } from "./succession";
 import { chooseExperimentDose, evaluateCausalExperiment, hasReplicatedCausalEffect, preparedMaterialContext } from "./experiments";
 import { survivalBetween, survivalHash, survivalSeedToUint32, survivalUnit } from "./random";
 import type {
@@ -45,7 +46,7 @@ import type {
   WeatherKind,
 } from "./types";
 
-export const SURVIVAL_SCHEMA_VERSION = 1 as const;
+export const SURVIVAL_SCHEMA_VERSION = 2 as const;
 export const SURVIVAL_STEP_MINUTES = 10 as const;
 export const SURVIVAL_EVENT_RING_LIMIT = 512 as const;
 export const SURVIVAL_OBJECTIVE: SurvivalObjective = Object.freeze({
@@ -107,7 +108,7 @@ const GOAL_KINDS: readonly AgentGoalKind[] = [
 const EVENT_TYPES: readonly SurvivalEventType[] = [
   "run_started", "agent_added", "agent_died", "decision_recorded", "action_outcome", "resource_observed",
   "structure_built", "social_proposal", "social_accepted", "social_refused", "experiment", "discovery",
-  "sole_survivor_decision", "run_completed", "run_extinct",
+  "sole_survivor_decision", "succession_enabled", "succession_decision", "run_completed", "run_extinct",
 ];
 const EVENT_CATEGORIES: readonly SurvivalEventCategory[] = ["run", "agent", "survival", "social", "research", "environment"];
 
@@ -242,7 +243,7 @@ function assertAgentLimit(value: number, label: string): asserts value is AgentL
 function normalizeOptions(options: SurvivalRunOptions): SurvivalRunState["config"] {
   const requestedCount = options.agentCount ?? options.agentCap ?? 3;
   assertAgentLimit(requestedCount, "agentCount");
-  const requestedCap = options.agentCap ?? Math.max(3, requestedCount);
+  const requestedCap = options.agentCap ?? 5;
   assertAgentLimit(requestedCap, "agentCap");
   if (requestedCount > requestedCap) throw new RangeError("agentCount cannot exceed agentCap.");
 
@@ -375,9 +376,11 @@ function initialNeeds(): SurvivalNeeds {
 function makeAgent(
   state: SurvivalRunState,
   source: SurvivalAgent["spawnSource"],
+  preferredSlot?: AgentLimit,
 ): SurvivalAgent {
   const occupied = new Set(state.agents.filter(({ alive }) => alive).map(({ slot }) => slot));
-  const slotNumber = [1, 2, 3, 4, 5].find((slot) => slot <= state.config.agentCap && !occupied.has(slot as AgentLimit));
+  const available = [1, 2, 3, 4, 5].filter((slot) => slot <= state.config.agentCap && !occupied.has(slot as AgentLimit));
+  const slotNumber = preferredSlot && available.includes(preferredSlot) ? preferredSlot : available[0];
   if (slotNumber === undefined) throw new Error("No available agent slot.");
   const slot = slotNumber as AgentLimit;
   const slotGeneration = state.agents.filter((agent) => agent.slot === slot).length + 1;
@@ -444,6 +447,7 @@ export function createSurvivalRun(seedInput: SurvivalSeed, options: SurvivalRunO
   const config = normalizeOptions(options);
   const seed = survivalSeedToUint32(seedInput);
   const state: SurvivalRunState = {
+    succession: { version: 1, enabledAt: 0, plans: [] },
     policyVersion: 2,
     schemaVersion: SURVIVAL_SCHEMA_VERSION,
     id: `survival-${survivalHash(seed, "run").toString(36)}`,
@@ -512,6 +516,8 @@ export function createSurvivalRun(seedInput: SurvivalSeed, options: SurvivalRunO
       agentCap: config.agentCap,
       initialAgentCount: config.initialAgentCount,
       durationHours: config.durationHours,
+      successionVersion: 1,
+      continuityObjective: "Optional next-generation continuity, subordinate to immediate survival.",
     },
   });
   trimEventWindow(state);
@@ -2043,7 +2049,7 @@ function markDead(state: SurvivalRunState, agent: SurvivalAgent): void {
     category: "agent",
     agentIds: [agent.id],
     summary: `${agent.label} died from ${agent.causeOfDeath}.`,
-    outcome: "The death is permanent; no automatic replacement occurred.",
+    outcome: "This life has ended permanently. Only an earlier funded succession plan, a living agent's later choice, or an observer introduction can create a new life.",
     position: agent.position,
     facts: { cause: agent.causeOfDeath },
   });
@@ -2053,66 +2059,88 @@ function livingAgents(state: SurvivalRunState): SurvivalAgent[] {
   return state.agents.filter(({ alive }) => alive);
 }
 
-function evaluateSoleSurvivor(state: SurvivalRunState, beforeCount: number): void {
-  const survivors = livingAgents(state);
-  const soleAgent = survivors[0];
-  const restartDecisionPending = survivors.length === 1
-    && state.soleSurvivor.agentId === soleAgent?.id
-    && state.soleSurvivor.decidedAt === null
-    && state.soleSurvivor.decision === null;
-  if ((beforeCount <= 1 && !restartDecisionPending) || survivors.length !== 1 || state.config.agentCap <= 1) {
-    state.soleSurvivor.previousLivingCount = survivors.length;
-    return;
-  }
-  const agent = soleAgent;
-  const needSecurity = (agent.needs.health + agent.needs.hydration + agent.needs.nutrition + agent.needs.safety) / 400;
-  const carriedSupplies = Math.min(1, (agent.inventory.freshwater + agent.inventory.food) / 6);
-  const shelterKnown = nearestKnownStructure(agent, "shelter") ? 1 : 0;
-  const observedProspects = Math.min(1, resourceObservations(agent).length / 8);
-  const socialRecord = agent.memory.filter(({ action, result }) => (
-    (action === "share" || action === "request" || action === "cooperate") && result === "helpful"
-  )).length;
-  const noise = survivalBetween(state.seed, -0.21, 0.21, "sole-survivor", state.tick, agent.id);
-  const score = rounded(
-    needSecurity * 0.34
-      + carriedSupplies * 0.15
-      + shelterKnown * 0.12
-      + observedProspects * 0.08
-      + Math.min(0.12, socialRecord * 0.03)
-      + noise,
-    3,
-  );
-  const requests = score >= 0.46;
-  const rationale = requests
-    ? `Recorded decision: available needs, supplies, shelter knowledge, resource observations, and prior social outcomes produced a companion-request score of ${score.toFixed(3)}.`
-    : `Recorded decision: current needs, supplies, shelter knowledge, resource observations, and prior social outcomes produced a stay-alone score of ${(1 - score).toFixed(3)}.`;
-  state.soleSurvivor = {
-    epoch: state.soleSurvivor.epoch + 1,
-    previousLivingCount: 1,
-    agentId: agent.id,
-    decidedAt: state.tick,
-    decision: requests ? "requested" : "declined",
-    rationale,
-    companionAgentId: null,
-  };
+function enableSuccession(state: SurvivalRunState): void {
+  state.schemaVersion = SURVIVAL_SCHEMA_VERSION;
+  if (state.succession) return;
+  state.succession = { version: 1, enabledAt: state.tick, plans: [] };
   makeEvent(state, {
-    type: "sole_survivor_decision",
-    category: "social",
-    agentIds: [agent.id],
-    summary: requests ? `${agent.label} requested one companion.` : `${agent.label} chose to remain alone.`,
-    outcome: rationale,
-    position: agent.position,
-    facts: { score, decision: requests ? "requested" : "declined" },
+    type: "succession_enabled", category: "run",
+    summary: "Next-generation choices became available in this study.",
+    outcome: "The updated rules add an optional continuity objective alongside individual survival. No life was replaced and no supplies were created.",
+    facts: { version: 1 },
   });
-  if (requests) {
-    const { agent: companion } = introduceAgent(
-      state,
-      "autonomous_companion",
-      `${agent.label}'s sole-survivor decision introduced one companion.`,
-      false,
-    );
-    state.soleSurvivor.companionAgentId = companion.id;
-    state.soleSurvivor.previousLivingCount = 2;
+}
+
+function reviewSuccession(state: SurvivalRunState, agent: SurvivalAgent): void {
+  if (!state.succession || state.tick - agent.spawnedAt < SUCCESSION_MATURITY_STEPS || (agent.successionReview?.reconsiderAfter ?? 0) > state.tick) return;
+  if (state.config.durationHours !== null && state.elapsedMinutes >= state.config.durationHours * 60) return;
+  // Only personally received funding receipts influence target selection.
+  const knownPlans = new Set(agent.knownSuccessionPredecessors ?? []);
+  const observedLoss = agent.observations.filter(o => o.kind === "agent" && o.facts.alive === false && o.confidence >= .5 && state.tick - o.observedAt <= 144 && !knownPlans.has(o.subjectId))
+    .sort((a,b) => b.observedAt-a.observedAt || a.subjectId.localeCompare(b.subjectId))[0];
+  const predecessorId = observedLoss?.subjectId ?? (!knownPlans.has(agent.id) ? agent.id : null);
+  if (!predecessorId) return;
+  const predecessor = state.agents.find(other => other.id === predecessorId);
+  if (!predecessor || (predecessorId !== agent.id && predecessor.alive)) return;
+  const review = evaluateSuccession(agent, state.tick, predecessorId);
+  const requestedChoice = review.choice;
+  // Admission is an execution result, not secret knowledge fed into preference.
+  if (review.choice === "planned") {
+    agent.knownSuccessionPredecessors = [...knownPlans, predecessorId];
+    if (state.succession.plans.some(plan => plan.predecessorId === predecessorId)) {
+      review.choice = "deferred";
+      review.rationale = "Chose to fund a successor, but admission reported that this predecessor already has a funded plan. No supplies were spent. This receipt is now known to the agent.";
+    }
+  }
+  const previous = agent.successionReview;
+  agent.successionReview = review;
+  if (review.choice === "planned") {
+    for (const kind of ["freshwater", "food"] as const) {
+      agent.inventory[kind] = rounded(agent.inventory[kind] - SUCCESSION_PROVISIONS[kind]);
+      // A separated sample must not remain evidence for the remaining stock.
+      if (agent.materialSamples) delete agent.materialSamples[kind];
+    }
+    state.succession.plans.push({
+      id: `succession-${predecessor.id}`, predecessorId, sponsorId: agent.id,
+      mode: review.mode, plannedAt: state.tick, position: {...agent.position},
+      rationale: review.rationale, score: review.score, evidence: structuredClone(review.evidence),
+      provisions: {...SUCCESSION_PROVISIONS}, status: "pending", successorId: null, fulfilledAt: null,
+    });
+  }
+  if (review.choice !== "deferred" || !previous || previous.choice !== review.choice || previous.predecessorId !== predecessorId) {
+    makeEvent(state, {
+      type: "succession_decision", category: "agent", agentIds: [...new Set([agent.id, predecessorId])],
+      summary: review.choice === "planned"
+        ? `${agent.label} planned a next generation ${review.mode === "before_death" ? "for after its own death" : `after observing ${predecessor.label}'s death`}.`
+        : `${agent.label} ${review.choice === "declined" ? "declined" : "deferred"} successor planning.`,
+      outcome: review.choice === "planned" ? `${review.rationale} Set aside 0.5 food and 0.5 water; a new life still requires the predecessor's death and a vacant slot.` : review.rationale,
+      position: agent.position, facts: { choice: review.choice, requestedChoice, mode: review.mode, score: review.score, predecessorId },
+    });
+  }
+}
+
+function fulfillSuccession(state: SurvivalRunState): void {
+  // Duration wins over every pending admission, including the last agent's death.
+  if (!state.succession || (state.config.durationHours !== null && state.elapsedMinutes >= state.config.durationHours * 60)) return;
+  for (const plan of state.succession.plans) {
+    if (plan.status !== "pending" || livingAgents(state).length >= state.config.agentCap) continue;
+    const predecessor = state.agents.find(agent => agent.id === plan.predecessorId);
+    if (!predecessor || predecessor.alive) continue;
+    const child = makeAgent(state, "autonomous_successor", predecessor.slot);
+    child.position = {...plan.position};
+    child.lineage = { generation: (predecessor.lineage?.generation ?? 1) + 1, predecessorId: predecessor.id, sponsorId: plan.sponsorId, planId: plan.id };
+    child.name = `Agent ${child.label} · Generation ${child.lineage.generation}`;
+    child.inventory.freshwater = plan.provisions.freshwater;
+    child.inventory.food = plan.provisions.food;
+    state.agents.push(child);
+    state.stats.totalAgentsIntroduced++;
+    plan.status = "fulfilled"; plan.successorId = child.id; plan.fulfilledAt = state.tick;
+    makeEvent(state, {
+      type: "agent_added", category: "agent", agentIds: [...new Set([child.id, predecessor.id, plan.sponsorId])],
+      summary: `${child.label} entered as generation ${child.lineage.generation}, succeeding ${predecessor.label}.`,
+      outcome: "A new life received the previously reserved starter supplies, but no inherited memories, roles or research. The predecessor remains dead.",
+      position: child.position, facts: { source: child.spawnSource, planId: plan.id, predecessorId: predecessor.id, sponsorId: plan.sponsorId, generation: child.lineage.generation, slot: child.slot, food: plan.provisions.food, freshwater: plan.provisions.freshwater },
+    });
   }
 }
 
@@ -2149,12 +2177,12 @@ function updateRunStatus(state: SurvivalRunState): void {
 }
 
 function advanceOneStep(state: SurvivalRunState): void {
-  const beforeCount = livingAgents(state).length;
   state.tick += 1;
   state.elapsedMinutes += SURVIVAL_STEP_MINUTES;
   state.day = Math.floor(state.elapsedMinutes / (24 * 60)) + 1;
   state.timeOfDay = state.elapsedMinutes % (24 * 60);
   updateEnvironment(state);
+  enableSuccession(state);
 
   const activeAgents = livingAgents(state).sort((left, right) => left.id.localeCompare(right.id));
   for (const agent of activeAgents) {
@@ -2168,6 +2196,7 @@ function advanceOneStep(state: SurvivalRunState): void {
       continue;
     }
     perceive(state, agent);
+    reviewSuccession(state, agent);
     if (agent.currentPlan?.status === "active" && shouldAbandonForUrgency(agent)) {
       agent.currentPlan.status = "abandoned";
     }
@@ -2177,7 +2206,8 @@ function advanceOneStep(state: SurvivalRunState): void {
     executePlanStep(state, agent);
     if (agent.needs.health <= 0) markDead(state, agent);
   }
-  evaluateSoleSurvivor(state, beforeCount);
+  fulfillSuccession(state);
+  state.soleSurvivor.previousLivingCount = livingAgents(state).length;
   updateRunStatus(state);
 }
 
@@ -2208,15 +2238,11 @@ export function addObserverAgent(stateInput: SurvivalRunState): AddObserverAgent
     return { ok: false, state, agent: null, event: null, reason: "run_completed" };
   }
   const survivors = livingAgents(state);
-  if (survivors.length >= state.config.agentCap) {
+  if (survivors.length >= 5) {
     return { ok: false, state, agent: null, event: null, reason: "agent_cap_reached" };
   }
-  if (!state.agents.some((agent) => !agent.alive)) {
-    return { ok: false, state, agent: null, event: null, reason: "replacement_not_available" };
-  }
-  if (survivors.length === 1) {
-    return { ok: false, state, agent: null, event: null, reason: "sole_survivor_decides" };
-  }
+  const previousCap = state.config.agentCap;
+  state.config.agentCap = 5;
   const priorStatus = state.status;
   const { agent, event } = introduceAgent(
     state,
@@ -2225,12 +2251,13 @@ export function addObserverAgent(stateInput: SurvivalRunState): AddObserverAgent
     true,
   );
   state.stats.observerInterventions += 1;
+  if (event) event.facts.previousAgentCap = previousCap;
   if (priorStatus === "extinct") {
     state.status = "running";
     state.soleSurvivor = {
       epoch: state.soleSurvivor.epoch,
       previousLivingCount: 1,
-      agentId: state.config.agentCap > 1 ? agent.id : null,
+      agentId: state.policyVersion !== 2 && state.config.agentCap > 1 ? agent.id : null,
       decidedAt: null,
       decision: null,
       rationale: null,
@@ -2321,7 +2348,8 @@ function isNeedSet(value: unknown): value is SurvivalNeeds {
 export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
   if (!isRecord(value) || !isJsonSafe(value)) return false;
   if (value.policyVersion !== undefined && value.policyVersion !== 1 && value.policyVersion !== 2) return false;
-  if (value.schemaVersion !== SURVIVAL_SCHEMA_VERSION) return false;
+  if (value.schemaVersion !== 1 && value.schemaVersion !== SURVIVAL_SCHEMA_VERSION) return false;
+  if (value.schemaVersion === SURVIVAL_SCHEMA_VERSION && value.policyVersion !== 2) return false;
   if (!isRecord(value.config) || !isRecord(value.environment) || !isRecord(value.stats) || !isRecord(value.nextIds) || !isRecord(value.soleSurvivor) || !isRecord(value.eventWindow)) return false;
   if (!Array.isArray(value.agents) || !Array.isArray(value.events)) return false;
   const rawAgents = value.agents;
@@ -2388,7 +2416,7 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
     ids.add(rawAgent.id);
     if (!Number.isInteger(rawAgent.slot) || Number(rawAgent.slot) < 1 || Number(rawAgent.slot) > Number(config.agentCap)) return false;
     if (rawAgent.label !== `A${rawAgent.slot}` || !Number.isInteger(rawAgent.slotGeneration) || Number(rawAgent.slotGeneration) < 1) return false;
-    if (typeof rawAgent.name !== "string" || !(rawAgent.spawnSource === "initial" || rawAgent.spawnSource === "observer" || rawAgent.spawnSource === "autonomous_companion")) return false;
+    if (typeof rawAgent.name !== "string" || !["initial", "observer", "autonomous_companion", "autonomous_successor"].includes(String(rawAgent.spawnSource))) return false;
     if (!isNonNegativeInteger(rawAgent.spawnedAt) || rawAgent.spawnedAt > value.tick || !isPosition(rawAgent.position, bounds)) return false;
     if (typeof rawAgent.alive !== "boolean" || !isNeedSet(rawAgent.needs)) return false;
     if (rawAgent.alive && (rawAgent.diedAt !== null || rawAgent.causeOfDeath !== null)) return false;
@@ -2573,6 +2601,7 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
     }
   }
   if (livingSlots.size > Number(config.agentCap)) return false;
+  if (!validateSuccessionState(value as unknown as SurvivalRunState)) return false;
 
   const eventIds = new Set<string>();
   const eventSequenceNumbers: number[] = [];
@@ -2654,6 +2683,58 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
   if (!(sole.decidedAt === null || (isNonNegativeInteger(sole.decidedAt) && sole.decidedAt <= value.tick))) return false;
   if (!(sole.decision === null || sole.decision === "requested" || sole.decision === "declined")) return false;
   return true;
+}
+
+function validateSuccessionState(state: SurvivalRunState): boolean {
+  const { succession, agents, tick } = state;
+  if (succession === undefined) return agents.every(a => a.lineage === undefined && a.successionReview === undefined && a.knownSuccessionPredecessors === undefined && a.spawnSource !== "autonomous_successor");
+  if (state.policyVersion !== 2 || !isRecord(succession) || succession.version !== 1 || !isNonNegativeInteger(succession.enabledAt) || succession.enabledAt > tick || !Array.isArray(succession.plans) || succession.plans.length > agents.length) return false;
+  const byId = new Map(agents.map(a => [a.id, a]));
+  const evidenceValid = (value: unknown, owner: SurvivalAgent, when: number) => Array.isArray(value) && value.length <= 5 && new Set(value.map(o => o?.id)).size === value.length && value.every(o =>
+    isRecord(o) && typeof o.id === "string" && o.observerId === owner.id && typeof o.subjectId === "string" && ["agent","resource","weather","structure"].includes(String(o.kind))
+    && isNonNegativeInteger(o.observedAt) && o.observedAt <= when && isFiniteNumber(o.confidence,0,1)
+    && (o.receivedAt === undefined ? o.observedAt >= owner.spawnedAt : isNonNegativeInteger(o.receivedAt) && o.receivedAt >= Math.max(owner.spawnedAt,o.observedAt) && o.receivedAt <= when)
+    && (o.position === null || isPosition(o.position,state.environment.bounds)) && isRecord(o.facts));
+  for (const agent of agents) {
+    const receipts = agent.knownSuccessionPredecessors;
+    if (receipts !== undefined && (!Array.isArray(receipts) || receipts.length > agents.length || new Set(receipts).size !== receipts.length || !receipts.every(id => typeof id === "string" && succession.plans.some(p => p?.predecessorId === id)))) return false;
+    const lineage = agent.lineage;
+    if (lineage !== undefined && (!isRecord(lineage) || agent.spawnSource !== "autonomous_successor" || !Number.isInteger(lineage.generation) || lineage.generation < 2 || !byId.has(lineage.predecessorId) || !byId.has(lineage.sponsorId) || typeof lineage.planId !== "string")) return false;
+    if (agent.spawnSource === "autonomous_successor" && !lineage) return false;
+    const review = agent.successionReview;
+    if (review !== undefined) {
+      if (!isRecord(review) || !byId.has(review.predecessorId) || !["before_death","after_death"].includes(review.mode) || (review.mode === "before_death") !== (review.predecessorId === agent.id)) return false;
+      if (!isNonNegativeInteger(review.checkedAt) || review.checkedAt < Math.max(succession.enabledAt,agent.spawnedAt + SUCCESSION_MATURITY_STEPS) || review.checkedAt > tick || (agent.diedAt !== null && review.checkedAt > agent.diedAt) || review.reconsiderAfter !== review.checkedAt + SUCCESSION_REVIEW_STEPS) return false;
+      if (!["planned","deferred","declined"].includes(review.choice) || typeof review.rationale !== "string" || review.rationale.length > 2000 || !isFiniteNumber(review.score,0,1) || !evidenceValid(review.evidence,agent,review.checkedAt)) return false;
+      if (review.mode === "after_death") {
+        const predecessor = byId.get(review.predecessorId)!;
+        if (predecessor.alive || predecessor.diedAt === null || predecessor.diedAt > review.checkedAt || !review.evidence.some(o => o.kind === "agent" && o.subjectId === predecessor.id && o.facts.alive === false && o.observedAt >= predecessor.diedAt!)) return false;
+      }
+      if (review.choice === "planned" && !succession.plans.some(p => p?.sponsorId === agent.id && p?.predecessorId === review.predecessorId && p?.plannedAt === review.checkedAt)) return false;
+    }
+  }
+  const predecessors = new Set<string>(), children = new Set<string>();
+  for (const plan of succession.plans) {
+    if (!isRecord(plan) || typeof plan.predecessorId !== "string" || typeof plan.sponsorId !== "string" || plan.id !== `succession-${plan.predecessorId}` || predecessors.has(plan.predecessorId)) return false;
+    predecessors.add(plan.predecessorId);
+    const predecessor = byId.get(plan.predecessorId), sponsor = byId.get(plan.sponsorId);
+    if (!predecessor || !sponsor || !["before_death","after_death"].includes(plan.mode) || (plan.mode === "before_death") !== (predecessor.id === sponsor.id)) return false;
+    if (!isNonNegativeInteger(plan.plannedAt) || plan.plannedAt < succession.enabledAt || plan.plannedAt < sponsor.spawnedAt + SUCCESSION_MATURITY_STEPS || plan.plannedAt > tick || (sponsor.diedAt !== null && plan.plannedAt > sponsor.diedAt)) return false;
+    if (typeof plan.rationale !== "string" || plan.rationale.length > 2000 || !isFiniteNumber(plan.score,0,1) || !isPosition(plan.position,state.environment.bounds) || !evidenceValid(plan.evidence,sponsor,plan.plannedAt)) return false;
+    if (plan.mode === "after_death" && (predecessor.alive || predecessor.diedAt === null || predecessor.diedAt > plan.plannedAt || !plan.evidence.some(o => o.kind === "agent" && o.subjectId === predecessor.id && o.facts.alive === false && o.observedAt >= predecessor.diedAt!))) return false;
+    if (!isRecord(plan.provisions) || plan.provisions.freshwater !== SUCCESSION_PROVISIONS.freshwater || plan.provisions.food !== SUCCESSION_PROVISIONS.food || Object.keys(plan.provisions).length !== 2) return false;
+    if (plan.status === "pending") {
+      if (plan.successorId !== null || plan.fulfilledAt !== null) return false;
+    } else if (plan.status === "fulfilled") {
+      const child = typeof plan.successorId === "string" ? byId.get(plan.successorId) : null;
+      if (!child || children.has(child.id) || child.spawnSource !== "autonomous_successor" || child.lineage?.planId !== plan.id || child.lineage.predecessorId !== predecessor.id || child.lineage.sponsorId !== sponsor.id || child.lineage.generation !== (predecessor.lineage?.generation ?? 1) + 1) return false;
+      if (!isNonNegativeInteger(plan.fulfilledAt) || plan.fulfilledAt < plan.plannedAt || plan.fulfilledAt > tick || child.spawnedAt !== plan.fulfilledAt || predecessor.alive || predecessor.diedAt === null || predecessor.diedAt > plan.fulfilledAt) return false;
+      if (sequenceNumber(predecessor.id,"agent")! >= sequenceNumber(child.id,"agent")! || sequenceNumber(sponsor.id,"agent")! >= sequenceNumber(child.id,"agent")!) return false;
+      children.add(child.id);
+    } else return false;
+  }
+  if (state.status === "extinct" && succession.plans.some(p => p.status === "pending" && byId.get(p.predecessorId)?.alive === false)) return false;
+  return agents.filter(a => a.spawnSource === "autonomous_successor").every(a => children.has(a.id));
 }
 
 export function restoreSurvivalRun(input: string | unknown): SurvivalRunState {

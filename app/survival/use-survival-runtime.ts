@@ -196,10 +196,19 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
       try {
         await locked(async () => {
           const saved = await loadCheckpoint();
-          if (saved) { if (!validateSurvivalRun(saved.world)) throw new Error("The saved checkpoint is invalid; it has not been replaced."); accept(saved); return; }
+          if (saved) {
+            if (!validateSurvivalRun(saved.world)) throw new Error("The saved checkpoint is invalid; it has not been replaced.");
+            if (saved.world.policyVersion === 2 && saved.world.schemaVersion === 1) {
+              // Fence already-open pre-succession clients: their validator rejects
+              // schema 2, so their workers cannot silently advance the old rules.
+              await save({ ...saved, revision: saved.revision + 1, savedAt: Date.now(), world: { ...saved.world, schemaVersion: 2 } }, [], saved.revision);
+            } else accept(saved);
+            return;
+          }
           const legacy = loadStoredRun();
           if (legacy.recoveryNotice) throw new Error(legacy.recoveryNotice);
-          const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { agentCount: 3, agentCap: 3, durationHours: 72 });
+          const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { agentCount: 3, agentCap: 5, durationHours: 72 });
+          if (world.policyVersion === 2) world.schemaVersion = 2;
           await save({ runInstanceId: crypto.randomUUID(), revision: 1, savedAt: Date.now(), speed: 1, world, missingBefore: world.eventWindow.droppedEvents }, world.events, null);
         });
       } catch (error) {
@@ -243,7 +252,7 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
         if (epoch !== generation.current || disposed.current) return;
         const next = { ...source, revision: source.revision + 1, savedAt: Date.now(), world: result.state };
         await save(next, result.events, source.revision);
-        const important = result.events.filter(e => ["agent_added", "agent_died", "discovery", "sole_survivor_decision", "run_completed", "run_extinct"].includes(e.type));
+        const important = result.events.filter(e => ["agent_added", "agent_died", "discovery", "sole_survivor_decision", "succession_decision", "run_completed", "run_extinct"].includes(e.type));
         if (important.length) setLastEvents(important.slice(-2).map(e => e.summary + " " + e.outcome));
       }).catch(error => {
         if (epoch !== generation.current || disposed.current) return;

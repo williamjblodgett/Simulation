@@ -538,6 +538,19 @@
 .dayGroup time { font-size: 12px; }
 .timelineView > .screenHeading { margin-bottom: 14px; }
 .newRun .environmentPreview { height: 120px; background: #17232f; border: 1px solid var(--border); }
+.admission { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+.admission > div { flex: 1 1 180px; }
+.admission strong { font-size: 16px; }
+.admission p { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.admission > button { min-height: 48px; padding: 0 16px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border); border-radius: 12px; background: #203b53; color: var(--text); cursor: pointer; font-size: 15px; }
+.admission > button:disabled { opacity: .5; cursor: default; }
+.admissionMessage { flex-basis: 100%; }
+.successionSummary { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+.successionSummary h2 { font-size: 18px; margin: 0 0 8px; }
+.successionSummary p { font-size: 15px; line-height: 1.55; }
+.successionSummary small,.successionPlan small { font-size: 13px; color: var(--muted); line-height: 1.5; }
+.successionPlan,.lineageRecord { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.lineageLink { min-height: 44px; padding: 5px 0; display: inline; border: 0; background: none; color: #8cc3ff; text-decoration: underline; text-underline-offset: 3px; text-align: left; cursor: pointer; font-size: 14px; }
 .environmentPreview { margin: 0; }
 .environmentPreview::before { display: none; }
 .environmentPreview > img { width: 100%; height: 100%; object-fit: cover; }

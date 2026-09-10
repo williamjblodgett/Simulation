@@ -6,6 +6,7 @@ import type { SurvivalAgent, SurvivalRunState } from "../simulation/survival";
 import { activityLabel, AgentPortrait, ConditionLine, humanize, NeedMeter } from "./presentation";
 import styles from "./survival-experience.module.css";
 import { AgentKnowledge } from "./agent-knowledge";
+import { SuccessionRecord } from "./succession-record";
 
 export type InspectorLevel = "peek" | "half" | "expanded";
 
@@ -66,6 +67,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
     </div>
 
     <div className={styles.inspectorExpanded}>
+      <SuccessionRecord world={world} agent={agent} onSelectAgent={onSelectAgent}/>
       {decision ? <section className={styles.recordSection}>
         <header><Route size={17} /><div><span>Decision evidence</span><small>{decision.id} · {(world.tick - decision.decidedAt) * world.config.stepMinutes} modeled minutes ago</small></div></header>
         <p>{choice?.planActions?.map(humanize).join(" → ") ?? decision.recordedIntent}</p>

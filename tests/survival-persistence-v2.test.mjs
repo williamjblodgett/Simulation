@@ -93,3 +93,19 @@ test("envelope validation rejects malformed revision, speed, identity and world"
   const good=envelope(); assert.equal(validateCheckpoint(good),true);
   for(const change of [{revision:NaN},{speed:3},{runInstanceId:""},{world:null},{missingBefore:-1}]) assert.equal(validateCheckpoint({...good,...change}),false);
 });
+
+test("next-generation version fence survives both backup creation and recovery of an older backup", async () => {
+  await clearDB();
+  const world=createSurvivalRun("fence-recovery"); delete world.succession; world.schemaVersion=1;
+  const first=envelope(world); await commitCheckpoint(first,world.events,null);
+  const fenced=envelope({...world,schemaVersion:2},2); await commitCheckpoint(fenced,[],1);
+  const backup=await loadCheckpoint("last-good");
+  assert.equal(backup.world.schemaVersion,2);
+  assert.equal(backup.world.tick,world.tick);
+  assert.deepEqual(backup.world.agents,world.agents);
+  assert.equal((await recoverLastGoodCheckpoint()).world.schemaVersion,2);
+  // Recovery also fences a backup produced by a pre-update client.
+  const db=await rawDB(); await writeRaw(db,"last-good",first); db.close();
+  assert.equal((await recoverLastGoodCheckpoint()).world.schemaVersion,2);
+  assert.equal((await loadCheckpoint()).world.succession,undefined,"no past agent decision is invented by a version-only migration");
+});

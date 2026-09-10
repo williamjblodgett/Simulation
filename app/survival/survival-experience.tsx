@@ -214,7 +214,7 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
 
       <div className={styles.viewLayer} hidden={view !== "agents"}><AgentsView world={world} selectedId={effectiveSelectedId} onInspect={(agent) => { setSelectedId(agent.id); setDirectoryInspectorOpen(true); }} onViewInWorld={(agent) => { selectAgent(agent.id, true); setSheetLevel("half"); navigate("world"); }} /></div>
       <div className={styles.viewLayer} hidden={view !== "timeline"}><TimelineView key={runtime.runInstanceId} world={world} onLocate={locateEvent} events={runtime.historyEvents} archiveStatus={runtime.archiveStatus} hasOlderEvents={runtime.hasOlderEvents} historyFrozen={runtime.historyFrozen} onFreezeHistory={runtime.freezeHistory} onReturnLive={runtime.returnLiveHistory} onLoadOlder={runtime.loadOlderEvents} onExport={runtime.exportHistory} /></div>
-      <div className={styles.viewLayer} hidden={view !== "run"}><RunView methodHref={methodHref} planetHref={planetHref} world={world} storageStatus={runtime.storageStatus} onStart={async (options, seed) => { await runtime.start(options, seed); setSelectedId(null); setFocusPosition(null); setSheetLevel("peek"); setCameraMode("overview"); setManualCamera(false); navigate("world"); }} onAddAgent={runtime.addAgent} /></div>
+      <div className={styles.viewLayer} hidden={view !== "run"}><RunView methodHref={methodHref} planetHref={planetHref} world={world} storageStatus={runtime.storageStatus} onStart={async (options, seed) => { await runtime.start(options, seed); setSelectedId(null); setFocusPosition(null); setSheetLevel("peek"); setCameraMode("overview"); setManualCamera(false); navigate("world"); }} /></div>
     </div>
 
     <BottomNavigation view={view} onChange={navigate} />

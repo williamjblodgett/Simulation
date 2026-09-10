@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createSurvivalRun as baselineCreate } from "../app/simulation/survival/baseline-engine.ts";
 
 import {
   RESEARCH_CATALOG,
@@ -59,10 +60,10 @@ function setForcedStep(state, action, targetId = null, destination = null, goal 
   return agent;
 }
 
-test("creates one through five agents, defaults to three, and supplies only the survival objective", () => {
+test("creates one through five agents, defaults to three with room for five, and retains the primary survival objective", () => {
   const defaults = createSurvivalRun("default-run");
   assert.equal(defaults.agents.length, 3);
-  assert.equal(defaults.config.agentCap, 3);
+  assert.equal(defaults.config.agentCap, 5);
   assert.deepEqual(defaults.config.objective, SURVIVAL_OBJECTIVE);
 
   const one = createSurvivalRun("one-agent", { agentCount: 1, agentCap: 5 });
@@ -231,14 +232,14 @@ test("needs remain high-is-good and bounded; death is permanent without automati
 test("observer addition is explicit, logged, cap-safe, pure, and reuses only a vacant visual slot", () => {
   const noVacancy = createSurvivalRun("no-prior-death", { agentCount: 2, agentCap: 3, durationHours: null });
   const premature = addObserverAgent(noVacancy);
-  assert.equal(premature.ok, false);
-  assert.equal(premature.reason, "replacement_not_available");
+  assert.equal(premature.ok, true);
+  assert.equal(premature.state.config.agentCap, 5);
 
   const run = createSurvivalRun("observer-add", { agentCount: 3, agentCap: 3, durationHours: null });
   run.agents[0].needs.health = 0;
   const afterDeath = advanceSurvivalRun(run, 1).state;
   assert.equal(living(afterDeath).length, 2);
-  assert.equal(afterDeath.events.some(({ type }) => type === "agent_added"), false, "two survivors cannot trigger replacement");
+  assert.equal(afterDeath.events.some(({ type }) => type === "agent_added"), false, "death alone does not trigger replacement");
   const checkpoint = serializeSurvivalRun(afterDeath);
 
   const result = addObserverAgent(afterDeath);
@@ -252,7 +253,10 @@ test("observer addition is explicit, logged, cap-safe, pure, and reuses only a v
   assert.equal(result.state.stats.observerInterventions, 1);
   assert.equal(new Set(living(result.state).map(({ slot }) => slot)).size, 3);
 
-  const full = addObserverAgent(result.state);
+  const fourth = addObserverAgent(result.state);
+  const fifth = addObserverAgent(fourth.state);
+  assert.equal(living(fifth.state).length, 5);
+  const full = addObserverAgent(fifth.state);
   assert.equal(full.ok, false);
   assert.equal(full.reason, "agent_cap_reached");
 
@@ -265,11 +269,11 @@ test("observer addition is explicit, logged, cap-safe, pure, and reuses only a v
   assert.equal(restarted.agent.slotGeneration, 2);
 });
 
-test("a transition to one survivor produces one autonomous companion choice, including request and decline outcomes", () => {
+test("legacy policy preserves its sole-survivor choice while observer admission is expanded", () => {
   let requested = null;
   let declined = null;
   for (let index = 0; index < 120 && (!requested || !declined); index += 1) {
-    const run = createSurvivalRun(`sole-${index}`, { agentCount: 2, agentCap: 3, durationHours: null });
+    const run = baselineCreate(`sole-${index}`, { agentCount: 2, agentCap: 3, durationHours: null });
     run.agents[1].needs.health = 0;
     const state = advanceSurvivalRun(run, 1).state;
     if (state.soleSurvivor.decision === "requested") requested = state;
@@ -287,8 +291,8 @@ test("a transition to one survivor produces one autonomous companion choice, inc
 
   assert.equal(living(declined).length, 1);
   const observerOverride = addObserverAgent(declined);
-  assert.equal(observerOverride.ok, false);
-  assert.equal(observerOverride.reason, "sole_survivor_decides");
+  assert.equal(observerOverride.ok, true);
+  assert.equal(observerOverride.event.intervention, true);
   assert.equal(declined.agents.some(({ spawnSource }) => spawnSource === "autonomous_companion"), false);
   const stillAlone = advanceSurvivalRun(declined, 8).state;
   assert.equal(stillAlone.agents.some(({ spawnSource }) => spawnSource === "autonomous_companion"), false);
@@ -597,8 +601,8 @@ test("checkpoint validation rejects malformed arrays, invalid numerics, mismatch
   assert.throws(() => restoreSurvivalRun({ ...source, events: undefined }), /Invalid survival run checkpoint/);
 });
 
-test("an observer restart after extinction gives the resulting sole survivor exactly one independent companion choice", () => {
-  const run = createSurvivalRun("extinct-restart", { agentCount: 2, agentCap: 3, durationHours: null });
+test("a legacy observer restart retains its independent companion choice and allows another user addition", () => {
+  const run = baselineCreate("extinct-restart", { agentCount: 2, agentCap: 3, durationHours: null });
   for (const agent of run.agents) agent.needs.health = 0;
   const extinct = advanceSurvivalRun(run, 1).state;
   assert.equal(extinct.status, "extinct");
@@ -608,9 +612,8 @@ test("an observer restart after extinction gives the resulting sole survivor exa
   assert.equal(living(restarted.state).length, 1);
   assert.equal(restarted.state.soleSurvivor.agentId, restarted.agent.id);
   assert.equal(restarted.state.soleSurvivor.decision, null);
-  const forbiddenSecondAdd = addObserverAgent(restarted.state);
-  assert.equal(forbiddenSecondAdd.ok, false);
-  assert.equal(forbiddenSecondAdd.reason, "sole_survivor_decides");
+  const secondAdd = addObserverAgent(restarted.state);
+  assert.equal(secondAdd.ok, true);
 
   const decided = advanceSurvivalRun(restarted.state, 1).state;
   assert.ok(decided.soleSurvivor.decision === "requested" || decided.soleSurvivor.decision === "declined");
