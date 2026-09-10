@@ -25,7 +25,8 @@ export function observedPoseFits(input: PrivatePolicyInput, size: Vec3, position
   const bottom=position.y-size.y/2;
   if (bottom>.08 && !parts.some(p => { const q=extent(p.size,p.rotation);return p.supported && Math.abs(bottom-p.position.y-p.size.y/2)<.12 && Math.abs(position.x-p.position.x)<q.x && Math.abs(position.z-p.position.z)<q.z; })) return false;
   const person=input.agent.position;
-  if (bottom<1.6 && Math.abs(person.x-position.x)<e.x+.5 && Math.abs(person.z-position.z)<e.z+.5) return false;
+  const people=[person,...input.agent.observations.filter(o=>o.kind==="agent"&&o.facts.alive===true&&o.position&&input.tick-o.observedAt<6).map(o=>o.position!)];
+  if (bottom<=2.3 && people.some(p=>Math.abs(p.x-position.x)<e.x+.5 && Math.abs(p.z-position.z)<e.z+.5)) return false;
   // Preserve at least one unobstructed exit from the occupied work/rest point.
   return [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dz]) => [0.6,1.2,1.8].every(r => {
     const at={x:person.x+dx*r,z:person.z+dz*r};

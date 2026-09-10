@@ -8,6 +8,7 @@ import styles from "./survival-experience.module.css";
 import { AgentKnowledge } from "./agent-knowledge";
 import { SuccessionRecord } from "./succession-record";
 import { PhysicalRecord, ProjectSummary } from "./physical-record";
+import { DeathReview } from "./death-review";
 
 export type InspectorLevel = "peek" | "half" | "expanded";
 const WIDE_INSPECTOR = "(min-width: 768px), (orientation: landscape) and (max-height: 540px)";
@@ -64,6 +65,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
 
     <div className={styles.inspectorTabs} aria-label="Agent record sections">{["overview", "activity", "knowledge", "lineage"].map(name => <button key={name} type="button" aria-pressed={panel === name} onClick={() => setPanelState({id: agent.id, panel:name})}>{humanize(name)}</button>)}</div>
     <div className={styles.inspectorHalf} hidden={panel !== "overview"}>
+      <DeathReview agent={agent} world={world}/>
       <section className={styles.needsSection} aria-label="Needs, higher is better">
         <NeedMeter label="Health" value={agent.needs.health} />
         <NeedMeter label="Hydration" value={agent.needs.hydration} />

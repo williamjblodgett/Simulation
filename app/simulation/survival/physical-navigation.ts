@@ -1,6 +1,7 @@
 import type { SurvivalEnvironment, SurvivalPosition } from "./types";
 import type { PhysicalWorld } from "./physical-types";
 import { freshwaterFeatures, locomotionAt, TRAVEL_SPEED } from "./water";
+import { bodyOverlap, reducesOverlap } from "./navigation-geometry";
 
 export function inFreshwater(env:SurvivalEnvironment,p:SurvivalPosition,clearance=0.35):boolean{
   return env.resources.some(s=>{
@@ -23,19 +24,25 @@ export function physicalTraversable(env:SurvivalEnvironment,world:PhysicalWorld|
   });
 }
 /** Execution collision sensing, not free map knowledge for the planner. */
-export function physicalNextPosition(env:SurvivalEnvironment,world:PhysicalWorld|undefined,start:SurvivalPosition,target:SurvivalPosition):SurvivalPosition|null{
+export function physicalNextPosition(env:SurvivalEnvironment,world:PhysicalWorld|undefined,start:SurvivalPosition,target:SurvivalPosition, options: { strict?: boolean; onBlocked?(position: SurvivalPosition): void } = {}):SurvivalPosition|null{
   const distance=Math.hypot(target.x-start.x,target.z-start.z),angle=Math.atan2(target.z-start.z,target.x-start.x);
   const water=freshwaterFeatures(env);
-  for(const offset of [0,Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2]){
+  const colliders=world?.parts.filter(p=>p.condition>.05&&p.position.y-p.size.y/2<=2.3)??[];
+  const overlaps=(p:SurvivalPosition)=>colliders.map(part=>bodyOverlap(p,part.position,part.size.x,part.size.z,part.rotation));
+  for(const offset of options.strict ? [0] : [0,Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2]){
     const limit=Math.min(offset===0?7.5:3,distance),dx=Math.cos(angle+offset),dz=Math.sin(angle+offset);
     let travelled=0,time=0,safe=true;
+    let previousOverlap=overlaps(start);
     // Substeps prevent tunneling through thin parts or skipping water between dry endpoints.
     while(travelled<limit-1e-8 && time<1-1e-8){
       const length=Math.min(.2,limit-travelled);
       const midpoint={x:start.x+dx*(travelled+length/2),z:start.z+dz*(travelled+length/2)};
       const speed=TRAVEL_SPEED[locomotionAt(water,midpoint)],step=Math.min(length,(1-time)*speed);
       const p={x:start.x+dx*(travelled+step),z:start.z+dz*(travelled+step)};
-      if(!physicalTraversable(env,world,p)){safe=false;break;}
+      const nextOverlap=overlaps(p);
+      const insideBounds=p.x>=env.bounds.minX&&p.x<=env.bounds.maxX&&p.z>=env.bounds.minZ&&p.z<=env.bounds.maxZ;
+      if(!insideBounds||(nextOverlap.some(n=>n>0)&&!reducesOverlap(previousOverlap,nextOverlap))){options.onBlocked?.(p);safe=false;break;}
+      previousOverlap=nextOverlap;
       travelled+=step;time+=step/speed;
       // Pause at a terrain-mode transition so even a narrow bank is sensed, not skipped.
       if(locomotionAt(water,p)!==locomotionAt(water,start))break;

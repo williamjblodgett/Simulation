@@ -5,6 +5,8 @@ import { depthAt, estimateWaterTravel, observedWater } from "./water";
 import type { LearnedProcedure, Manipulation, MaterialKind, PhysicalProject, PhysicalReading, Vec3 } from "./physical-types";
 import type { SurvivalAgent } from "./types";
 import { findObservedPose, observedParts } from "./physical-spatial";
+import { findPrivateRoute } from "./private-navigation";
+import { MOVEMENT_ARRIVAL_RADIUS } from "./navigation-geometry";
 
 // The policy deliberately does not import physical-world or MATERIALS. It cannot run the true solver.
 export const PHYSICAL_SEARCH_BUDGET = { candidates: 24, horizon: 72, maxProjects: 8, maxReadings: 64, maxProcedures: 16 } as const;
@@ -92,7 +94,7 @@ export function projectChoice(input:PrivatePolicyInput,project:PhysicalProject):
     return {candidate:{goal:"gather_material",targetId:site.subjectId,score:project.predictedBenefit-2,expectedBenefit:project.predictedBenefit,risk:2,knownObservationIds:[site.id],summary:`Obtain ${required.kind} for a self-proposed exposure test; ${required.amount.toFixed(1)} material reserved.`},actions:[{action:"move",targetId:site.subjectId,destination:site.position,duration:1},{action:"gather",targetId:site.subjectId,destination:site.position,duration:1}],uncertainty:0.5};
   }
   const workPoint=project.position;
-  if(distance(a.position,workPoint)>1.1){
+  if(distance(a.position,workPoint)>MOVEMENT_ARRIVAL_RADIUS){
     project.blocker="Returning to the work site before handling the next part.";
     return {candidate:{goal:"stay_warm",targetId:null,score:project.predictedBenefit,expectedBenefit:project.predictedBenefit,risk:1,knownObservationIds:a.observations.filter(o=>o.kind==="structure").map(o=>o.id),summary:project.blocker},actions:[{action:"move",targetId:null,destination:workPoint,duration:Math.max(1,Math.ceil(distance(a.position,workPoint)/7.5))}],uncertainty:.4};
   }
@@ -220,6 +222,12 @@ export function planPhysicalKnowledge(input:PrivatePolicyInput):LocalPlanChoice[
   if(depthAt(observedWater(input.agent.observations),input.agent.position)>0)return choices;
   const project=input.agent.physicalMind?.projects.find(p=>p.status==="active");
   if(project){const proposed=projectChoice(input,project);if(proposed){
+    const movement=proposed.actions.find(a=>a.action==="move"&&a.destination);
+    if(movement?.destination){
+      const nav=input.agent.navigation;
+      if(nav?.failures&&nav.destination&&input.tick<nav.retryAt&&distance(nav.destination,movement.destination)<.1)return choices;
+      if(!findPrivateRoute(input.agent.observations,input.bounds,input.agent.position,movement.destination,nav?.blocked))return choices;
+    }
     const water=observedWater(input.agent.observations),weather=input.agent.observations.find(o=>o.kind==="weather");
     let from=input.agent.position,cost=0;
     for(const action of proposed.actions){

@@ -3,7 +3,11 @@ import { agePhysicalWorld, executeManipulation, freshPhysicalMind, freshPhysical
 import { completePhysicalOperation, learnPhysicalReading, planPhysicalKnowledge, preparePhysicalProjects } from "./physical-policy";
 import { validatePhysicalState } from "./physical-validation";
 import { physicalNextPosition } from "./physical-navigation";
-import { depthAt, estimateWaterTravel, freshwaterFeatures, freshwaterFootprint, immersionCost, locomotionAt, SWIMMING_DEPTH } from "./water";
+import { findPrivateRoute, freshNavigation, privateSegmentClear } from "./private-navigation";
+import { MOVEMENT_ARRIVAL_RADIUS } from "./navigation-geometry";
+import { planNeedsRepair } from "./survival-forecast";
+import { freshSurvivalRecord, sampleSurvival, validateSurvivalExperience } from "./survival-record";
+import { canCollectFreshwater, depthAt, estimateWaterTravel, freshwaterFeatures, freshwaterFootprint, immersionCost, locomotionAt, shorePoints, SWIMMING_DEPTH } from "./water";
 import { driftNeeds } from "./physiology";
 import { researchMaterialEvidence } from "./research-evidence";
 import { advanceSurvivalRun as advanceBaseline } from "./baseline-engine";
@@ -51,7 +55,7 @@ import type {
   WeatherKind,
 } from "./types";
 
-export const SURVIVAL_SCHEMA_VERSION = 2 as const;
+export const SURVIVAL_SCHEMA_VERSION = 4 as const;
 export const SURVIVAL_STEP_MINUTES = 10 as const;
 export const SURVIVAL_EVENT_RING_LIMIT = 512 as const;
 export const SURVIVAL_OBJECTIVE: SurvivalObjective = Object.freeze({
@@ -391,6 +395,7 @@ function makeAgent(
   const id = nextId(state, "agent");
   return {
     ...(state.policyVersion === 3 ? { physicalMind: freshPhysicalMind() } : {}),
+    ...(state.survivalRevision ? { navigation: freshNavigation(), survivalRecord: freshSurvivalRecord(state.tick) } : {}),
     id,
     label: `A${slot}`,
     slot,
@@ -454,7 +459,8 @@ export function createSurvivalRun(seedInput: SurvivalSeed, options: SurvivalRunO
     ...(options.policyVersion === 3 ? { physical: freshPhysicalWorld() } : {}),
     ...(options.policyVersion !== 3 || config.continuity ? { succession: { version: 1 as const, enabledAt: 0, plans: [] } } : {}),
     policyVersion: options.policyVersion ?? 2,
-    schemaVersion: options.policyVersion === 3 ? 3 : SURVIVAL_SCHEMA_VERSION,
+    schemaVersion: SURVIVAL_SCHEMA_VERSION,
+    survivalRevision: 1,
     id: `survival-${survivalHash(seed, "run").toString(36)}`,
     seed,
     seedLabel: String(seedInput),
@@ -751,7 +757,7 @@ function perceive(state: SurvivalRunState, agent: SurvivalAgent): void {
       kind: "resource",
       subjectId: site.id,
       observedAt: state.tick,
-      position: site.kind === "freshwater" ? freshwaterShorePosition(site) : { ...site.position },
+      position: site.kind === "freshwater" ? shorePoints(freshwaterFootprint(site)).filter(p=>p.x>=state.environment.bounds.minX&&p.x<=state.environment.bounds.maxX&&p.z>=state.environment.bounds.minZ&&p.z<=state.environment.bounds.maxZ).sort((a,b)=>distance(agent.position,a)-distance(agent.position,b))[0] ?? freshwaterShorePosition(site) : { ...site.position },
       confidence: 0.94,
       facts: {
         resourceKind: site.kind,
@@ -918,6 +924,13 @@ function recordOutcome(
   if (observedYield !== undefined) outcome.observedYield = observedYield;
   agent.lastOutcome = outcome;
   remember(state, agent, outcome);
+  if (agent.survivalRecord && linkOwnDecision) {
+    const record = agent.survivalRecord;
+    if (success && action === "drink") record.lastDrinkAt = state.tick;
+    if (success && action === "eat") record.lastMealAt = state.tick;
+    if (!success && action === "move") record.blockedMoves++;
+    if (!success || action === "drink" || action === "eat") record.incidents = [...record.incidents,{tick:state.tick,action,success,summary}].slice(-24);
+  }
   if (emit) {
     makeEvent(state, {
       type: "action_outcome",
@@ -1353,7 +1366,9 @@ function planForDecision(
 
 function deliberate(state: SurvivalRunState, agent: SurvivalAgent): void {
   if (state.policyVersion === 2 || state.policyVersion === 3) {
-    const input = { agent, tick: state.tick, seed: state.seed, bounds: state.environment.bounds };
+    // Observer-only telemetry is deliberately absent from all policy inputs.
+    const policyAgent = { ...agent }; delete policyAgent.survivalRecord;
+    const input = { agent: policyAgent, tick: state.tick, seed: state.seed, bounds: state.environment.bounds };
     const priorNotes=new Set(agent.physicalMind?.projects.flatMap(p=>(p.history??[]).map(h=>`${p.id}:${h.tick}:${h.summary}`))??[]);
     if (state.policyVersion === 3) preparePhysicalProjects(input);
     const choices = state.policyVersion === 3 ? planPhysicalKnowledge(input) : planFromPrivateKnowledge(input);
@@ -1437,14 +1452,8 @@ function deliberate(state: SurvivalRunState, agent: SurvivalAgent): void {
   });
 }
 
-function shouldAbandonForUrgency(agent: SurvivalAgent): boolean {
-  const actions = agent.currentPlan?.steps.slice(agent.currentPlan.activeStepIndex).map(s => s.action) ?? [];
-  const goal = agent.currentPlan?.goal;
-  if (!goal) return false;
-  if (agent.needs.hydration < 13 && !actions.includes("drink") && !actions.includes("request")) return true;
-  if (agent.needs.nutrition < 10 && !actions.includes("eat") && !actions.includes("request")) return true;
-  if (agent.needs.safety < 8 && goal !== "seek_safety") return true;
-  return false;
+function shouldAbandonForUrgency(agent: SurvivalAgent, tick: number, bounds: SurvivalEnvironment["bounds"]): boolean {
+  return planNeedsRepair(agent,tick,bounds);
 }
 
 function setCurrentAction(
@@ -1527,17 +1536,32 @@ function moveToward(state: SurvivalRunState, agent: SurvivalAgent, step: Surviva
   step.destination = { ...destination };
   const remaining = distance(agent.position, destination);
   const water = freshwaterFeatures(state.environment);
-  const arrived = () => distance(agent.position, destination) <= 2.4
+  const arrived = () => distance(agent.position, destination) <= MOVEMENT_ARRIVAL_RADIUS
     && (depthAt(water, destination) > 0 || depthAt(water, agent.position) === 0);
-  if (remaining <= 2.4 && arrived()) {
+  if (remaining <= MOVEMENT_ARRIVAL_RADIUS && arrived()) {
     finishStep(state, agent, step, true);
     return;
   }
-  const position=physicalNextPosition(state.environment,state.physical,agent.position,destination);
+  const nav = agent.navigation ??= freshNavigation();
+  nav.blocked = nav.blocked.filter(b=>state.tick-b.tick<36);
+  const changed = !nav.destination || distance(nav.destination,destination)>0.1;
+  const repeated = nav.recent.filter(r=>distance(r.position,agent.position)<0.2).length >= 3;
+  if (changed) { nav.destination={...destination}; nav.waypoints=[]; nav.recent=[]; nav.failures=0; }
+  if (repeated) { nav.waypoints=[]; nav.recent=[]; }
+  if (!nav.waypoints.length || !privateSegmentClear(agent.observations,state.environment.bounds,agent.position,nav.waypoints[0],nav.blocked)) {
+    nav.waypoints=findPrivateRoute(agent.observations,state.environment.bounds,agent.position,destination,nav.blocked)??[];
+  }
+  const waypoint=nav.waypoints[0];
+  const position=waypoint ? physicalNextPosition(state.environment,state.physical,agent.position,waypoint,{strict:true,onBlocked:contact=>{
+    const b=state.environment.bounds;
+    nav.blocked=[...nav.blocked,{tick:state.tick,from:{...agent.position},to:{x:Math.max(b.minX,Math.min(b.maxX,contact.x)),z:Math.max(b.minZ,Math.min(b.maxZ,contact.z))}}].slice(-24);
+  }}) : null;
   agent.needs.energy = rounded(clamp(agent.needs.energy - 0.34));
-  if(!position){recordOutcome(state,agent,"move",step.targetId,false,-0.34,"Movement was blocked by solid geometry or the study boundary.");finishStep(state,agent,step,false);return;}
+  if(!position){nav.waypoints=[];nav.failures++;nav.retryAt=state.tick+Math.min(36,nav.failures*3);recordOutcome(state,agent,"move",step.targetId,false,-0.34,"Movement was blocked; recorded local route evidence and reconsidered the approach.");finishStep(state,agent,step,false);return;}
   agent.position={x:rounded(position.x,3)||0,z:rounded(position.z,3)||0};
-  if (arrived()) finishStep(state, agent, step, true);
+  nav.recent=[...nav.recent,{tick:state.tick,position:{...agent.position}}].slice(-12);
+  if(waypoint&&distance(agent.position,waypoint)<0.05)nav.waypoints.shift();
+  if (arrived()) {nav.waypoints=[];nav.failures=0;finishStep(state, agent, step, true);}
 }
 
 function consumeMaterial(agent: SurvivalAgent, kind: SurvivalResourceKind, amount: number): void {
@@ -1562,7 +1586,8 @@ function gatherFromSite(
 ): void {
   const site = state.environment.resources.find(({ id }) => id === step.targetId);
   const accessPosition = site?.kind === "freshwater" ? freshwaterShorePosition(site) : site?.position;
-  if (!site || !accessPosition || distance(agent.position, accessPosition) > 4.5 || site.quantity < 0.25) {
+  const inReach = site && (site.kind === "freshwater" ? canCollectFreshwater(freshwaterFootprint(site),agent.position) : accessPosition && distance(agent.position,accessPosition)<=4.5);
+  if (!site || !inReach || site.quantity < 0.25) {
     recordOutcome(state, agent, step.action, step.targetId, false, -5, "The observed resource could not be gathered at this location.");
     finishStep(state, agent, step, false);
     return;
@@ -1926,7 +1951,7 @@ function performSocialAction(state: SurvivalRunState, agent: SurvivalAgent, step
     type: "social_proposal",
     category: "social",
     agentIds: [agent.id, other.id],
-    summary: `${agent.label} proposed to ${action === "request" ? "request help from" : action} with ${other.label}.`,
+    summary: `${agent.label} proposed to ${action === "request" ? `request help from ${other.label}` : `${action} with ${other.label}`}.`,
     outcome: `${other.label} evaluated the proposal independently.`,
     position: agent.position,
     facts: { action, proposerId: agent.id, responderId: other.id, resource: action === "cooperate" ? null : desiredResource, amount, decisionId: agent.currentDeliberation?.id ?? null },
@@ -1990,9 +2015,13 @@ function performSocialAction(state: SurvivalRunState, agent: SurvivalAgent, step
   });
   const utility = !accepted ? -1 : aidDirection === "right_gave" ? 8 : aidDirection === "left_gave" ? -1 : outcomeSummary.includes("no new") ? -0.5 : 2;
   recordOutcome(state, agent, action, other.id, accepted, utility, outcomeSummary, false);
+  if (action === "request") {
+    updateLearning(agent,`aid:${other.id}:${desiredResource}`,{tick:state.tick,action,targetId:other.id,success:aidDirection==="right_gave",utility,summary:outcomeSummary},state.tick);
+    if (!accepted && agent.survivalRecord) agent.survivalRecord.refusedRequests++;
+  }
   const responseAction = action === "request" ? "share" : action === "share" ? "request" : "cooperate";
   recordOutcome(state, other, responseAction, agent.id, accepted, aidDirection === "left_gave" ? 8 : aidDirection === "right_gave" ? -1 : utility, `Response to ${agent.label}: ${outcomeSummary}`, false, undefined, false);
-  finishStep(state, agent, step, true);
+  finishStep(state, agent, step, action === "request" ? aidDirection === "right_gave" : accepted);
 }
 
 function executePlanStep(state: SurvivalRunState, agent: SurvivalAgent): void {
@@ -2011,7 +2040,7 @@ function executePlanStep(state: SurvivalRunState, agent: SurvivalAgent): void {
   }
   if (state.physical && step.manipulation) {
     const project=agent.physicalMind?.projects.find(p=>p.status==="active");
-    const result = executeManipulation(state.physical,agent,step.manipulation,state.environment,state.tick);
+    const result = executeManipulation(state.physical,agent,step.manipulation,state.environment,state.tick,state.agents.filter(a=>a.alive).map(a=>a.position));
     completePhysicalOperation(agent,step.manipulation,result.ok,result.partId,state.tick,result.effort,result.summary);
     if(result.reading) learnPhysicalReading(agent,result.reading);
     recordOutcome(state,agent,step.action,result.partId,result.ok,-result.effort,result.summary);
@@ -2090,6 +2119,7 @@ function markDead(state: SurvivalRunState, agent: SurvivalAgent): void {
   agent.alive = false;
   agent.diedAt = state.tick;
   agent.causeOfDeath = agent.needs.energy <= 0 && depthAt(freshwaterFeatures(state.environment),agent.position) >= SWIMMING_DEPTH ? "exhaustion in deep water" : causeOfDeath(agent);
+  sampleSurvival(agent,state.tick);
   if (agent.currentPlan?.status === "active") agent.currentPlan.status = "abandoned";
   agent.currentAction = {
     kind: agent.currentAction.kind,
@@ -2106,7 +2136,7 @@ function markDead(state: SurvivalRunState, agent: SurvivalAgent): void {
     summary: `${agent.label} died from ${agent.causeOfDeath}.`,
     outcome: "This life has ended permanently. Only an earlier funded succession plan, a living agent's later choice, or an observer introduction can create a new life.",
     position: agent.position,
-    facts: { cause: agent.causeOfDeath },
+    facts: { cause: agent.causeOfDeath, lastDrinkAt:agent.survivalRecord?.lastDrinkAt??null,lastMealAt:agent.survivalRecord?.lastMealAt??null,blockedMoves:agent.survivalRecord?.blockedMoves??null,refusedRequests:agent.survivalRecord?.refusedRequests??null,recordSince:agent.survivalRecord?.since??null },
   });
 }
 
@@ -2116,7 +2146,7 @@ function livingAgents(state: SurvivalRunState): SurvivalAgent[] {
 
 function enableSuccession(state: SurvivalRunState): void {
   if(state.policyVersion===3&&!state.config.continuity)return;
-  state.schemaVersion = state.policyVersion === 3 ? 3 : SURVIVAL_SCHEMA_VERSION;
+  state.schemaVersion = state.survivalRevision ? SURVIVAL_SCHEMA_VERSION : state.policyVersion === 3 ? 3 : 2;
   if (state.succession) return;
   state.succession = { version: 1, enabledAt: state.tick, plans: [] };
   makeEvent(state, {
@@ -2238,6 +2268,11 @@ function advanceOneStep(state: SurvivalRunState): void {
   state.day = Math.floor(state.elapsedMinutes / (24 * 60)) + 1;
   state.timeOfDay = state.elapsedMinutes % (24 * 60);
   updateEnvironment(state);
+  if (!state.survivalRevision) {
+    state.survivalRevision=1;state.schemaVersion=SURVIVAL_SCHEMA_VERSION;
+    for(const agent of state.agents.filter(a=>a.alive)){agent.navigation=freshNavigation();agent.survivalRecord=freshSurvivalRecord(state.tick);}
+    makeEvent(state,{type:"action_outcome",category:"run",agentIds:[],summary:"Survival planning and route recovery were updated.",outcome:"New decisions use complete need-restoration plans, private routes and refusal-aware forecasts. Earlier records and deaths are unchanged.",facts:{survivalRevision:1}});
+  }
   if(state.physical)agePhysicalWorld(state.physical,state.environment);
   enableSuccession(state);
 
@@ -2273,7 +2308,7 @@ function advanceOneStep(state: SurvivalRunState): void {
     // The replacement destination still comes from the private planner, not the observer.
     if (depth > 0 && agent.currentPlan?.status === "active" && (pending?.action !== "move"
       || ((agent.needs.energy < 18 || agent.needs.warmth < 18) && agent.currentPlan.goal !== "seek_safety"))) agent.currentPlan.status = "abandoned";
-    if (agent.currentPlan?.status === "active" && shouldAbandonForUrgency(agent)) {
+    if (agent.currentPlan?.status === "active" && shouldAbandonForUrgency(agent,state.tick,state.environment.bounds)) {
       agent.currentPlan.status = "abandoned";
     }
     if (!agent.currentPlan || agent.currentPlan.status !== "active") {
@@ -2298,6 +2333,7 @@ function advanceOneStep(state: SurvivalRunState): void {
     agent.needs.energy = rounded(clamp(agent.needs.energy - exposure.energy));
     agent.needs.warmth = rounded(clamp(agent.needs.warmth - exposure.warmth));
     if (depthAt(water, agent.position) >= SWIMMING_DEPTH && agent.needs.energy <= 0) agent.needs.health = rounded(clamp(agent.needs.health - 8));
+    sampleSurvival(agent,state.tick);
     const entered = depth === 0 && depthAt(water, agent.position) > 0;
     const exited = depth > 0 && depthAt(water, agent.position) === 0;
     if (entered || exited) {
@@ -2449,8 +2485,11 @@ function isNeedSet(value: unknown): value is SurvivalNeeds {
 export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
   if (!isRecord(value) || !isJsonSafe(value)) return false;
   if (value.policyVersion !== undefined && value.policyVersion !== 1 && value.policyVersion !== 2 && value.policyVersion !== 3) return false;
-  if (value.schemaVersion!==1&&value.schemaVersion!==2&&value.schemaVersion!==3) return false;
-  if (value.policyVersion === 3 ? value.schemaVersion !== 3 : value.schemaVersion === 3 || (value.schemaVersion === 2 && value.policyVersion !== 2)) return false;
+  if (value.schemaVersion!==1&&value.schemaVersion!==2&&value.schemaVersion!==3&&value.schemaVersion!==4) return false;
+  // A fenced pre-update backup uses format 4 without claiming the rules have
+  // already been adopted. Its next advancing tick performs the audited adoption.
+  if(value.schemaVersion===4){if((value.survivalRevision!==undefined&&value.survivalRevision!==1)||(value.policyVersion!==2&&value.policyVersion!==3))return false;}
+  else if(value.survivalRevision!==undefined || (value.policyVersion === 3 ? value.schemaVersion !== 3 : value.schemaVersion === 3 || (value.schemaVersion === 2 && value.policyVersion !== 2))) return false;
   if (!isRecord(value.config) || !isRecord(value.environment) || !isRecord(value.stats) || !isRecord(value.nextIds) || !isRecord(value.soleSurvivor) || !isRecord(value.eventWindow)) return false;
   if (!Array.isArray(value.agents) || !Array.isArray(value.events)) return false;
   const rawAgents = value.agents;
@@ -2704,6 +2743,7 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
   if (livingSlots.size > Number(config.agentCap)) return false;
   if (!validateSuccessionState(value as unknown as SurvivalRunState)) return false;
   if (!validatePhysicalState(value as unknown as SurvivalRunState)) return false;
+  if (!validateSurvivalExperience(value as unknown as SurvivalRunState)) return false;
 
   const eventIds = new Set<string>();
   const eventSequenceNumbers: number[] = [];

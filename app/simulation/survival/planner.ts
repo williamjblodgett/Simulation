@@ -4,12 +4,14 @@ import { driftNeeds, type NeedConditions } from "./physiology";
 import { survivalUnit } from "./random";
 import { chooseExperimentDose, preparedMaterialContext } from "./experiments";
 import { depthAt, estimateWaterTravel, observedWater, shorePoints } from "./water";
+import { rememberedConditions, rememberedProtection, requestExpectation, timeToHarm } from "./survival-forecast";
+import { findPrivateRoute, privateSegmentClear, privateTraversable } from "./private-navigation";
 import type { AgentDecisionCandidate, AgentGoalKind, AgentObservation, SurvivalActionKind, SurvivalAgent, SurvivalInventory, SurvivalNeeds, SurvivalPosition } from "./types";
 
 /** This is the entire policy boundary: no resources, other agents or world truth. */
 export interface PrivatePolicyInput {
   physical?: boolean;
-  agent: SurvivalAgent;
+  agent: Omit<SurvivalAgent, "survivalRecord">;
   tick: number;
   seed: number;
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
@@ -31,6 +33,7 @@ export interface LocalPlanChoice {
   uncertainty: number;
 }
 interface SearchState {
+  aid?: { resource: "freshwater" | "food"; probability: number; amount: number };
   protection?: number;
   needs: SurvivalNeeds;
   inventory: SurvivalInventory;
@@ -50,7 +53,7 @@ interface SearchState {
 const clip = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, n));
 const dist = (a: SurvivalPosition, b: SurvivalPosition) => Math.hypot(a.x - b.x, a.z - b.z);
 const round = (n: number) => Math.round(n * 1000) / 1000;
-export const POLICY_SEARCH_BUDGET = { depth: 5, width: 10, expansions: 700 } as const;
+export const POLICY_SEARCH_BUDGET = { depth: 7, width: 18, expansions: 1800 } as const;
 
 /** A disclosed survival potential, not a probability of being alive. */
 export function survivalPotential(needs: SurvivalNeeds, inventory: SurvivalInventory): number {
@@ -98,12 +101,22 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
   const waterEvidence = agent.observations.filter(o => o.kind === "resource" && o.facts.resourceKind === "freshwater" && typeof o.facts.waterRadiusX === "number").map(o => o.id);
   const insideBounds = (p: SurvivalPosition) => p.x >= bounds.minX && p.x <= bounds.maxX && p.z >= bounds.minZ && p.z <= bounds.maxZ;
   const known = agent.observations.filter(o => o.position && o.facts.researchEvidence !== true);
+  const routeCache = new Map<string, SurvivalPosition[] | null>();
+  const privateRoute = (from: SurvivalPosition, to: SurvivalPosition) => {
+    const key = `${from.x},${from.z}:${to.x},${to.z}`;
+    if (!routeCache.has(key)) routeCache.set(key,findPrivateRoute(agent.observations,bounds,from,to,agent.navigation?.blocked.filter(b=>tick-b.tick<36)));
+    if(agent.navigation?.destination&&agent.navigation.failures>0&&tick<agent.navigation.retryAt&&dist(to,agent.navigation.destination)<.1
+      &&!privateSegmentClear(agent.observations,bounds,from,to,agent.navigation.blocked))return null;
+    return routeCache.get(key)!;
+  };
   const fires = known.filter(o => o.kind === "structure" && o.facts.structureKind === "fire" && Number(o.facts.condition) > 5).map(o => o.position!);
   const resources = known.filter(o => o.kind === "resource" && Number(o.facts.availableEstimate) > 0)
     .sort((a, b) => dist(agent.position, a.position!) - dist(agent.position, b.position!) || a.id.localeCompare(b.id));
   const start: SearchState = { needs: { ...agent.needs }, inventory: { ...agent.inventory }, remainingSites: Object.fromEntries(resources.map(o => [o.subjectId, Number(o.facts.availableEstimate)])), position: { ...agent.position }, actions: [], used: [], evidence: agent.observations.filter(o => o.kind === "weather" || (o.kind === "structure" && o.position && dist(o.position, agent.position) <= 7)).map(o => o.id), elapsed: 0, goal: "wait", targetId: null, informationValue: 0, risk: 0, sheltered: known.some(o => o.kind === "structure" && o.facts.structureKind === "shelter" && Number(o.facts.condition) > 5 && dist(agent.position, o.position!) <= 6), summary: "Wait briefly while preserving reserves." };
   const initialValue = survivalPotential(start.needs, start.inventory);
-  if(input.physical)start.protection=agent.physicalMind?.readings.filter(r=>r.metric==="protection"&&dist(r.position,agent.position)<2&&tick-r.tick<36&&r.weather===conditions.weather).at(-1)?.after??0;
+  const harmDeadline=timeToHarm(start.needs,rememberedConditions(agent,tick));
+  const informationOpportunity=harmDeadline===null?1:Math.min(1,harmDeadline/36);
+  if(input.physical)start.protection=rememberedProtection(agent,agent.position,tick,conditions.weather);
   const rankCache = new WeakMap<SearchState, number>();
   const rank = (node: SearchState) => {
     const cached = rankCache.get(node);
@@ -112,7 +125,12 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
     decay(horizon, Math.max(0, 18 - node.elapsed), conditions, fires);
     const goalExperience = agent.learning.find(item => item.context === `goal:${node.goal}`);
     const learnedLoss = Math.max(0, -(goalExperience?.expectedUtility ?? 0)) * 0.04;
-    const value = survivalPotential(horizon.needs, node.inventory) - initialValue + (input.physical ? 0 : materialValue(node, agent)) + node.informationValue - node.risk - learnedLoss - node.elapsed * 0.12;
+    let potential = survivalPotential(horizon.needs, node.inventory);
+    if (node.aid) {
+      const accepted = { ...node.inventory, [node.aid.resource]: node.inventory[node.aid.resource] + node.aid.amount };
+      potential = potential * (1 - node.aid.probability) + survivalPotential(horizon.needs, accepted) * node.aid.probability;
+    }
+    const value = potential - initialValue + (input.physical ? 0 : materialValue(node, agent)) + node.informationValue * informationOpportunity - node.risk - learnedLoss - node.elapsed * 0.12;
     rankCache.set(node, value);
     return value;
   };
@@ -122,12 +140,12 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
   for (let depth = 0; depth < POLICY_SEARCH_BUDGET.depth && expansions < POLICY_SEARCH_BUDGET.expansions; depth++) {
     const next: SearchState[] = [];
     for (const parent of beam) {
-      const add = (key: string, action: PlannedAction, goal: AgentGoalKind, summary: string, apply: (node: SearchState) => void, observation?: AgentObservation) => {
+      const add = (key: string, action: PlannedAction, goal: AgentGoalKind, summary: string, apply: (node: SearchState) => void, observation?: AgentObservation, routeTravel?: ReturnType<typeof estimateWaterTravel>) => {
         if (expansions >= POLICY_SEARCH_BUDGET.expansions || parent.used.includes(key)) return;
         // Resting, warming and material work require a dry place. A swim is not rest.
         if (depthAt(water, parent.position) > 0 && action.action !== "move") return;
         const crossing = action.action === "move" && action.destination
-          ? waterTravel(parent.position,action.destination) : null;
+          ? routeTravel ?? waterTravel(parent.position,action.destination) : null;
         if (crossing && crossing.wetDuration > 0) {
           action = { ...action, duration: Math.max(action.duration, Math.ceil(crossing.duration)) };
           summary += " Observed water adds slower travel, energy use and cooling.";
@@ -166,7 +184,7 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
         for(const place of places){
           const observed=known.find(o=>o.subjectId===place.partId&&o.facts.structureKind==="physical_part"&&Number(o.facts.condition)>5);
           if(!observed||tick-place.tick>288||depthAt(water,place.position)>0)continue;
-          const estimate=place.protection*(place.weather===conditions.weather?1:.6)*Math.max(.3,1-(tick-place.tick)/360);
+          const estimate=rememberedProtection(agent,place.position,tick,conditions.weather);
           const distance=dist(parent.position,place.position);
           if(distance>1.1)add(`use-${place.partId}`,{action:"move",targetId:place.partId,destination:place.position,duration:Math.max(1,Math.ceil(distance/7.5))},"seek_safety","Return to a personally tested or experienced protective place; weather and condition may have changed.",n=>{n.position={...place.position};n.protection=estimate;n.needs.energy=clip(n.needs.energy-distance/7.5*.34);},observed);
           else if(estimate>(parent.protection??0))add(`use-rest-${place.partId}`,simple("rest",2),"recover","Rest at the remembered protective arrangement and observe how it performs.",n=>{n.protection=estimate;n.needs.energy=clip(n.needs.energy+26);n.needs.health=clip(n.needs.health+.7);},observed);
@@ -179,10 +197,22 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
         if (!(kind in parent.inventory)) continue;
         const needed = kind === "freshwater" || kind === "food" ? parent.inventory[kind] < 2 : parent.inventory[kind] < (kind === "wood" ? 5 : 3);
         if (!needed) continue;
-        const distance = dist(parent.position, observation.position!);
+        let destination = observation.position!;
+        if (kind === "freshwater") {
+          const footprint = observedWater([observation])[0];
+          if (footprint) destination = shorePoints(footprint).filter(p => insideBounds(p) && depthAt(water,p) === 0 && privateTraversable(agent.observations,bounds,p))
+            .sort((a,b) => dist(parent.position,a) - dist(parent.position,b))[0] ?? destination;
+        }
+        const distance = dist(parent.position, destination);
         const goal: AgentGoalKind = kind === "freshwater" ? "secure_water" : kind === "food" ? "secure_food" : "gather_material";
         if (distance > 3) {
-          add(`move-${observation.subjectId}`, { action: "move", targetId: observation.subjectId, destination: { ...observation.position! }, duration: Math.max(1, Math.ceil((distance - 2.4) / 7.5)) }, goal, `Travel to remembered ${kind}; estimated travel cost includes falling needs.`, n => { n.position = { ...observation.position! }; n.needs.energy = clip(n.needs.energy - distance / 7.5 * 0.34); n.sheltered = false; }, observation);
+          const route = privateRoute(parent.position,destination);
+          if (!route) continue;
+          destination=route.at(-1)!;
+          let routeStart = parent.position;
+          const routeTravel={duration:0,energy:0,warmth:0,wetDuration:0};
+          for (const waypoint of route) { const segment=waterTravel(routeStart,waypoint);for(const key of Object.keys(routeTravel) as Array<keyof typeof routeTravel>)routeTravel[key]+=segment[key];routeStart = waypoint; }
+          add(`move-${observation.subjectId}`, { action: "move", targetId: observation.subjectId, destination: { ...destination }, duration: Math.max(1, Math.ceil(routeTravel.duration)) }, goal, `Travel to remembered ${kind}; estimated travel cost includes falling needs and observed obstacles.`, n => { n.position = { ...destination }; n.needs.energy = clip(n.needs.energy - Math.ceil(routeTravel.duration) * 0.34); n.sheltered = false; }, observation,routeTravel);
           if (depthAt(water,parent.position) === 0 && waterTravel(parent.position,observation.position!).wetDuration > 0) {
             // A dry-bank waypoint competes with the direct crossing; neither is compulsory.
             const detours = water.flatMap(shorePoints).filter(p=>insideBounds(p)&&depthAt(water,p)===0&&dist(parent.position,p)>3)
@@ -235,7 +265,7 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
         if (Number(observation.facts.lastPresenceFailureAt ?? -1) >= observation.observedAt || observation.confidence < 0.4) continue;
         const relation = agent.relationships.find(r => r.agentId === observation.subjectId);
         const resource = parent.needs.hydration <= parent.needs.nutrition ? "freshwater" : "food";
-        if (Math.min(parent.needs.hydration, parent.needs.nutrition) < 42 && parent.inventory[resource] < 1) add(`request-${observation.subjectId}`, { ...simple("request"), targetId: observation.subjectId, resource, amount: 1 }, "request_help", `Request one ${resource}; the other agent may refuse.`, n => { n.inventory[resource] += 0.45; n.risk += 2; }, observation);
+        if (!parent.aid && Math.min(parent.needs.hydration, parent.needs.nutrition) < 42 && parent.inventory[resource] < 1) add(`request-${observation.subjectId}`, { ...simple("request"), targetId: observation.subjectId, resource, amount: 1 }, "request_help", `Request one ${resource}; compare acceptance and refusal using this agent's interaction history.`, n => { n.aid = { resource, probability: requestExpectation(agent,observation,resource,tick), amount: 1 }; n.risk += 2; }, observation);
         const theirWater = Number(observation.facts.hydrationEstimate ?? 100), theirFood = Number(observation.facts.nutritionEstimate ?? 100);
         const gift = theirWater <= theirFood ? "freshwater" : "food";
         if (Math.min(theirWater, theirFood) < 50 && parent.inventory[gift] >= 2 && Math.min(parent.needs.hydration, parent.needs.nutrition) > 65) add(`share-${observation.subjectId}`, { ...simple("share"), targetId: observation.subjectId, resource: gift, amount: 1 }, "share", `Offer one ${gift} while retaining a reserve; future mutual aid is uncertain.`, n => { n.inventory[gift]--; n.informationValue += (relation?.aidReceived ?? 0) > 0 ? 4 : 1; }, observation);
@@ -252,7 +282,16 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
       if (!parent.actions.length) add("wait", simple("wait"), "wait", "Wait briefly while preserving effort.", () => {});
     }
     next.sort((a, b) => rank(b) - rank(a) || signature(a).localeCompare(signature(b)));
-    beam = next.slice(0, POLICY_SEARCH_BUDGET.width);
+    // Preserve distinct goal/progress branches before filling by score. Travel must
+    // survive pruning long enough for its collect/use consequences to be evaluated.
+    const retained = new Map<string, SearchState>();
+    for (const node of next) {
+      const last = node.actions.at(-1)!;
+      const stage = `${node.goal}:${last.action}`;
+      if (!retained.has(stage)) retained.set(stage,node);
+    }
+    beam = [...retained.values()].slice(0,POLICY_SEARCH_BUDGET.width);
+    for (const node of next) { if (beam.length >= POLICY_SEARCH_BUDGET.width) break; if (!beam.includes(node)) beam.push(node); }
   }
   const unique = new Map<string, SearchState>();
   for (const node of terminals.sort((a, b) => rank(b) - rank(a) || signature(a).localeCompare(signature(b)))) {

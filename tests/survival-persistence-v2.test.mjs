@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import "fake-indexeddb/auto";
 import { IDBObjectStore } from "fake-indexeddb";
-import { createSurvivalRun, advanceSurvivalRun } from "../app/simulation/survival/index.ts";
+import { createSurvivalRun, advanceSurvivalRun, setSurvivalRunPaused } from "../app/simulation/survival/index.ts";
 import { commitCheckpoint, loadCheckpoint, loadCommandCheckpoint, extendHistoryWindow, loadEventPage, loadSavedRuns, exportRunArchive, recoverLastGoodCheckpoint, validateCheckpoint } from "../app/survival/survival-persistence.ts";
 
 const envelope = (world = createSurvivalRun("store-test", { agentCount: 1 }), revision = 1, runInstanceId = "run-a") => ({ runInstanceId, revision, world, speed: 1, savedAt: Date.now(), missingBefore: 0 });
@@ -96,7 +96,7 @@ test("envelope validation rejects malformed revision, speed, identity and world"
 
 test("next-generation version fence survives both backup creation and recovery of an older backup", async () => {
   await clearDB();
-  const world=createSurvivalRun("fence-recovery"); delete world.succession; world.schemaVersion=1;
+  const world=createSurvivalRun("fence-recovery"); delete world.succession; delete world.survivalRevision; world.schemaVersion=1;
   const first=envelope(world); await commitCheckpoint(first,world.events,null);
   const fenced=envelope({...world,schemaVersion:2},2); await commitCheckpoint(fenced,[],1);
   const backup=await loadCheckpoint("last-good");
@@ -108,4 +108,29 @@ test("next-generation version fence survives both backup creation and recovery o
   const db=await rawDB(); await writeRaw(db,"last-good",first); db.close();
   assert.equal((await recoverLastGoodCheckpoint()).world.schemaVersion,2);
   assert.equal((await loadCheckpoint()).world.succession,undefined,"no past agent decision is invented by a version-only migration");
+});
+
+test("survival recovery fences old backups without inventing adoption or measurements", async () => {
+  for (const policyVersion of [2,3]) {
+    await clearDB();
+    const old=createSurvivalRun(`recovery-backup-${policyVersion}`,{policyVersion});
+    delete old.survivalRevision;old.schemaVersion=policyVersion;
+    for(const agent of old.agents){delete agent.navigation;delete agent.survivalRecord;}
+    const first=envelope(old);await commitCheckpoint(first,old.events,null);
+    const advanced=advanceSurvivalRun(old,1);await commitCheckpoint(envelope(advanced.state,2),advanced.events,1);
+    const backup=await loadCheckpoint("last-good");
+    assert.equal(backup.world.schemaVersion,4,"older clients reject this format, including recovery");
+    assert.equal(backup.world.survivalRevision,undefined);
+    assert.deepEqual(backup.world,{...old,schemaVersion:4});
+    const paused=setSurvivalRunPaused(backup.world,true);
+    assert.deepEqual(advanceSurvivalRun(paused,1).state,paused);
+    const adopted=advanceSurvivalRun(backup.world,1).state;
+    assert.equal(adopted.survivalRevision,1);assert.ok(adopted.agents.every(a=>a.survivalRecord.since===1));
+    assert.equal(adopted.events.filter(e=>e.facts.survivalRevision===1).length,1);
+    // Also cover a last-good backup originally written by an older client.
+    const db=await rawDB();await writeRaw(db,"last-good",first);db.close();
+    const recovered=await recoverLastGoodCheckpoint();
+    assert.deepEqual(recovered.world,{...old,schemaVersion:4});
+    assert.equal(validateCheckpoint(recovered),true);
+  }
 });

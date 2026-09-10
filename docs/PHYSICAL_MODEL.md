@@ -2,11 +2,14 @@
 
 ## Version and observation boundary
 
-The new-run UI explicitly selects policy 3/schema 3. The public engine constructor
+The new-run UI explicitly selects policy 3/format 4. The public engine constructor
 continues to default to policy 2 for existing integrations. Existing policies 1/2
 are never converted into the new decision model on load. The same IndexedDB,
 single-writer lease, revision checks, worker and event archive remain authoritative.
-An older client rejects schema 3 instead of advancing it with old rules.
+An older client rejects format 4 instead of advancing it with old rules. Active
+policy-2/3 studies adopt survival revision 1 on their next advancing tick; this
+does not convert policy 2 into the physical model. Backup format fences do not
+invent past measurements. See [survival recovery](SURVIVAL_RECOVERY.md).
 
 Construction-reasoning revision 2 is carried by each physical mind. Existing
 policy-3 minds upgrade only at an advancing tick, with an audit event; loading or
@@ -22,7 +25,9 @@ The planner receives its own agent record, observed boundaries, tick and seed—
 the physical registry, other agents' memories or future weather. Mass/volume is
 visibly measurable; strengths and protective effects begin as fallible priors.
 The physical evaluator is not imported by the policy. Search is deterministically
-bounded (24 physical proposals plus the preserved 700-expansion survival search).
+bounded (24 physical proposals plus a 1,800-expansion survival search, with seven
+levels and eighteen retained states). Observer-only death-review measurements
+are excluded from policy inputs.
 
 ## Implemented representation and consequences
 

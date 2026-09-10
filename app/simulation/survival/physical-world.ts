@@ -41,16 +41,20 @@ const touching = (a: PhysicalPart,b: PhysicalPart) => {
   const ae=extents(a),be=extents(b);
   return Math.abs(a.position.x-b.position.x)<=ae.x+be.x+0.16 && Math.abs(a.position.y-b.position.y)<=ae.y+be.y+0.16 && Math.abs(a.position.z-b.position.z)<=ae.z+be.z+0.16;
 };
-function fits(world:PhysicalWorld,p:PhysicalPart,env:SurvivalEnvironment,ignore:string[]=[]):boolean{
+function fits(world:PhysicalWorld,p:PhysicalPart,env:SurvivalEnvironment,ignore:string[]=[],occupants:readonly SurvivalPosition[]=[]):boolean{
+  if(p.position.y-p.size.y/2<=2.3&&occupants.some(person=>{
+    const dx=person.x-p.position.x,dz=person.z-p.position.z,c=Math.cos(p.rotation),s=Math.sin(p.rotation);
+    return Math.abs(dx*c+dz*s)<p.size.x/2+.4&&Math.abs(-dx*s+dz*c)<p.size.z/2+.4;
+  }))return false;
   const e=extents(p),b=env.bounds;
   return p.position.x-e.x>=b.minX&&p.position.x+e.x<=b.maxX&&p.position.z-e.z>=b.minZ&&p.position.z+e.z<=b.maxZ&&p.position.y>=e.y&&p.position.y<=5&&!inFreshwater(env,p.position,Math.max(e.x,e.z))&&!world.parts.some(q=>q.condition>0.05&&q.id!==p.id&&!ignore.includes(q.id)&&horizontalOverlap(p,q)&&Math.abs(q.position.y-p.position.y)<q.size.y/2+p.size.y/2-0.04);
 }
-function availableGroundPose(world:PhysicalWorld,p:PhysicalPart,agent:SurvivalAgent,env:SurvivalEnvironment):Vec3|null{
+function availableGroundPose(world:PhysicalWorld,p:PhysicalPart,agent:SurvivalAgent,env:SurvivalEnvironment,occupants:readonly SurvivalPosition[]=[agent.position]):Vec3|null{
   for(let n=0;n<16;n++){
     const angle=n*Math.PI/4,radius=1.2+Math.floor(n/8)*1.4;
     const position={x:agent.position.x+Math.cos(angle)*radius,y:p.size.y/2,z:agent.position.z+Math.sin(angle)*radius};
     const e=extents(p);if(Math.abs(position.x-agent.position.x)<e.x+0.45&&Math.abs(position.z-agent.position.z)<e.z+0.45)continue;
-    if(fits(world,{...p,position},env))return position;
+    if(fits(world,{...p,position},env,[],occupants))return position;
   }
   return null;
 }
@@ -122,7 +126,7 @@ export function agePhysicalWorld(world: PhysicalWorld, env: SurvivalEnvironment)
 export interface ManipulationResult { ok: boolean; summary: string; partId: string|null; reading?: PhysicalReading; effort: number }
 
 /** The only mutation entry point. All attempted operations pay effort; failed operations create no matter. */
-export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, op: Manipulation, env: SurvivalEnvironment, tick: number): ManipulationResult {
+export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, op: Manipulation, env: SurvivalEnvironment, tick: number, occupants: readonly SurvivalPosition[] = [agent.position]): ManipulationResult {
   const effort=op.kind==="shape"?1.6:op.kind==="heat"?2:0.6;
   agent.needs.energy=round(clip(agent.needs.energy-effort,0,100)); world.workEnergy=round(world.workEnergy+effort);
   const fail=(summary:string):ManipulationResult=>({ok:false,summary,partId:null,effort});
@@ -140,18 +144,18 @@ export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, 
     if (hollow<0||hollow>0.7||Math.abs(volume*MATERIALS[op.material].density-op.mass)>op.mass*0.03) return fail("The dimensions do not conserve this material's volume.");
     if (MATERIALS[op.material].hardness>0.8&&agent.inventory.stone<op.mass+0.5) return fail("A separate hard striking stone is needed to shape this piece.");
     part={id:`part-${world.nextId}`,makerId:agent.id,createdAt:tick,sources:agent.materialSamples?.[op.material]?[agent.materialSamples[op.material]!.sourceId]:[],composition:{[op.material]:op.mass},size:{...op.size},position:{x:agent.position.x,y:op.size.y/2,z:agent.position.z},rotation:0,condition:1,temperature:env.temperatureC,peakTemperature:env.temperatureC,hollow,water:0,supported:true,revision:1};
-    const pose=availableGroundPose(world,part,agent,env);if(!pose)return fail("There is no unoccupied ground within reach for this piece.");
+    const pose=availableGroundPose(world,part,agent,env,occupants);if(!pose)return fail("There is no unoccupied ground within reach for this piece.");
     part.position=pose;spend(op.material,op.mass);world.nextId++;
     world.parts.push(part);
   } else if (op.kind==="place"&&p) {
     if (partMass(p)>PHYSICAL_LIMITS.carryMass || Object.values(op.position).some(n=>!Number.isFinite(n)) || !Number.isFinite(op.rotation) || Math.hypot(op.position.x-agent.position.x,op.position.z-agent.position.z)>4 || op.position.y<p.size.y/2 || op.position.y>5 || op.position.x<env.bounds.minX || op.position.x>env.bounds.maxX || op.position.z<env.bounds.minZ || op.position.z>env.bounds.maxZ) return fail("The pose is outside reach, ground, world bounds, or lifting capacity.");
     const proposed={...p,position:op.position,rotation:op.rotation};
-    if(!fits(world,proposed,env)) return fail("Solid parts cannot occupy the same space or extend beyond the world.");
+    if(!fits(world,proposed,env,[],occupants)) return fail("Solid parts cannot overlap another part, an agent's occupied space, or the world boundary.");
     p.position={...op.position};p.rotation=op.rotation;p.revision++;
   } else if(op.kind==="split"&&p) {
     if(world.parts.length>=PHYSICAL_LIMITS.parts||op.fraction<0.1||op.fraction>0.9||p.size.x*Math.min(op.fraction,1-op.fraction)<0.06||p.water>0) return fail("This split is too small, or a filled part cannot be split safely.");
     const other:PhysicalPart=structuredClone(p);other.id=`part-${world.nextId}`;other.createdAt=tick;other.size.x*=1-op.fraction;
-    const splitPose=availableGroundPose(world,other,agent,env);if(!splitPose)return fail("No unoccupied space is available for the separated piece.");
+    const splitPose=availableGroundPose(world,other,agent,env,occupants);if(!splitPose)return fail("No unoccupied space is available for the separated piece.");
     for(const k of Object.keys(p.composition) as MaterialKind[]){other.composition[k]=p.composition[k]!*(1-op.fraction);p.composition[k]!*=op.fraction;}
     p.size.x*=op.fraction;other.position=splitPose;p.revision++;world.nextId++;world.parts.push(other);
   } else if(op.kind==="join"||op.kind==="mix") {
@@ -165,7 +169,7 @@ export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, 
       if(a.water||b.water||world.joints.some(j=>j.a===b.id||j.b===b.id)||partMass(a)+partMass(b)>12) return fail("Empty, unbound pieces within handling capacity are required for mixing.");
       const volume=a.size.x*a.size.y*a.size.z*(1-a.hollow)+b.size.x*b.size.y*b.size.z*(1-b.hollow);
       const edge=Math.cbrt(volume),next={...a,size:{x:edge,y:edge,z:edge},position:{...a.position,y:edge/2}};
-      if(edge>4||!fits(world,next,env,[b.id]))return fail("The combined material cannot fit at this location.");
+      if(edge>4||!fits(world,next,env,[b.id],occupants))return fail("The combined material cannot fit at this location.");
       for(const k of Object.keys(b.composition) as MaterialKind[])a.composition[k]=(a.composition[k]??0)+b.composition[k]!;
       a.sources=[...new Set([...(a.sources??[]),...(b.sources??[])])];
       a.size=next.size;a.hollow=0;a.position=next.position;a.revision++;world.parts=world.parts.filter(q=>q.id!==b.id);

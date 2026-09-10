@@ -64,7 +64,12 @@ export function extendHistoryWindow(windowEvents: SurvivalEvent[], page: Surviva
   return [...merged.values()].sort((a, b) => eventSequence(a) - eventSequence(b)).slice(-4608);
 }
 /** Checkpoint cursor and every emitted event commit atomically. CAS rejects stale tabs. */
-function fencePolicy2Checkpoint(checkpoint: SurvivalCheckpoint): SurvivalCheckpoint {
+function fenceCheckpoint(checkpoint: SurvivalCheckpoint, survivalFence = false): SurvivalCheckpoint {
+  // A format-only fence preserves the original tick, decisions and observations.
+  // No survival revision or measurements are invented for a pre-adoption backup.
+  if (survivalFence && (checkpoint.world.policyVersion === 2 || checkpoint.world.policyVersion === 3)) {
+    return { ...checkpoint, world: { ...checkpoint.world, schemaVersion: 4 } };
+  }
   return checkpoint.world.policyVersion === 2 && checkpoint.world.schemaVersion === 1
     ? { ...checkpoint, world: { ...checkpoint.world, schemaVersion: 2 } }
     : checkpoint;
@@ -87,8 +92,8 @@ export async function commitCheckpoint(next: SurvivalCheckpoint, events: Surviva
       next.missingBefore = cutoff;
       for (const event of events) if (eventSequence(event) > cutoff) store.put({ runInstanceId: next.runInstanceId, sequence: eventSequence(event), event });
       if (cutoff > 0) store.delete(IDBKeyRange.bound([next.runInstanceId, 0], [next.runInstanceId, cutoff]));
-      // Recovery must not reopen an old client's ability to run pre-succession rules.
-      if (previous) checkpoints.put(fencePolicy2Checkpoint(previous), "last-good");
+      // Recovery must not reopen an old client's ability to run earlier rules.
+      if (previous) checkpoints.put(fenceCheckpoint(previous, next.world.schemaVersion === 4), "last-good");
       checkpoints.put(next, "active");
       checkpoints.put(next, `run:${next.runInstanceId}`);
       committed = true;
@@ -145,7 +150,7 @@ export async function recoverLastGoodCheckpoint(): Promise<SurvivalCheckpoint> {
         if (!validateCheckpoint(backup.result)) { tx.abort(); return; }
         if (active.result) store.put(active.result, `unreadable:${Date.now()}`);
         const knownCutoff = active.result?.runInstanceId === backup.result.runInstanceId && Number.isSafeInteger(active.result?.missingBefore) ? active.result.missingBefore : 0;
-        recovered = fencePolicy2Checkpoint({ ...backup.result, missingBefore: Math.min(backup.result.world.eventWindow.totalEvents, Math.max(backup.result.missingBefore, knownCutoff)), revision: Math.max(backup.result.revision, Number.isSafeInteger(active.result?.revision) ? active.result.revision : 0) + 1, savedAt: Date.now() });
+        recovered = fenceCheckpoint({ ...backup.result, missingBefore: Math.min(backup.result.world.eventWindow.totalEvents, Math.max(backup.result.missingBefore, knownCutoff)), revision: Math.max(backup.result.revision, Number.isSafeInteger(active.result?.revision) ? active.result.revision : 0) + 1, savedAt: Date.now() }, active.result?.world?.schemaVersion === 4);
         store.put(recovered, "active");
         store.put(recovered, `run:${recovered.runInstanceId}`);
       };

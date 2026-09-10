@@ -905,3 +905,32 @@
   .cameraControls { grid-template-columns: repeat(2,44px); }
   .constructionShelf { max-height: calc(100% - 28px); }
 }
+.deathReview { border-left: 2px solid var(--critical, #f07780); padding-left: 12px; min-width: 0; }
+.deathReview > p > strong { text-transform: capitalize; }
+.deathReview .rowList dd { overflow-wrap: anywhere; text-align: right; }
+.needHistory { max-width: 100%; overflow-x: auto; }
+.needHistory table { width: 100%; border-collapse: collapse; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.needHistory caption { text-align: left; padding: 8px 0; color: #a6b4c3; }
+.needHistory th, .needHistory td { padding: 8px 4px; text-align: right; border-bottom: 1px solid #ffffff14; }
+.needHistory th:first-child { text-align: left; font-weight: 400; min-width: 84px; }
+.failureEpisode { margin: 0 8px 12px; padding: 0 12px; color: #a6b4c3; }
+.failureEpisode summary { min-height: 44px; align-content: center; font-size: .875rem; cursor: pointer; }
+.failureEpisode ol { display: block; padding-left: 16px; }
+.failureEpisode li { display: list-item; margin-bottom: 12px; }
+.failureEpisode p { margin: 4px 0; color: #f3f6fa; }
+.timelineTools { width: 100%; max-width: 980px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; flex: 0 0 auto; margin: 0 auto 12px; border-bottom: 1px solid #ffffff14; }
+.timelineDisplayOptions { position: relative; flex: 0 0 auto; }
+.timelineDisplayOptions > summary { min-height: 44px; align-content: center; cursor: pointer; font-size: .8125rem; color: #a6b4c3; }
+.timelineDisplayOptions > div { position: absolute; top: 44px; right: 0; z-index: 4; width: min(290px, calc(100vw - 32px)); padding: 8px 16px; border: 1px solid #ffffff14; border-radius: 12px; background: #111a23; display: flex; flex-direction: column; }
+.timelineView .scopeButtons { width: auto; margin: 0; border: 0; }
+.timelineView .scopeButtons button { padding-inline: 4px; }
+@media (max-width: 767px) {
+  .timelineView { padding-top: 16px; padding-bottom: 12px; }
+  .timelineView .screenHeading h1 { font-size: 24px; }
+}
+@media (max-height: 740px) {
+  .timelineView { padding-top: 12px; padding-bottom: 8px; }
+  .timelineView > .screenHeading { margin-bottom: 8px; }
+  .timelineFilters { margin-bottom: 8px; }
+  .timelineView .historyScope { margin-top: 0; margin-bottom: 4px; }
+}

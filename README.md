@@ -56,6 +56,38 @@ Earlier policy-1/2 studies remain intact; configure a new run to use physical
 construction. Newer physical saves are rejected by older clients, so refresh all
 open tabs. See [construction release verification](docs/CONSTRUCTION_RELEASE.md).
 
+## Survival recovery update
+
+The survival recovery implementation retains complete need-restoration alternatives,
+estimates time to physiological harm, navigates around privately observed geometry,
+and learns person/resource-specific expectations from refused aid. Requested aid
+is evaluated as uncertain; it is never added to actual inventory before transfer.
+Construction collision checks include every living body, and existing invalid
+contact overlaps can be exited continuously without allowing movement through walls.
+
+Schema-4 checkpoints fence older clients after adoption. Existing policy-2/3 studies
+adopt survival revision 1 on their next advancing tick, with an audit event. Paused
+and ended studies are not silently upgraded; earlier deaths and events are retained.
+Policy 1 remains the frozen original engine. Refresh all open tabs before advancing.
+Backup recovery also fences out old clients. A pre-adoption backup retains its
+original history and gains only the format fence; rule adoption and measurements
+still begin on its next advancing tick.
+
+Agent details and death events now expose a factual death review: hourly need
+measurements, confirmed consumption, blocked moves, refused requests, final plans,
+and retained resource observations. These observer measurements are excluded from
+policy inputs. Measurements start at adoption and cannot reconstruct an older life.
+Timeline display options can group repeated failures while retaining exact records
+and unchanged exports.
+
+Run `npm run benchmark:recovery` for the reproduced failing scenarios, and add
+`-- --holdout` for additional seeds with one, three and five agents and varied
+conditions. Survival remains uncertain; these are competence checks, not proof of
+general intelligence or a guarantee of survival. Publication is verified against
+the compiled asset identifiers recorded in the report below.
+See [survival recovery verification](docs/SURVIVAL_RECOVERY.md) for the implemented
+changes, scenario results, save compatibility, and remaining limits.
+
 ## Security boundary
 
 Never place an API key in source code, browser storage, a static Pages build, a commit, an issue, or chat. This edition uses the deterministic local planner and requires no model credential.

@@ -59,10 +59,14 @@ test("pre-death planning spends the starter kit exactly once and is not a living
   assert.equal(run.agents[0].inventory.food,3.5);
   assert.equal(run.agents[0].successionReview.choice,"planned");
   assert.deepEqual(run.agents[0].knownSuccessionPredecessors,[run.agents[0].id]);
-  const later = advanceSurvivalRun(run,40).state;
+  const result = advanceSurvivalRun(run,40), later = result.state;
   assert.equal(later.succession.plans.length,1);
-  assert.equal(later.agents[0].inventory.freshwater,3.5);
-  assert.equal(later.agents[0].inventory.food,3.5);
+  assert.deepEqual(later.succession.plans,run.succession.plans,"the funded kit is not charged again");
+  // An agent may now interrupt the fixture's long rest to consume a ration.
+  // Account for confirmed use instead of requiring the agent to ignore thirst.
+  const used=action=>result.events.filter(e=>e.type==="action_outcome"&&e.facts.action===action&&e.facts.success===true).length;
+  assert.equal(later.agents[0].inventory.freshwater,3.5-used("drink"));
+  assert.equal(later.agents[0].inventory.food,3.5-used("eat"));
   assert.equal(validateSurvivalRun(later),true);
 });
 
@@ -177,19 +181,19 @@ test("configured duration wins over pending succession and forbids last-tick new
 });
 
 test("old policy-2 checkpoints enable the additive rules once without fabricated past decisions", () => {
-  const old=opportunity(); delete old.succession; old.schemaVersion=1;
+  const old=opportunity(); delete old.succession; delete old.survivalRevision; old.schemaVersion=1;
   const normalized=normalizeSurvivalRun(old);
   assert.equal(normalized.succession,undefined);
   const next=step(normalized);
   assert.equal(next.succession.enabledAt,36);
-  assert.equal(next.schemaVersion,2);
+  assert.equal(next.schemaVersion,4);
   assert.equal(next.events.filter(e=>e.type==="succession_enabled").length,1);
   assert.equal(step(next).events.filter(e=>e.type==="succession_enabled").length,1);
   assert.equal(validateSurvivalRun(next),true);
 });
 
 test("the next-generation schema fences older clients without deleting the pre-upgrade checkpoint", () => {
-  const old=opportunity(); delete old.succession; old.schemaVersion=1;
+  const old=opportunity(); delete old.succession; delete old.survivalRevision; old.schemaVersion=1;
   const snapshot=serializeSurvivalRun(old);
   const fenced={...old,schemaVersion:2};
   assert.equal(validateSurvivalRun(fenced),true);

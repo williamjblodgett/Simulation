@@ -111,6 +111,8 @@ test("server-renders the simple autonomy method page and preserved planet study"
   assert.match(aboutHtml, /How agent autonomy works · Simulation/i);
   assert.match(aboutHtml, /The only pre-given objective|Survive as long as possible/i);
   assert.match(aboutHtml, /Autonomous does not mean conscious/i);
+  assert.match(aboutHtml, /Why can an agent still die/i);
+  assert.match(aboutHtml, /active policy-2\/3 studies adopt survival and navigation corrections/i);
   assert.match(planetHtml, /Prior planetary study · Simulation/i);
 });
 
@@ -292,6 +294,8 @@ test("ships a functional device-local GitHub Pages edition", async () => {
   assert.match(router, /200-day|chapter|Beliefs|resource catalog/i);
   assert.match(router, /Record coverage|reconstruction|INCOMPLETE SOURCE/i);
   assert.match(router, /#\/history\?page=|hashchange/i);
+  assert.match(router, /Why can an agent still die/i);
+  assert.match(router, /active policy-2\/3 studies adopt survival and navigation corrections/i);
   assert.match(persistence, /indexedDB|localStorage|savePlanetRecord|loadPlanetRecord/i);
   assert.match(runtime, /catchUpPlanet|createPlanetWorldAdapter|auto-save|persistence/i);
   assert.match(builtHtml, /\/Simulation\/assets\/.+\.js/);

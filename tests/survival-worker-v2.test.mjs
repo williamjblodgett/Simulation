@@ -13,7 +13,8 @@ test("worker replies, cancellation, stale callbacks and clone failures are isola
   globalThis.Worker=FakeWorker;
   const bridge=new SurvivalWorkerBridge(),world=createSurvivalRun("worker-test",{agentCount:1});
   try {
-    const first=bridge.advance(world,1),worker=workers[0],result=advanceSurvivalRun(world,1);
+    const first=bridge.advance(world,24),worker=workers[0],result=advanceSurvivalRun(world,1);
+    assert.equal(worker.message.steps,1,"catch-up cannot combine expensive decisions into one timed-out request");
     worker.onmessage({data:{id:worker.message.id,ok:true,result}});
     assert.deepEqual(await first,result); assert.equal(bridge.pending.size,0);
     worker.throwClone=true;

@@ -4,7 +4,7 @@ import { createElement, useCallback, useContext, useEffect, useMemo, useRef, use
 import { SurvivalRuntimeContext } from "./survival-runtime-context";
 import { ObserverSelectionProvider } from "./observer-selection";
 import { commitCheckpoint, eventSequence, exportRunArchive, extendHistoryWindow, loadCheckpoint, loadCommandCheckpoint, loadEventPage, recoverLastGoodCheckpoint, type SurvivalCheckpoint } from "./survival-persistence";
-import { SurvivalWorkerBridge } from "./survival-worker-bridge";
+import { SurvivalWorkerBridge, SURVIVAL_WORKER_STEP_LIMIT } from "./survival-worker-bridge";
 import {
   addObserverAgent,
   createSurvivalRun,
@@ -24,7 +24,6 @@ export const SURVIVAL_RUNTIME_LEASE_MILLISECONDS = 3_000;
 const LEASE_RENEWAL_WINDOW_MILLISECONDS = 1_250;
 const DEFAULT_SEED = "simulation-survival-study-1";
 const REAL_MILLISECONDS_PER_STEP_AT_1X = 1_000;
-const MAX_STEPS_PER_INTERVAL = 24;
 
 export type PlaybackSpeed = 0.5 | 1 | 2 | 4;
 
@@ -208,7 +207,7 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
           const legacy = loadStoredRun();
           if (legacy.recoveryNotice) throw new Error(legacy.recoveryNotice);
           const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { policyVersion: 3, agentCount: 3, agentCap: 5, durationHours: 72 });
-          if (world.policyVersion === 2) world.schemaVersion = 2;
+          if (world.policyVersion === 2 && world.schemaVersion === 1) world.schemaVersion = 2;
           await save({ runInstanceId: crypto.randomUUID(), revision: 1, savedAt: Date.now(), speed: 1, world, missingBefore: world.eventWindow.droppedEvents }, world.events, null);
         });
       } catch (error) {
@@ -238,7 +237,7 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
       try { if (!claimSurvivalRuntimeLease(localStorage, ownerId, Date.now())) return; }
       catch { setRecoveryNotice("Run ownership could not be checked. Free device storage, then retry."); setStorageStatus("save-unavailable"); return; }
       accumulated.current += elapsed * visible.speed;
-      const steps = Math.min(MAX_STEPS_PER_INTERVAL, Math.floor(accumulated.current / REAL_MILLISECONDS_PER_STEP_AT_1X));
+      const steps = Math.min(SURVIVAL_WORKER_STEP_LIMIT, Math.floor(accumulated.current / REAL_MILLISECONDS_PER_STEP_AT_1X));
       if (steps < 1) return;
       accumulated.current -= steps * REAL_MILLISECONDS_PER_STEP_AT_1X;
       workerBusy.current = true;

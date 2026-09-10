@@ -308,6 +308,10 @@ export interface AgentResearchProject {
 }
 
 export interface SurvivalAgent {
+  /** Private route experience; never populated from the observer's global map. */
+  navigation?: AgentNavigation;
+  /** Observer-only measurements. The policy input explicitly excludes this record. */
+  survivalRecord?: AgentSurvivalRecord;
   physicalMind?: import("./physical-types").PhysicalMind;
   lineage?: { generation: number; predecessorId: string; sponsorId: string; planId: string };
   successionReview?: SuccessionReview;
@@ -446,11 +450,12 @@ export interface SurvivalEventWindow {
 }
 
 export interface SurvivalRunState {
+  survivalRevision?: 1;
   physical?: import("./physical-types").PhysicalWorld;
   succession?: SuccessionState;
   /** Missing means the preserved original policy; new runs use version 2. */
   policyVersion?: 1 | 2 | 3;
-  schemaVersion: 1 | 2 | 3;
+  schemaVersion: 1 | 2 | 3 | 4;
   id: string;
   seed: number;
   seedLabel: string;
@@ -468,6 +473,25 @@ export interface SurvivalRunState {
   stats: SurvivalRunStats;
   nextIds: Record<"agent" | "event" | "decision" | "plan" | "step" | "memory" | "project" | "attempt" | "structure", number>;
   soleSurvivor: SoleSurvivorState;
+}
+
+export interface AgentNavigation {
+  destination: SurvivalPosition | null;
+  waypoints: SurvivalPosition[];
+  recent: Array<{ tick: number; position: SurvivalPosition }>;
+  blocked: Array<{ tick: number; from: SurvivalPosition; to: SurvivalPosition }>;
+  failures: number;
+  retryAt: number;
+}
+
+export interface AgentSurvivalRecord {
+  since: number;
+  samples: Array<{ tick: number; health: number; hydration: number; nutrition: number; warmth: number }>;
+  lastDrinkAt: number | null;
+  lastMealAt: number | null;
+  blockedMoves: number;
+  refusedRequests: number;
+  incidents: Array<{ tick: number; action: SurvivalActionKind; success: boolean; summary: string }>;
 }
 
 export interface SurvivalAdvanceResult {

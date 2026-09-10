@@ -1,5 +1,9 @@
 import type { SurvivalAdvanceResult, SurvivalRunState } from "../simulation/survival/types";
 
+// A single dense planning step can take seconds. Keep background-tab catch-up
+// from multiplying that cost into one request that exceeds the timeout.
+export const SURVIVAL_WORKER_STEP_LIMIT = 1;
+
 export class SurvivalWorkerBridge {
   private worker: Worker | null = null;
   private serial = 0;
@@ -22,7 +26,7 @@ export class SurvivalWorkerBridge {
       const id = ++this.serial;
       const timer = setTimeout(() => this.dispose("The local planner timed out. The last saved checkpoint is intact."), 15_000);
       this.pending.set(id, { resolve, reject, timer });
-      try { this.worker!.postMessage({ id, world, steps: Math.min(24, steps) }); }
+      try { this.worker!.postMessage({ id, world, steps: Math.min(SURVIVAL_WORKER_STEP_LIMIT, steps) }); }
       catch (error) { clearTimeout(timer); this.pending.delete(id); reject(error); }
     });
   }

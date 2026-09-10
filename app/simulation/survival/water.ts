@@ -58,6 +58,11 @@ export function shorePoints(feature: WaterFootprint): SurvivalPosition[] {
   });
 }
 
+/** Reachable dry-bank access, shared by sensing and execution. Crossing is not collection. */
+export function canCollectFreshwater(feature: WaterFootprint, point: SurvivalPosition): boolean {
+  return waterDepth(feature,point) === 0 && shorePoints(feature).some(p=>Math.hypot(p.x-point.x,p.z-point.z)<=3);
+}
+
 export function estimateWaterTravel(features: readonly WaterFootprint[], from: SurvivalPosition, to: SurvivalPosition, temperatureC: number, storm = false) {
   const distance = Math.hypot(to.x - from.x, to.z - from.z), samples = Math.max(1, Math.ceil(distance / 0.5));
   const nearby = features.filter(f => {
