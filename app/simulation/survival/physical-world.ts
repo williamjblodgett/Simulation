@@ -15,7 +15,7 @@ export const round = (n: number) => Math.round(n * 1e6) / 1e6;
 export const partMass = (p: PhysicalPart) => Object.values(p.composition).reduce((a, b) => a + b, 0);
 export const dominantMaterial = (p: PhysicalPart): MaterialKind => Object.entries(p.composition).sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]))[0][0] as MaterialKind;
 export const freshPhysicalWorld = (): PhysicalWorld => ({ version: 1, nextId: 1, parts: [], joints: [], spent: {}, workEnergy: 0, tests: 0 });
-export const freshPhysicalMind = (): PhysicalMind => ({ version: 1, readings: [], estimates: [], procedures: [], projects: [], namedAt: null, nameEvidence: [], learningEnabled: true });
+export const freshPhysicalMind = (): PhysicalMind => ({ version: 2, readings: [], estimates: [], procedures: [], projects: [], uses: [], namedAt: null, nameEvidence: [], learningEnabled: true });
 
 export function properties(p: PhysicalPart): MaterialProperties {
   const mass = partMass(p);

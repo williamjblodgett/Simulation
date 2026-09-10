@@ -36,6 +36,26 @@ show the same movement state, and Timeline records entry and reaching dry land.
 Crossing does not collect or drink water. Existing studies need no reset; refresh
 the page to load the updated rules. The distant ocean remains outside study bounds.
 
+### Construction and observation
+
+Physical studies now include private geometric clearance/support reasoning,
+material and striker prerequisites, retained interrupted work, bounded retry and
+repositioning, and experience-based return to previously useful protection sites.
+Agents still choose whether the predicted survival benefit justifies construction;
+they receive no building assignment or reward for producing a named invention.
+
+Select a physical part in World, or use **Inspect constructions**, to see its
+maker, project, current condition, tests and use records. Dashed outlines are
+proposals, not completed parts. Agent details expose the current project and
+blocker; Timeline can group exact project records; the map can show an agent's
+private observations separately from the observer's full map.
+
+Policy-3 saves adopt construction-reasoning version 2 on their next advancing
+tick, with an audit event. Paused saves and prior history are not rewritten.
+Earlier policy-1/2 studies remain intact; configure a new run to use physical
+construction. Newer physical saves are rejected by older clients, so refresh all
+open tabs. See [construction release verification](docs/CONSTRUCTION_RELEASE.md).
+
 ## Security boundary
 
 Never place an API key in source code, browser storage, a static Pages build, a commit, an issue, or chat. This edition uses the deterministic local planner and requires no model credential.

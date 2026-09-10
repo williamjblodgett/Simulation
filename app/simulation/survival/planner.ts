@@ -25,6 +25,7 @@ export interface PlannedAction {
   amount?: number;
 }
 export interface LocalPlanChoice {
+  projectId?: string;
   candidate: AgentDecisionCandidate;
   actions: PlannedAction[];
   uncertainty: number;
@@ -159,6 +160,18 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
       if (parent.needs.energy < 80) add("rest", simple("rest", 2), "recover", "Rest now so the next journey starts with more energy.", n => { n.needs.energy = clip(n.needs.energy + 26); n.needs.health = clip(n.needs.health + 0.7); });
       if (!parent.sheltered && (parent.needs.safety < 80 || parent.needs.warmth < 70)) add("reduce-exposure", simple("shelter"), "seek_safety", input.physical?"Conserve warmth here using observed protection.":"Reduce exposure here while considering a built shelter.", n => { n.needs.warmth = clip(n.needs.warmth + (input.physical?2+(n.protection??0)*3:5)); n.needs.safety = clip(n.needs.safety + (input.physical?(n.protection??0)*2:4)); });
       if (parent.needs.warmth < 82) add("warm", simple("warm"), "stay_warm", "Conserve warmth using the conditions this agent observed.", n => { const fire = agent.technologies.includes("controlled_fire") && n.inventory.wood >= 1; n.needs.warmth = clip(n.needs.warmth + (fire ? 29 : Number(weather?.facts.daylight) > 0.35 ? 9 : 3)); if (fire) n.inventory.wood--; });
+      if(input.physical && agent.physicalMind?.learningEnabled){
+        const places=[...agent.physicalMind.readings.filter(r=>r.metric==="protection"&&r.after>.05).map(r=>({tick:r.tick,partId:r.partId,position:r.position,protection:r.after,weather:r.weather})),...(agent.physicalMind.uses??[])]
+          .sort((a,b)=>b.tick-a.tick).filter((r,i,all)=>all.findIndex(q=>q.partId===r.partId)===i).slice(0,3);
+        for(const place of places){
+          const observed=known.find(o=>o.subjectId===place.partId&&o.facts.structureKind==="physical_part"&&Number(o.facts.condition)>5);
+          if(!observed||tick-place.tick>288||depthAt(water,place.position)>0)continue;
+          const estimate=place.protection*(place.weather===conditions.weather?1:.6)*Math.max(.3,1-(tick-place.tick)/360);
+          const distance=dist(parent.position,place.position);
+          if(distance>1.1)add(`use-${place.partId}`,{action:"move",targetId:place.partId,destination:place.position,duration:Math.max(1,Math.ceil(distance/7.5))},"seek_safety","Return to a personally tested or experienced protective place; weather and condition may have changed.",n=>{n.position={...place.position};n.protection=estimate;n.needs.energy=clip(n.needs.energy-distance/7.5*.34);},observed);
+          else if(estimate>(parent.protection??0))add(`use-rest-${place.partId}`,simple("rest",2),"recover","Rest at the remembered protective arrangement and observe how it performs.",n=>{n.protection=estimate;n.needs.energy=clip(n.needs.energy+26);n.needs.health=clip(n.needs.health+.7);},observed);
+        }
+      }
       const nearbyResources = [...new Set(resources.map(o => o.facts.resourceKind))].flatMap(kind => resources.filter(o => o.facts.resourceKind === kind).sort((a,b) => dist(parent.position,a.position!) - dist(parent.position,b.position!)).slice(0,3));
       for (const observation of nearbyResources) {
         if (parent.remainingSites[observation.subjectId] < 0.25) continue;

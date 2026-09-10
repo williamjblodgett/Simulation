@@ -178,6 +178,7 @@ export interface HabitatNeedsVisual {
 }
 
 export interface HabitatAgentVisual {
+  workPosition?: HabitatPoint;
   /** Derived from the authoritative freshwater footprint, not animation timing. */
   waterDepth?: number;
   lifeId?: string;
@@ -194,6 +195,10 @@ export interface HabitatAgentVisual {
 }
 
 export interface HabitatVisualSnapshot {
+  physicalPresentation?: {
+    selectedPartId?: string | null;
+    proposal?: { size: import("../../simulation/survival/physical-types").Vec3; position: import("../../simulation/survival/physical-types").Vec3; rotation: number } | null;
+  };
   physical?: import("../../simulation/survival/physical-types").PhysicalWorld;
   simulationRunning?: boolean;
   simulationTimeSeconds: number;
@@ -211,6 +216,7 @@ export type HabitatCameraMode = "overview" | "follow" | "habitat" | "free";
 
 export interface SurvivalHabitatSceneOptions {
   onSelectAgent(id: SurvivalAgentId): void;
+  onSelectPart?(id:string):void;
   /** Called after an actual orbit, pan, wheel, or pinch gesture—not on a tap. */
   onManualCamera(): void;
   onContextLost(): void;

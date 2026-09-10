@@ -850,3 +850,58 @@
 }
 @media (max-width: 360px) { .appHeader { gap: 6px; padding-inline: 10px; } .brand > svg { display: none; } .playback label { padding: 0 3px; } .agentRail { gap: 2px; left: 10px; right: 10px; } .agentRail button { gap: 2px; } .portrait[data-size="small"] { width: 29px; } .recordCount { font-size: 12px; } }
 @media (prefers-reduced-motion: reduce) { .agentSheet { transition: none; } }
+
+/* Construction observatory: factual project state, with no agent command surface. */
+.textControl { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 0; border: 0; color: #a6d4ff; background: transparent; font: inherit; font-size: 14px; cursor: pointer; }
+.projectSummary { padding: 16px 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.projectSummary > span { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #adc5d7; }
+.projectSummary h3 { font-size: 18px; font-weight: 550; margin: 10px 0 6px; }
+.projectSummary p { font-size: 14px; color: var(--muted); line-height: 1.5; margin: 6px 0; }
+.projectSummary > strong { display: block; font-size: 14px; font-weight: 400; line-height: 1.6; }
+.projectBlocker { border-left: 2px solid #f2bd62; padding-left: 12px; font-size: 14px; line-height: 1.6; }
+.partButtons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.partButtons button { padding: 8px 12px; min-height: 44px; border-radius: 9px; border: 1px solid var(--border); background: #17232f; color: #c4e2fc; font: inherit; font-size: 14px; cursor: pointer; }
+.partButtons button:disabled { opacity: .5; cursor: default; }
+.constructionHeading { display: flex; align-items: center; gap: 14px; margin: 12px 0 20px; }
+.constructionHeading h2 { font-size: 22px; font-weight: 550; line-height: 1.2; margin: 0 0 8px; }
+.constructionHeading p { color: #a6d4ff; margin: 0; font-size: 14px; }
+.constructionInspector p { font-size: 15px; line-height: 1.6; }
+.constructionInspector small { display: block; font-size: 13px; color: var(--muted); line-height: 1.6; }
+.constructionInspector .rowList { font-size: 14px; }
+.constructionInspector .rowList dd { text-align: right; max-width: 65%; }
+.constructionInspector h3 { font-size: 16px; font-weight: 550; }
+.constructionShelf { max-height: min(440px,65%); overflow-y: auto; }
+.constructionShelf header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.constructionShelf header h2 { font-size: 19px; margin: 0; }
+.constructionShelf header button { position: static; transform: none; translate: none; width: 44px; height: 44px; background: none; border: 0; }
+.constructionShelf p { font-size: 14px; line-height: 1.6; color: var(--muted); }
+.constructionShelf > div { display: grid; height: auto; background: none; gap: 4px; overflow: visible; border-radius: 0; }
+.constructionShelf > div > button { position: static; transform: none; translate: none; width: 100%; height: auto; min-height: 64px; padding: 10px; text-align: left; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: none; }
+.constructionShelf strong,.constructionShelf span { display: block; font-size: 14px; line-height: 1.5; }
+.constructionShelf span { color: var(--muted); font-size: 13px; }
+.miniMap > .mapLensControls { display: flex; height: auto; gap: 4px; background: none; overflow: visible; border-radius: 0; margin-bottom: 12px; }
+.mapLensControls button { position: static; translate: none; transform: none; width: auto; height: auto; flex: 1; min-height: 44px; padding: 6px; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; background: none; }
+.mapLensControls button[aria-pressed="true"] { color: #b6dcff; background: #429fff20; }
+.miniMap .knowledgeLens { margin: 0; max-height: 46vh; overflow-y: auto; }
+.miniMap .knowledgeLens p,.miniMap .knowledgeLens summary { font-size: 14px; }
+.miniMap .knowledgeLens ul { display: none; }
+.miniMap > svg { width: 100%; aspect-ratio: 1.4; display: block; }
+.dayGroup .projectStory { display: block; padding: 4px 12px 4px 20px; margin: 0 0 0 12px; border-left: 2px solid #429fff66; }
+.dayGroup .projectStory li { display: block; padding: 14px 0; margin: 0; border-bottom: 1px solid var(--border); }
+.dayGroup .projectStory time { display: block; margin-bottom: 8px; font-size: 13px; }
+.dayGroup .projectStory strong { display: block; font-size: 15px; font-weight: 500; }
+.dayGroup .projectStory p { font-size: 14px; line-height: 1.6; color: var(--muted); margin-bottom: 0; }
+.conditionLine,.needMeter > div:first-child,.needMeter[data-compact="true"] > div:first-child { font-size: 14px; }
+.inspectorTabs button,.recordSection > header small { font-size: 14px; }
+.intentOutcome span,.rowList { font-size: 13px; }
+.zoomControls { top: 212px; }
+@media (max-width: 767px) and (min-height: 541px) {
+  .peekSummary .conditionLine { font-size: 13px; }
+  .agentSheet[data-level="half"] .projectSummary { padding-block: 8px; margin-bottom: 12px; }
+  .agentSheet[data-level="half"] .intentOutcome strong { -webkit-line-clamp: 3; font-size: 14px; }
+  .constructionInspector[data-level="peek"] .inspectorHalf,.constructionInspector[data-level="peek"] .inspectorExpanded { display: none; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .cameraControls { grid-template-columns: repeat(2,44px); }
+  .constructionShelf { max-height: calc(100% - 28px); }
+}

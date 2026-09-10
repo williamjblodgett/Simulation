@@ -829,7 +829,8 @@ function perceive(state: SurvivalRunState, agent: SurvivalAgent): void {
       position: { x: part.position.x, z: part.position.z }, confidence: 0.9,
       facts: { structureKind: "physical_part", width: part.size.x, height: part.size.y, depth: part.size.z, elevation: part.position.y, rotation: part.rotation, condition: Math.round(part.condition*100), makerId: part.makerId, revision: part.revision,
         material: Object.entries(part.composition).sort((a,b)=>b[1]-a[1])[0][0], mass: Object.values(part.composition).reduce((a,b)=>a+b,0), hollow: part.hollow, storedWater: part.water,
-        bindingIds: JSON.stringify(state.physical.joints.filter(j=>j.a===part.id||j.b===part.id).map(j=>j.id)) } });
+        supported: part.supported,
+        bindingIds: JSON.stringify(state.physical.joints.filter(j=>(j.a===part.id||j.b===part.id)&&j.condition>0).map(j=>j.id)) } });
   }
 }
 
@@ -1353,8 +1354,13 @@ function planForDecision(
 function deliberate(state: SurvivalRunState, agent: SurvivalAgent): void {
   if (state.policyVersion === 2 || state.policyVersion === 3) {
     const input = { agent, tick: state.tick, seed: state.seed, bounds: state.environment.bounds };
+    const priorNotes=new Set(agent.physicalMind?.projects.flatMap(p=>(p.history??[]).map(h=>`${p.id}:${h.tick}:${h.summary}`))??[]);
     if (state.policyVersion === 3) preparePhysicalProjects(input);
     const choices = state.policyVersion === 3 ? planPhysicalKnowledge(input) : planFromPrivateKnowledge(input);
+    for(const project of agent.physicalMind?.projects??[])for(const note of project.history??[]){
+      if(priorNotes.has(`${project.id}:${note.tick}:${note.summary}`))continue;
+      makeEvent(state,{type:"action_outcome",category:"environment",agentIds:[agent.id],summary:`${agent.label}'s project was ${note.kind}.`,outcome:note.summary,position:project.position,facts:{operation:"project_update",projectId:project.id,projectStatus:project.status}});
+    }
     const chosen = choices[0];
     if (chosen) {
       const decisionId = nextId(state, "decision");
@@ -1382,7 +1388,7 @@ function deliberate(state: SurvivalRunState, agent: SurvivalAgent): void {
       state.stats.decisions++;
       makeEvent(state, { type: "decision_recorded", category: "agent", agentIds: [agent.id],
         summary: `${agent.label} chose ${chosen.actions.map(a => a.manipulation?.kind??a.action).join(" → ")}.`, outcome: chosen.candidate.summary, position: agent.position,
-        facts: { decisionId, planId: agent.currentPlan.id, goal: chosen.candidate.goal, score: chosen.candidate.score,
+        facts: { decisionId, planId: agent.currentPlan.id, goal: chosen.candidate.goal, score: chosen.candidate.score, projectId:chosen.projectId??null,
           scoreMeaning: "survival potential, not a probability", predictedSteps: chosen.candidate.predictedSteps ?? 1,
           evidence: JSON.stringify(evidence), alternatives: JSON.stringify(choices.slice(1, 4).map(c => c.candidate)) },
       });
@@ -2004,11 +2010,12 @@ function executePlanStep(state: SurvivalRunState, agent: SurvivalAgent): void {
     finishStep(state,agent,step,false);return;
   }
   if (state.physical && step.manipulation) {
+    const project=agent.physicalMind?.projects.find(p=>p.status==="active");
     const result = executeManipulation(state.physical,agent,step.manipulation,state.environment,state.tick);
-    completePhysicalOperation(agent,step.manipulation,result.ok,result.partId,state.tick,result.effort);
+    completePhysicalOperation(agent,step.manipulation,result.ok,result.partId,state.tick,result.effort,result.summary);
     if(result.reading) learnPhysicalReading(agent,result.reading);
     recordOutcome(state,agent,step.action,result.partId,result.ok,-result.effort,result.summary);
-    makeEvent(state,{type:result.reading?"experiment":"action_outcome",category:result.reading?"research":"environment",agentIds:[agent.id],summary:`${agent.label} attempted ${step.manipulation.kind}.`,outcome:result.summary,position:agent.position,facts:{operation:step.manipulation.kind,partId:result.partId,decisionId:agent.currentDeliberation?.id??null,projectId:agent.physicalMind?.projects.at(-1)?.id??null,success:result.ok,effort:result.effort,control:result.reading?.before??null,measured:result.reading?.after??null}});
+    makeEvent(state,{type:result.reading?"experiment":"action_outcome",category:result.reading?"research":"environment",agentIds:[agent.id],summary:`${agent.label} attempted ${step.manipulation.kind}.`,outcome:result.summary,position:agent.position,facts:{operation:step.manipulation.kind,partId:result.partId??("partId"in step.manipulation?step.manipulation.partId:null),decisionId:agent.currentDeliberation?.id??null,projectId:project?.id??null,projectStatus:project?.status??null,success:result.ok,effort:result.effort,control:result.reading?.before??null,measured:result.reading?.after??null}});
     finishStep(state,agent,step,result.ok);
   } else if (step.action === "move") {
     moveToward(state, agent, step);
@@ -2240,6 +2247,11 @@ function advanceOneStep(state: SurvivalRunState): void {
       markDead(state, agent);
       continue;
     }
+    const warmthBefore=agent.needs.warmth;
+    if(agent.physicalMind?.version===1){
+      agent.physicalMind.version=2;agent.physicalMind.uses=[];
+      makeEvent(state,{type:"action_outcome",category:"run",agentIds:[agent.id],summary:`${agent.label}'s construction reasoning was updated.`,outcome:"Observed geometry, prerequisite planning, project recovery and experience from use are enabled. Prior records are unchanged.",facts:{constructionReasoning:2}});
+    }
     applyNeedDrift(state, agent);
     if (agent.needs.health <= 0) {
       markDead(state, agent);
@@ -2268,7 +2280,18 @@ function advanceOneStep(state: SurvivalRunState): void {
       deliberate(state, agent);
     }
     const beforeMove = { ...agent.position };
+    const experiencedAction=agent.currentPlan?.steps[agent.currentPlan.activeStepIndex]?.action;
     executePlanStep(state, agent);
+    if(state.physical&&agent.physicalMind&&experiencedAction&&["rest","shelter","warm"].includes(experiencedAction)&&depthAt(water,agent.position)===0){
+      const protection=protectionAt(state.physical,agent.position,state.environment.weather);
+      const part=state.physical.parts.filter(p=>p.supported&&p.condition>.05&&distance(p.position,agent.position)<5&&agent.observations.some(o=>o.subjectId===p.id)).sort((a,b)=>distance(a.position,agent.position)-distance(b.position,agent.position))[0];
+      if(part&&protection>.025&&state.tick-(agent.physicalMind.uses?.at(-1)?.tick??-6)>=6){
+        const use={id:`use-${agent.id}-${state.tick}`,tick:state.tick,partId:part.id,revision:part.revision,position:{...agent.position},action:experiencedAction as "rest"|"shelter"|"warm",weather:state.environment.weather,temperature:state.environment.temperatureC,warmthBefore,warmthAfter:agent.needs.warmth,protection};
+        agent.physicalMind.uses=[...(agent.physicalMind.uses??[]),use].slice(-32);
+        const project=[...agent.physicalMind.projects].reverse().find(p=>p.partIds.includes(part.id));
+        makeEvent(state,{type:"action_outcome",category:"survival",agentIds:[agent.id],summary:`${agent.label} used a protective arrangement.`,outcome:`Warmth changed from ${warmthBefore.toFixed(0)} to ${agent.needs.warmth.toFixed(0)} during ${use.action}. Experienced protection is not a controlled test of causation.`,position:agent.position,facts:{operation:"use",partId:part.id,projectId:project?.id??null,protection,warmthBefore,warmthAfter:agent.needs.warmth,weather:use.weather,success:true}});
+      }
+    }
     const travel = estimateWaterTravel(water, beforeMove, agent.position, state.environment.temperatureC, state.environment.weather === "storm");
     const exposure = distance(beforeMove, agent.position) > 0
       ? travel : immersionCost(locomotionAt(water, agent.position), state.environment.temperatureC, state.environment.weather === "storm");

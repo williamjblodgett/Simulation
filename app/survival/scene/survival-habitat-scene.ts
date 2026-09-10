@@ -475,7 +475,7 @@ export function createSurvivalHabitatScene(
     if (!terrainWorld) return;
     resources.sync(nextSnapshot.resourceNodes, terrainWorld.heightAt);
     shelters.sync(nextSnapshot.shelters, terrainWorld.heightAt);
-    physical.sync(nextSnapshot.physical);
+    physical.sync(nextSnapshot.physical,nextSnapshot.physicalPresentation);
     agents.sync(nextSnapshot.agents, nextSelectedId, point => {
       const feature = nextSnapshot.terrain.freshwater.find(f => {
         const angle=f.rotation??0,dx=point.x-f.position.x,dz=point.z-f.position.z;
@@ -502,7 +502,10 @@ export function createSurvivalHabitatScene(
       const agentPosition = agents.positionOf(selectedId);
       if (agentPosition) {
         desiredTarget.copy(agentPosition).add(new THREE.Vector3(0, 1.15, 0));
-        desiredCamera.copy(agentPosition).add(new THREE.Vector3(6.8, 5.8, 9.4));
+        const work=snapshot.agents.find(a=>a.id===selectedId)?.workPosition;
+        const span=work?Math.hypot(work.x-agentPosition.x,work.z-agentPosition.z):0;
+        if(work&&span<12){desiredTarget.x=(desiredTarget.x+work.x)/2;desiredTarget.z=(desiredTarget.z+work.z)/2;}
+        desiredCamera.copy(desiredTarget).add(new THREE.Vector3(6.8+span*.4,6.5+span*.45,9.4+span*.4));
         cameraTransition = true;
       }
     }
@@ -625,6 +628,7 @@ export function createSurvivalHabitatScene(
       raycaster.setFromCamera(cursor, camera);
       const id = agents.raycast(raycaster);
       if (id) options.onSelectAgent(id);
+      else {const partId=physical.raycast(raycaster);if(partId)options.onSelectPart?.(partId);}
     }
     if (pointers.size === 0) manualGestureReported = false;
   }

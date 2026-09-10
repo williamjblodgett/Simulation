@@ -8,6 +8,11 @@ are never converted into the new decision model on load. The same IndexedDB,
 single-writer lease, revision checks, worker and event archive remain authoritative.
 An older client rejects schema 3 instead of advancing it with old rules.
 
+Construction-reasoning revision 2 is carried by each physical mind. Existing
+policy-3 minds upgrade only at an advancing tick, with an audit event; loading or
+pausing alone never rewrites evidence. Older clients reject the newer mind
+version. Policy-1/2 models are not converted.
+
 New studies default to the sole objective “Survive as long as possible.” Optional
 continuity is a separate disclosed configuration. It is not claimed to follow
 logically from individual survival after death. Manual admissions remain recorded
@@ -55,6 +60,23 @@ new shapes and edits to observed parts: reorientation, splitting, binding,
 combining, heating, testing, reclaiming and placing additional connected parts.
 Every one is only a proposal; legality and success are evaluated later. There is
 no independent reward for making a building or collecting a discovery name.
+
+Revision 2 checks proposed poses against recently observed dimensions, rotation,
+support and water. It reserves a body-clear approach, seeks missing materials
+(including a separate stone striker), and returns to its work site before
+handling components. Failed operations retain completed work with short retry
+delays and bounded recovery. Failed protection tests may prompt reorientation;
+three unsuccessful recovery attempts or two days without progress can end a
+project. Private observations may be incomplete, so valid-looking proposals can
+still fail against the world's evaluator.
+
+Completed resting, warming or sheltering at a protective arrangement records
+local conditions, before/after warmth and experienced protection. This is not a
+causal test of that part and does not update material-property coefficients.
+Remembered test/use locations can compete with other actions as future resting
+sites, discounted for age and changed conditions. No build-for-its-own-sake reward
+is added. The inspector separates proposed geometry, realized parts, test
+readings and experiences; grouping timeline records never creates missing events.
 
 Forecasts consume their copied food/water reserves. The forecasts are estimates,
 not probabilities, exact future weather, or guaranteed survival. Existing plans

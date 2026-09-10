@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { PhysicalWorld } from "../../simulation/survival/physical-types";
+import type { HabitatVisualSnapshot } from "./types";
 
 /** One instanced draw per material. Poses/dimensions are the actual solver state, not prefab tiers. */
 export function createPhysicalCollection(){
@@ -9,12 +10,20 @@ export function createPhysicalCollection(){
   const meshes=Object.entries(palette).map(([kind,color])=>{const mesh=new THREE.InstancedMesh(geometry,new THREE.MeshStandardMaterial({color,roughness:0.93}),800);mesh.name=kind;mesh.count=0;mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);return mesh;});
   const bindings=new THREE.InstancedMesh(jointGeometry,new THREE.MeshStandardMaterial({color:"#cbb681",roughness:1}),240);bindings.count=0;group.add(bindings);
   const dummy=new THREE.Object3D(),color=new THREE.Color();
-  const sync=(world?:PhysicalWorld)=>{
+  const edgeGeometry=new THREE.EdgesGeometry(geometry),selection=new THREE.LineSegments(edgeGeometry,new THREE.LineBasicMaterial({color:"#f2bd62"})),proposal=new THREE.LineSegments(edgeGeometry,new THREE.LineDashedMaterial({color:"#87bdf4",dashSize:.15,gapSize:.12,transparent:true,opacity:.75}));
+  proposal.computeLineDistances();group.add(selection,proposal);selection.visible=false;proposal.visible=false;
+  const ids:Record<string,string[]>={};
+  const outline=(line:THREE.LineSegments,part:{size:{x:number;y:number;z:number};position:{x:number;y:number;z:number};rotation:number}|undefined|null)=>{
+    line.visible=Boolean(part);if(!part)return;line.position.set(part.position.x,1.5+part.position.y,part.position.z);line.rotation.set(0,-part.rotation,0);line.scale.set(part.size.x+.025,part.size.y+.025,part.size.z+.025);
+  };
+  const sync=(world?:PhysicalWorld,presentation?:HabitatVisualSnapshot["physicalPresentation"])=>{
+    for(const key of Object.keys(palette))ids[key]=[];
     const counts:Record<string,number>={wood:0,stone:0,fiber:0,clay:0};
     for(const p of world?.parts??[]){
       const kind=Object.entries(p.composition).sort((a,b)=>b[1]-a[1])[0][0],mesh=meshes.find(m=>m.name===kind)!;
       const draw=(x:number,y:number,z:number,sx:number,sy:number,sz:number)=>{
         dummy.position.set(p.position.x+x*Math.cos(p.rotation)-z*Math.sin(p.rotation),1.5+p.position.y+y,p.position.z+x*Math.sin(p.rotation)+z*Math.cos(p.rotation));dummy.rotation.set(0,-p.rotation,0);dummy.scale.set(sx,sy,sz);dummy.updateMatrix();
+        ids[kind][counts[kind]]=p.id;
         mesh.setMatrixAt(counts[kind],dummy.matrix);color.set(p.condition<=0.05?"#575551":palette[kind as keyof typeof palette]).multiplyScalar(0.6+p.condition*0.4);mesh.setColorAt(counts[kind]++,color);
       };
       if(p.hollow>0){
@@ -31,6 +40,7 @@ export function createPhysicalCollection(){
       const start=new THREE.Vector3(a.position.x,1.5+a.position.y,a.position.z),end=new THREE.Vector3(b.position.x,1.5+b.position.y,b.position.z),direction=end.clone().sub(start);
       dummy.position.copy(start).add(end).multiplyScalar(0.5);dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.clone().normalize());dummy.scale.set(1,direction.length(),1);dummy.updateMatrix();bindings.setMatrixAt(count++,dummy.matrix);
     }bindings.count=count;bindings.instanceMatrix.needsUpdate=true;bindings.computeBoundingSphere();
+    outline(selection,world?.parts.find(p=>p.id===presentation?.selectedPartId));outline(proposal,presentation?.proposal);
   };
-  return {group,sync,dispose:()=>{geometry.dispose();jointGeometry.dispose();for(const mesh of [...meshes,bindings]){mesh.material.dispose();mesh.dispose();}group.clear();}};
+  return {group,sync,raycast:(raycaster:THREE.Raycaster)=>{const hit=raycaster.intersectObjects(meshes,false)[0];return hit&&hit.instanceId!==undefined?ids[hit.object.name]?.[hit.instanceId]??null:null;},dispose:()=>{geometry.dispose();jointGeometry.dispose();edgeGeometry.dispose();selection.material.dispose();proposal.material.dispose();for(const mesh of [...meshes,bindings]){mesh.material.dispose();mesh.dispose();}group.clear();}};
 }

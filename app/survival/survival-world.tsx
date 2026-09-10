@@ -25,6 +25,8 @@ interface SurvivalWorldProps {
   selectedId: SurvivalAgentId | null;
   cameraMode: HabitatCameraMode;
   onSelectAgent(id: SurvivalAgentId): void;
+  onSelectPart?(id:string):void;
+  selectedPartId?: string | null;
   onManualCamera(): void;
   onContextLost(): void;
   retryKey: number;
@@ -173,7 +175,9 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
     agents: currentAgents.map((agent) => {
       const targetPosition = agent.currentPlan?.status === "active" ? agent.currentPlan.steps[agent.currentPlan.activeStepIndex]?.destination ?? undefined : undefined;
       const carried = carriedItem(agent);
+      const project=agent.physicalMind?.projects.find(p=>p.status==="active"||p.status==="interrupted");
       return {
+        workPosition:project?.position,
         id: agent.label as SurvivalAgentId,
         lifeId: agent.id,
         displayName: agent.name,
@@ -200,15 +204,21 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
   };
 }
 
-export function SurvivalWorld({ world, selectedId, cameraMode, onSelectAgent, onManualCamera, onContextLost, retryKey, active, focusPosition, inspectorLevel, zoomRequest }: SurvivalWorldProps) {
+export function SurvivalWorld({ world, selectedId, cameraMode, onSelectAgent, onSelectPart, selectedPartId, onManualCamera, onContextLost, retryKey, active, focusPosition, inspectorLevel, zoomRequest }: SurvivalWorldProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SurvivalHabitatScene | null>(null);
-  const callbacksRef = useRef({ onSelectAgent, onManualCamera, onContextLost });
-  const visualSnapshot = useMemo(() => mapSnapshot(world), [world]);
+  const callbacksRef = useRef({ onSelectAgent, onSelectPart, onManualCamera, onContextLost });
+  const visualSnapshot = useMemo(() => {
+    const snapshot=mapSnapshot(world),agent=world.agents.find(a=>a.alive&&a.label===selectedId),project=agent?.physicalMind?.projects.find(p=>p.status==="active"||p.status==="interrupted");
+    const place=project?.operations.slice(project.cursor).find(o=>o.kind==="place"),shape=project?.operations.find(o=>o.kind==="shape");
+    const part=place?.kind==="place"?world.physical?.parts.find(p=>p.id===place.partId):null;
+    snapshot.physicalPresentation={selectedPartId,proposal:place?.kind==="place"&&(part||shape?.kind==="shape")?{size:part?.size??(shape as Extract<NonNullable<typeof shape>,{kind:"shape"}>).size,position:place.position,rotation:place.rotation}:null};
+    return snapshot;
+  }, [world,selectedId,selectedPartId]);
 
   useEffect(() => {
-    callbacksRef.current = { onSelectAgent, onManualCamera, onContextLost };
-  }, [onContextLost, onManualCamera, onSelectAgent]);
+    callbacksRef.current = { onSelectAgent, onSelectPart, onManualCamera, onContextLost };
+  }, [onContextLost, onManualCamera, onSelectAgent,onSelectPart]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -217,6 +227,7 @@ export function SurvivalWorld({ world, selectedId, cameraMode, onSelectAgent, on
     try {
       scene = createSurvivalHabitatScene(host, {
         onSelectAgent: (id) => callbacksRef.current.onSelectAgent(id),
+        onSelectPart:(id)=>callbacksRef.current.onSelectPart?.(id),
         onManualCamera: () => callbacksRef.current.onManualCamera(),
         onContextLost: () => callbacksRef.current.onContextLost(),
         maxDevicePixelRatio: 1.65,

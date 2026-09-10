@@ -58,6 +58,10 @@ export interface LearnedProcedure {
   evidenceIds: string[]; conditions: { minTemperature: number; maxTemperature: number; weather: string[] };
 }
 export interface PhysicalProject {
+  blocker?: string;
+  failures?: number;
+  retryAt?: number;
+  history?: Array<{ tick: number; kind: "paused" | "resumed" | "revised" | "blocked" | "measured"; summary: string }>;
   id: string; createdAt: number; updatedAt: number;
   metric: "exposure"; target: number; baseline: number;
   status: "active" | "interrupted" | "satisfied" | "abandoned";
@@ -66,9 +70,17 @@ export interface PhysicalProject {
   predictedBenefit: number; spentEffort: number; revisions: number; lastReviewAt: number;
 }
 export interface PhysicalMind {
-  version: 1; readings: PhysicalReading[]; estimates: PropertyEstimate[];
+  version: 1 | 2; readings: PhysicalReading[]; estimates: PropertyEstimate[];
+  uses?: PhysicalUse[];
   procedures: LearnedProcedure[]; projects: PhysicalProject[];
   namedAt: number | null; nameEvidence: string[];
   /** Explicit ablation for reproducible scientific comparisons, not a UI strategy control. */
   learningEnabled: boolean;
+}
+
+/** An experienced interval, not a controlled experiment or invented causal explanation. */
+export interface PhysicalUse {
+  id: string; tick: number; partId: string; revision: number; position: SurvivalPosition;
+  action: "rest" | "shelter" | "warm"; weather: string; temperature: number;
+  warmthBefore: number; warmthAfter: number; protection: number;
 }

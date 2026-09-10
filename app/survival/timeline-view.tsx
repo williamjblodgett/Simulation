@@ -6,6 +6,7 @@ import type { SurvivalEvent, SurvivalEventCategory, SurvivalRunState } from "../
 import { agentColor, humanize } from "./presentation";
 import styles from "./survival-experience.module.css";
 import { eventSequence } from "./survival-persistence";
+import { projectEpisodes } from "./construction-record";
 
 interface TimelineViewProps {
   events?: SurvivalEvent[];
@@ -25,6 +26,7 @@ const CATEGORIES: Array<"all" | SurvivalEventCategory> = ["all", "survival", "so
 export function TimelineView({ world, onLocate, events: archivedEvents, archiveStatus, hasOlderEvents, historyFrozen, onFreezeHistory, onReturnLive, onLoadOlder, onExport }: TimelineViewProps) {
   const sourceEvents = archivedEvents ?? world.events;
   const [milestonesOnly, setMilestonesOnly] = useState(true);
+  const [groupProjects,setGroupProjects]=useState(true);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState("");
   async function historyAction(action?: () => Promise<void>) { if (!action || historyBusy) return; setHistoryBusy(true); try { await action(); setHistoryError(""); } catch { setHistoryError("History could not be read. Please retry."); } finally { setHistoryBusy(false); } }
@@ -41,11 +43,15 @@ export function TimelineView({ world, onLocate, events: archivedEvents, archiveS
     .filter(event => !milestonesOnly || !["resource_observed", "action_outcome"].includes(event.type) || typeof event.facts.operation==="string" || typeof event.facts.name==="string" || typeof event.facts.locomotion==="string")
     .sort((left, right) => eventSequence(right) - eventSequence(left)), [agentFilter, categoryFilter, sourceEvents, milestonesOnly]);
 
+  const episodes=useMemo(()=>projectEpisodes(filtered),[filtered]);
   const groups = useMemo(() => {
     const byDay = new Map<number, SurvivalEvent[]>();
-    for (const event of filtered) byDay.set(event.day, [...(byDay.get(event.day) ?? []), event]);
+    for (const event of filtered) {
+      if(groupProjects&&typeof event.facts.projectId==="string"&&episodes.find(p=>p.id===event.facts.projectId)?.latest.id!==event.id)continue;
+      byDay.set(event.day, [...(byDay.get(event.day) ?? []), event]);
+    }
     return [...byDay.entries()].sort((left, right) => right[0] - left[0]);
-  }, [filtered]);
+  }, [filtered,groupProjects,episodes]);
 
   const selectedEvent = selectedEventId === null
     ? null
@@ -80,6 +86,7 @@ export function TimelineView({ world, onLocate, events: archivedEvents, archiveS
     </p> : null}
     <div className={styles.scopeButtons}><button type="button" aria-pressed={milestonesOnly} onClick={() => setMilestonesOnly(v => !v)}>{milestonesOnly ? "Decisions & milestones" : "All raw events"}</button>{hasOlderEvents ? <button type="button" disabled={historyBusy} onClick={() => { onFreezeHistory?.(); void historyAction(onLoadOlder); }}>Load older events</button> : null}<button type="button" disabled={historyBusy} onClick={() => void historyAction(onExport)}>Export study</button></div>
     {historyError ? <p role="alert">{historyError}</p> : null}
+    <button type="button" className={styles.textControl} aria-pressed={groupProjects} onClick={()=>setGroupProjects(v=>!v)}>{groupProjects?"Project stories · grouped":"Individual records"}</button>
     {historyFrozen ? <button className={styles.newEventsButton} type="button" onClick={revealNewest}>{newEventCount ? `${newEventCount} new events · ` : "History held · "}Return live</button> : null}
     <div className={styles.timelineScroller} ref={scrollerRef} onScroll={(event) => { if (event.currentTarget.scrollTop > 40 && !historyFrozen) onFreezeHistory?.(); }}>
       {groups.length ? groups.map(([day, events]) => <section className={styles.dayGroup} key={day}><header><span>Day</span><strong>{day}</strong></header><ol>{events.map((event) => <li key={event.id}>
@@ -89,9 +96,10 @@ export function TimelineView({ world, onLocate, events: archivedEvents, archiveS
             const agent = world.agents.find((candidate) => candidate.id === id);
             return <i key={id} title={eventAgentLabel(id)} style={{ "--event-color": agentColor(agent?.label ?? id) } as React.CSSProperties}>{eventAgentLabel(id, true)}</i>;
           })}</span>
-          <span><strong>{event.summary}</strong><small>{event.outcome}</small></span>
+          <span><strong>{groupProjects&&typeof event.facts.projectId==="string"?"Exposure project · attempts and results":event.summary}</strong><small>{groupProjects&&typeof event.facts.projectId==="string"?`${episodes.find(p=>p.id===event.facts.projectId)?.records.length??0} loaded records · ${event.outcome}`:event.outcome}</small></span>
           <em>{humanize(event.category)}</em>
         </button>
+        {selectedEvent?.id===event.id&&groupProjects&&typeof event.facts.projectId==="string"?<ol className={styles.projectStory}>{episodes.find(p=>p.id===event.facts.projectId)?.records.map(e=><li key={e.id}><time>Day {e.day} · {String(Math.floor(e.tick*world.config.stepMinutes%1440/60)).padStart(2,"0")}:{String(e.tick*world.config.stepMinutes%60).padStart(2,"0")}</time><strong>{e.summary}</strong><p>{e.outcome}</p></li>)}</ol>:null}
         {selectedEvent?.id === event.id ? <div className={styles.eventDetail}><button type="button" aria-label="Close event details" onClick={() => setSelectedEventId(null)}><X size={16} /></button><h3>{event.summary}</h3><p>{event.outcome}</p><dl><div><dt>Record</dt><dd>{event.type.replaceAll("_", " ")}</dd></div><div><dt>Provenance</dt><dd>{event.intervention ? "Observer intervention" : "Simulation outcome"}</dd></div>{Object.entries(event.facts).map(([key,value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{String(value)}</dd></div>)}</dl>{event.facts.decisionId ? <details><summary>Records linked to {String(event.facts.decisionId)}</summary><ol>{sourceEvents.filter(e => e.id !== event.id && e.facts.decisionId === event.facts.decisionId).map(e => <li key={e.id}>{e.summary}</li>)}</ol></details> : null}{event.position ? <button type="button" onClick={() => onLocate(event)}><LocateFixed size={15} /> Locate current site</button> : null}</div> : null}
       </li>)}</ol></section>) : <div className={styles.emptyTimeline}><Radio size={24} /><h2>No matching events</h2><p>Change the filters or continue the run until an outcome is recorded.</p></div>}
     </div>

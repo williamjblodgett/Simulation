@@ -2,13 +2,102 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSurvivalRun, advanceSurvivalRun, restoreSurvivalRun, serializeSurvivalRun, validateSurvivalRun, addObserverAgent, setSurvivalRunPaused } from "../app/simulation/survival/engine.ts";
 import { executeManipulation, protectionAt, settleAssemblies, properties, agePhysicalWorld } from "../app/simulation/survival/physical-world.ts";
-import { planPhysicalKnowledge, preparePhysicalProjects, learnPhysicalReading, completePhysicalOperation, procedureForObservation } from "../app/simulation/survival/physical-policy.ts";
+import { planPhysicalKnowledge, preparePhysicalProjects, learnPhysicalReading, completePhysicalOperation, procedureForObservation, projectChoice } from "../app/simulation/survival/physical-policy.ts";
+import { observedPoseFits, findObservedPose } from "../app/simulation/survival/physical-spatial.ts";
+import { constructionRecord, projectEpisodes } from "../app/survival/construction-record.ts";
 import { validManipulation } from "../app/simulation/survival/physical-validation.ts";
 import { physicalNextPosition, physicalWalkable, physicalTraversable } from "../app/simulation/survival/physical-navigation.ts";
 import { depthAt, freshwaterFeatures, locomotionAt, observedWater, waterDepth, estimateWaterTravel } from "../app/simulation/survival/water.ts";
 import { planFromPrivateKnowledge } from "../app/simulation/survival/planner.ts";
 import { createPhysicalCollection } from "../app/survival/scene/physical-models.ts";
 import * as THREE from "three";
+
+function observePart(s,p){s.agents[0].observations.push({id:`seen-${p.id}`,observerId:s.agents[0].id,kind:"structure",subjectId:p.id,observedAt:s.tick,position:{x:p.position.x,z:p.position.z},confidence:.9,facts:{structureKind:"physical_part",width:p.size.x,height:p.size.y,depth:p.size.z,elevation:p.position.y,rotation:p.rotation,condition:p.condition*100,mass:Object.values(p.composition).reduce((a,b)=>a+b,0),material:Object.keys(p.composition)[0],hollow:p.hollow,storedWater:p.water,supported:p.supported,bindingIds:"[]",revision:p.revision}});}
+const policyInput=s=>({agent:s.agents[0],tick:s.tick,seed:s.seed,bounds:s.environment.bounds});
+function projectAt(a,op){return {id:"project-test",createdAt:0,updatedAt:0,lastReviewAt:0,metric:"exposure",target:.3,baseline:0,status:"active",reason:"Reduce exposure",position:{...a.position},reserved:{},operations:[op],cursor:0,partIds:[],predictedBenefit:10,spentEffort:0,revisions:0};}
+
+test("spatial proposals avoid observed overlap and floating roofs but admit grounded support",()=>{
+  const s=fixture();shape(s);const p=s.physical.parts[0];p.position={x:62,y:.5,z:60};observePart(s,p);
+  const input=policyInput(s),size={x:1,y:1,z:1};
+  assert.equal(observedPoseFits(input,size,p.position,0),false);
+  assert.equal(observedPoseFits(input,size,{x:64,y:3,z:60},0),false);
+  assert.equal(observedPoseFits(input,size,{x:62,y:1.5,z:60},0),true);
+  const repaired=findObservedPose(input,size,p.position,0);assert.ok(repaired);assert.notDeepEqual(repaired.position,p.position);
+  assert.equal(observedPoseFits(input,size,repaired.position,repaired.rotation),true);
+  assert.equal(observedPoseFits(input,size,{x:60,y:.5,z:60},0),false,"leave the agent and an approach unoccupied");
+});
+
+test("clearance reasoning only sees private geometry and observed water",()=>{
+  const s=fixture(),input=policyInput(s),size={x:1,y:1,z:1},pose={x:62,y:.5,z:60};
+  const before=findObservedPose(input,size,pose,0);shape(s);s.physical.parts[0].position=pose;
+  assert.deepEqual(findObservedPose(input,size,pose,0),before,"unseen registry entries cannot affect the planner");
+  observePart(s,s.physical.parts[0]);assert.notDeepEqual(findObservedPose(input,size,pose,0),before);
+});
+
+test("stone shaping reserves a separate striker before attempting work",()=>{
+  const s=fixture(),a=s.agents[0];a.inventory.stone=1.1;
+  a.observations.push({id:"known-stone",observerId:a.id,kind:"resource",subjectId:"stone-site",position:{x:65,z:60},observedAt:0,confidence:1,facts:{resourceKind:"stone",availableEstimate:10}});
+  const p=projectAt(a,{kind:"shape",material:"stone",mass:1,size:{x:1,y:1,z:.4}});
+  const choice=projectChoice(policyInput(s),p);assert.equal(choice.actions.at(-1).action,"gather");assert.match(p.blocker,/striking stone/);
+  a.inventory.stone=1.5;assert.equal(projectChoice(policyInput(s),p).actions[0].manipulation.kind,"shape");
+});
+
+test("failed operations preserve completed work and have bounded retries",()=>{
+  const s=fixture(),a=s.agents[0],op={kind:"place",partId:"part-1",position:{x:62,y:.5,z:60},rotation:0};
+  const p=projectAt(a,op);a.physicalMind.projects=[p];
+  for(let i=0;i<4;i++){p.status="active";completePhysicalOperation(a,op,false,null,0,.6,"Observed overlap");assert.equal(p.cursor,0);}
+  assert.equal(p.failures,4);assert.equal(p.status,"abandoned");assert.equal(p.history[0].summary,"Observed overlap");
+});
+
+test("physical reasoning upgrades at advancement only and survives an exact checkpoint",()=>{
+  const s=createSurvivalRun("construction-upgrade",{policyVersion:3});
+  for(const a of s.agents){a.physicalMind.version=1;delete a.physicalMind.uses;}
+  const paused=setSurvivalRunPaused(s,true),unchanged=advanceSurvivalRun(paused,10);
+  assert.equal(unchanged.state.agents[0].physicalMind.version,1);
+  const updated=advanceSurvivalRun(s,24).state;assert.ok(updated.agents.every(a=>a.physicalMind.version===2));
+  assert.ok(updated.events.some(e=>e.facts.constructionReasoning===2));
+  assert.deepEqual(restoreSurvivalRun(serializeSurvivalRun(updated)),updated);
+  const corrupt=structuredClone(updated);corrupt.agents[0].physicalMind.uses=[{tick:-1}];assert.equal(validateSurvivalRun(corrupt),false);
+});
+
+test("construction inspection distinguishes damage and observed tests without mutating state",()=>{
+  const s=fixture();shape(s);const p=s.physical.parts[0],before=serializeSurvivalRun(s);
+  assert.equal(constructionRecord(s,p.id).status,"Untested part");assert.equal(serializeSurvivalRun(s),before);
+  p.condition=.01;assert.equal(constructionRecord(s,p.id).status,"Damaged");assert.equal(constructionRecord(s,"part-999"),null);
+});
+
+test("project stories use exact project IDs and preserve the source event order",()=>{
+  const event=(id,tick,projectId)=>({id,tick,day:1,facts:{projectId}});
+  const source=[event("e3",3,"p1"),event("e2",2,"p2"),event("e1",1,"p1")],copy=structuredClone(source);
+  const stories=projectEpisodes(source);assert.deepEqual(stories[0].records.map(e=>e.id),["e1","e3"]);assert.equal(stories[0].latest.id,"e3");assert.deepEqual(source,copy);
+  assert.equal(projectEpisodes([event("event-12",3,"p1"),event("event-11",3,"p1")])[0].latest.id,"event-12");
+});
+
+test("experience records the executed rest, not the queued next action",()=>{
+  const s=fixture(),a=s.agents[0];shape(s,"wood",{x:2,y:2,z:.25},.65);const p=s.physical.parts[0];p.position={x:60,y:1,z:61.2};observePart(s,p);
+  a.needs.energy=50;
+  a.currentPlan={id:"plan-1",decisionId:"decision-1",initialNeeds:{...a.needs},initialInventory:{...a.inventory},formedAt:0,goal:"recover",targetId:null,targetPosition:null,status:"active",rationale:"Protocol test",activeStepIndex:0,steps:[{id:"step-1",action:"rest",targetId:null,destination:null,remainingSteps:1,status:"active"},{id:"step-2",action:"move",targetId:null,destination:{x:65,z:60},remainingSteps:1,status:"pending"}]};
+  const next=advanceSurvivalRun(s,1).state;
+  assert.equal(next.agents[0].physicalMind.uses.length,1);assert.equal(next.agents[0].physicalMind.uses[0].action,"rest");assert.equal(next.agents[0].currentAction.kind,"move");
+  assert.equal(constructionRecord(next,p.id).status,"In use");
+  next.tick++;assert.notEqual(constructionRecord(next,p.id).status,"In use","past use is not current activity");
+});
+
+test("learned procedures contain measured operations, not an untested repair",()=>{
+  const s=fixture(),a=s.agents[0],p=projectAt(a,{kind:"place",partId:"part-1",position:{x:62,y:1,z:60},rotation:0});
+  p.operations.push({kind:"test",partId:"part-1",measure:"protection",dose:1});p.partIds=["part-1"];p.cursor=2;p.target=.5;a.physicalMind.projects=[p];
+  const reading={id:"reading-repair",tick:1,observerId:a.id,source:"test",partId:"part-1",material:"wood",position:a.position,size:{x:2,y:2,z:.25},rotation:0,mass:.65,condition:1,revision:0,metric:"protection",before:0,after:.2,dose:1,temperature:4,weather:"clear",confidence:.9,summary:"Useful, but below the target."};
+  learnPhysicalReading(a,reading);assert.equal(p.status,"interrupted");assert.equal(p.operations.length,4);
+  const procedure=a.physicalMind.procedures[0];assert.equal(procedure.program.length,2);assert.equal(procedure.program[0].rotation,0);assert.notEqual(p.operations[2].rotation,0);
+  const priorStatus=p.status;learnPhysicalReading(a,{...reading,id:"reported-success",source:"demonstration",after:.8});assert.equal(p.status,priorStatus,"testimony must not satisfy an untested repair");
+});
+
+test("constructed parts remain pickable with proposals rendered separately",()=>{
+  const s=fixture();shape(s);const p=s.physical.parts[0];p.position={x:0,y:.5,z:0};
+  const scene=createPhysicalCollection();scene.sync(s.physical,{selectedPartId:p.id,proposal:{size:{x:1,y:1,z:1},position:{x:5,y:.5,z:0},rotation:0}});scene.group.updateMatrixWorld(true);
+  assert.equal(scene.raycast(new THREE.Raycaster(new THREE.Vector3(0,2,5),new THREE.Vector3(0,0,-1))),p.id);
+  assert.equal(scene.raycast(new THREE.Raycaster(new THREE.Vector3(5,2,5),new THREE.Vector3(0,0,-1))),null,"a proposal is not a built object");scene.dispose();
+});
 
 function fixture(){const s=createSurvivalRun("physical-fixture",{policyVersion:3,agentCount:1});s.agents[0].position={x:60,z:60};s.agents[0].inventory.wood=10;s.agents[0].inventory.fiber=10;s.agents[0].inventory.clay=10;s.agents[0].inventory.stone=10;s.agents[0].inventory.freshwater=5;return s;}
 const act=(s,op)=>executeManipulation(s.physical,s.agents[0],op,s.environment,s.tick);
@@ -107,7 +196,7 @@ test("learning ablation keeps measurements truthful and transfer translates lear
     a.physicalMind.learningEnabled=enabled;p.partIds=["part-1"];p.cursor=2;
     const reading={id:"reading-1",tick:1,observerId:a.id,source:"test",partId:"part-1",material:"wood",position:a.position,size:{x:2,y:2,z:0.25},rotation:0,mass:0.65,condition:1,metric:"protection",before:0,after:0,dose:1,temperature:4,weather:"clear",confidence:0.9,summary:"No measurable effect."};
     completePhysicalOperation(a,{kind:"test",partId:"part-1",measure:"protection",dose:1},true,"part-1",1,0.6);learnPhysicalReading(a,reading);
-    assert.equal(p.status,"abandoned");assert.equal(a.physicalMind.estimates.length,enabled?1:0);
+    assert.equal(p.status,"interrupted");assert.equal(p.failures,1);assert.equal(a.physicalMind.estimates.length,enabled?1:0);
     p.status="active";p.target=0.1;learnPhysicalReading(a,{...reading,id:"reading-2",after:0.2});
     if(enabled){const procedure=a.physicalMind.procedures[0];assert.ok(procedure);const moved=procedureForObservation(procedure,{x:procedure.origin.x+20,z:procedure.origin.z-10});const oldPlace=p.operations.find(o=>o.kind==="place"),newPlace=moved.find(o=>o.kind==="place");assert.ok(Math.abs(newPlace.position.x-oldPlace.position.x-20)<1e-8);assert.ok(Math.abs(newPlace.position.z-oldPlace.position.z+10)<1e-8);}
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, Cloud, CloudRain, Compass, Eye, List, Map, Maximize2, Minus, Orbit, Pause, Play, Plus, RotateCcw, Settings2, Snowflake, Sun, Users, X } from "lucide-react";
+import { Camera, Cloud, CloudRain, Compass, Eye, Hammer, List, Map, Maximize2, Minus, Orbit, Pause, Play, Plus, RotateCcw, Settings2, Snowflake, Sun, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { freshwaterVisualFootprint, type SurvivalAgent, type SurvivalEvent, type SurvivalRunState } from "../simulation/survival";
 import { AgentInspector, type InspectorLevel } from "./agent-inspector";
@@ -13,6 +13,9 @@ import { TimelineView } from "./timeline-view";
 import { useObserverSelection } from "./observer-selection";
 import { useSurvivalRuntime, type PlaybackSpeed } from "./use-survival-runtime";
 import styles from "./survival-experience.module.css";
+import { ConstructionInspector } from "./construction-inspector";
+import { constructionRecord } from "./construction-record";
+import { AgentKnowledge } from "./agent-knowledge";
 
 type AppView = "world" | "agents" | "timeline" | "run";
 
@@ -26,10 +29,12 @@ function currentSlotAgents(world: SurvivalRunState) {
 }
 
 function MiniMap({ world, selectedId, onSelect, onLandscape }: { world: SurvivalRunState; selectedId: string | null; onSelect(id: string): void; onLandscape(): void }) {
+  const [knowledge,setKnowledge]=useState(false);
+  const selected=world.agents.find(a=>a.id===selectedId);
   const bounds = world.environment.bounds;
   const width = Math.max(1, bounds.maxX - bounds.minX);
   const depth = Math.max(1, bounds.maxZ - bounds.minZ);
-  return <div className={styles.miniMap} aria-label="Habitat minimap"><span>Study map · Observer view</span><svg viewBox={`${bounds.minX} ${bounds.minZ} ${width} ${depth}`} role="img" aria-label="Resource sites and agent locations in the study bounds"><rect x={bounds.minX} y={bounds.minZ} width={width} height={depth} fill="#20362e"/>{world.environment.resources.map(resource => resource.kind === "freshwater" ? <ellipse key={resource.id} cx={resource.position.x} cy={resource.position.z} rx={freshwaterVisualFootprint(resource).radiusX} ry={freshwaterVisualFootprint(resource).radiusZ} transform={`rotate(${-freshwaterVisualFootprint(resource).rotation*180/Math.PI} ${resource.position.x} ${resource.position.z})`} fill="#78bccc"/> : <circle key={resource.id} cx={resource.position.x} cy={resource.position.z} r={width*.008} fill="#b8c7a5" opacity={resource.quantity>0?.75:.2}/>)}{world.agents.filter(a=>a.alive).map(agent=><circle key={agent.id} cx={agent.position.x} cy={agent.position.z} r={width*.014} fill={`var(--${agent.label.toLowerCase()})`} stroke={agent.id === selectedId ? "#fff" : "#0c141c"} strokeWidth={width*.005}/>)}</svg><div className={styles.mapAgentButtons}>{world.agents.filter(a=>a.alive).map(agent=><button key={agent.id} type="button" onClick={()=>onSelect(agent.id)} aria-label={`Select ${agent.label}, ${agent.name}`} data-selected={selectedId===agent.id}>{agent.label}</button>)}</div><button className={styles.landscapeButton} type="button" onClick={onLandscape}><Maximize2 size={15}/> View full landscape</button></div>;
+  return <div className={styles.miniMap} aria-label="Habitat minimap"><div className={styles.mapLensControls}><button aria-pressed={!knowledge} onClick={()=>setKnowledge(false)}>Observer map</button><button disabled={!selected} aria-pressed={knowledge} onClick={()=>setKnowledge(true)}>{selected?.label??"Agent"} knows</button></div>{knowledge&&selected?<AgentKnowledge agent={selected} world={world} expanded/>:<><span>Complete world · observer only</span><svg viewBox={`${bounds.minX} ${bounds.minZ} ${width} ${depth}`} role="img" aria-label="Resource sites and agent locations in the study bounds"><rect x={bounds.minX} y={bounds.minZ} width={width} height={depth} fill="#20362e"/>{world.environment.resources.map(resource => resource.kind === "freshwater" ? <ellipse key={resource.id} cx={resource.position.x} cy={resource.position.z} rx={freshwaterVisualFootprint(resource).radiusX} ry={freshwaterVisualFootprint(resource).radiusZ} transform={`rotate(${-freshwaterVisualFootprint(resource).rotation*180/Math.PI} ${resource.position.x} ${resource.position.z})`} fill="#78bccc"/> : <circle key={resource.id} cx={resource.position.x} cy={resource.position.z} r={width*.008} fill="#b8c7a5" opacity={resource.quantity>0?.75:.2}/>)}{world.agents.filter(a=>a.alive).map(agent=><circle key={agent.id} cx={agent.position.x} cy={agent.position.z} r={width*.014} fill={`var(--${agent.label.toLowerCase()})`} stroke={agent.id === selectedId ? "#fff" : "#0c141c"} strokeWidth={width*.005}/>)}</svg><div className={styles.mapAgentButtons}>{world.agents.filter(a=>a.alive).map(agent=><button key={agent.id} type="button" onClick={()=>onSelect(agent.id)} aria-label={`Select ${agent.label}, ${agent.name}`} data-selected={selectedId===agent.id}>{agent.label}</button>)}</div><button className={styles.landscapeButton} type="button" onClick={onLandscape}><Maximize2 size={15}/> View full landscape</button></>}</div>;
 }
 
 function AgentRail({ world, selectedId, onSelect }: { world: SurvivalRunState; selectedId: string | null; onSelect(agent: SurvivalAgent): void }) {
@@ -66,6 +71,8 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
   const [cameraMode, setCameraMode] = useState<HabitatCameraMode>("overview");
   const [manualCamera, setManualCamera] = useState(false);
   const [miniMapOpen, setMiniMapOpen] = useState(false);
+  const [partsOpen,setPartsOpen]=useState(false);
+  const [selectedPartId,setSelectedPartId]=useState<string|null>(null);
   const [rendererFailed, setRendererFailed] = useState(false);
   const [rendererRetry, setRendererRetry] = useState(0);
   const [zoomRequest, setZoomRequest] = useState<{ direction: -1 | 1; sequence: number } | null>(null);
@@ -113,6 +120,7 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
   }, [directoryInspectorOpen]);
 
   const selectAgent = useCallback((id: string, follow = false) => {
+    setSelectedPartId(null);
     setSelectedId(id);
     setFocusPosition(null);
     if (follow) {
@@ -139,6 +147,7 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
   }, []);
 
   function navigate(next: AppView, replace = false) {
+    setPartsOpen(false);
     setDirectoryInspectorOpen(false);
     setMiniMapOpen(false);
     if (next === view) return;
@@ -155,6 +164,7 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
   }
 
   function locateEvent(event: SurvivalEvent) {
+    setSelectedPartId(null);
     setSheetLevel("peek");
     const agent = event.agentIds.map((id) => world?.agents.find((candidate) => candidate.id === id)).find(Boolean);
     if (agent) setSelectedId(agent.id);
@@ -162,6 +172,14 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
     navigate("world");
     setCameraMode(event.position ? "overview" : agent?.alive ? "follow" : "overview");
     setManualCamera(false);
+  }
+
+  function inspectPart(id:string){
+    const part=world?.physical?.parts.find(p=>p.id===id);
+    setSelectedPartId(id);setPartsOpen(false);setMiniMapOpen(false);setDirectoryInspectorOpen(false);
+    setSheetLevel("half");setCameraMode("overview");setManualCamera(false);
+    if(part)setFocusPosition({x:part.position.x,z:part.position.z});
+    navigate("world");
   }
 
   function sheetPointerDown(event: React.PointerEvent<HTMLElement>) {
@@ -192,7 +210,7 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
     <div className={styles.content}>
       <section className={styles.worldView} data-level={sheetLevel} aria-label="Live survival world" hidden={view !== "world"}>
         <div className={styles.worldCanvas} data-failed={rendererFailed}>
-          {!rendererFailed ? <SurvivalWorld world={world} selectedId={selectedAgent?.alive ? selectedAgent.label as SurvivalAgentId : null} cameraMode={cameraMode} onSelectAgent={handleSceneSelect} onManualCamera={handleManualCamera} onContextLost={handleContextLost} retryKey={rendererRetry} active={view === "world"} focusPosition={focusPosition} inspectorLevel={sheetLevel} zoomRequest={zoomRequest} /> : <div className={styles.rendererFallback}><Camera size={27} /><h2>3D view unavailable</h2><p>The saved run, agent records and timeline remain available.</p><button type="button" onClick={() => { setRendererFailed(false); setRendererRetry((current) => current + 1); }}><RotateCcw size={16} /> Retry renderer</button></div>}
+          {!rendererFailed ? <SurvivalWorld world={world} selectedId={selectedAgent?.alive ? selectedAgent.label as SurvivalAgentId : null} selectedPartId={selectedPartId} onSelectPart={inspectPart} cameraMode={cameraMode} onSelectAgent={handleSceneSelect} onManualCamera={handleManualCamera} onContextLost={handleContextLost} retryKey={rendererRetry} active={view === "world"} focusPosition={focusPosition} inspectorLevel={sheetLevel} zoomRequest={zoomRequest} /> : <div className={styles.rendererFallback}><Camera size={27} /><h2>3D view unavailable</h2><p>The saved run, agent records and timeline remain available.</p><button type="button" onClick={() => { setRendererFailed(false); setRendererRetry((current) => current + 1); }}><RotateCcw size={16} /> Retry renderer</button></div>}
         </div>
 
         <div className={styles.weatherChip}><WeatherIcon size={18} /><span><strong>{Math.round(world.environment.temperatureC)}°</strong><small>{weatherLabel}</small></span></div>
@@ -202,15 +220,17 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
         <div className={styles.cameraControls} aria-label="Camera controls">
           <button type="button" aria-label={rendererFailed ? "Overview unavailable while the 3D view is unavailable" : "Show habitat overview"} data-active={!rendererFailed && cameraMode === "overview" && !manualCamera && !focusPosition} disabled={rendererFailed} onClick={() => { setFocusPosition(null); setCameraMode("overview"); setManualCamera(false); }} aria-pressed={!rendererFailed && cameraMode === "overview" && !manualCamera && !focusPosition}><Maximize2 size={17} /><span>Overview</span></button>
           <button type="button" aria-label={rendererFailed ? "Follow unavailable while the 3D view is unavailable" : selectedAgent ? `Follow ${selectedAgent.label}` : "Follow selected agent"} data-active={!rendererFailed && cameraMode === "follow" && Boolean(selectedAgent?.alive)} disabled={rendererFailed || !selectedAgent?.alive} onClick={() => { setFocusPosition(null); setCameraMode("follow"); setManualCamera(false); }} aria-pressed={!rendererFailed && cameraMode === "follow" && Boolean(selectedAgent?.alive)}><Eye size={17} /><span>Follow</span></button>
-          <button type="button" aria-label="Toggle habitat minimap" onClick={() => setMiniMapOpen((current) => !current)} aria-expanded={miniMapOpen}><Map size={17} /><span>Map</span></button>
+          <button type="button" aria-label="Toggle habitat minimap" onClick={() => {setPartsOpen(false);setMiniMapOpen((current) => !current);}} aria-expanded={miniMapOpen}><Map size={17} /><span>Map</span></button>
+          <button type="button" aria-label="Inspect constructions" onClick={()=>{setMiniMapOpen(false);setPartsOpen(v=>!v);}} aria-expanded={partsOpen}><Hammer size={17}/><span>Constructions</span></button>
         </div>
         {manualCamera && selectedAgent?.alive ? <button type="button" className={styles.returnFollow} onClick={() => { setFocusPosition(null); setCameraMode("follow"); setManualCamera(false); }}><Eye size={16} /> Return to {selectedAgent.label}</button> : null}
         {miniMapOpen ? <MiniMap world={world} selectedId={effectiveSelectedId} onSelect={(id) => { selectAgent(id, true); setMiniMapOpen(false); }} onLandscape={() => { setFocusPosition(null); setCameraMode("habitat"); setManualCamera(false); setMiniMapOpen(false); }}/> : null}
+        {partsOpen?<section className={`${styles.miniMap} ${styles.constructionShelf}`} aria-label="Constructions"><header><h2>Constructions</h2><button aria-label="Close constructions" onClick={()=>setPartsOpen(false)}><X size={18}/></button></header><p>Solid forms are built. Blue dashed outlines are proposals, not completed work.</p>{world.physical?.parts.length?<div>{world.physical.parts.map(p=>{const r=constructionRecord(world,p.id)!;return <button key={p.id} onClick={()=>inspectPart(p.id)}><strong>{humanize(r.title)}</strong><span>{r.maker?.label} · {r.status} · part {p.id.replace("part-","")}</span></button>;})}</div>:<p>{world.policyVersion===3?"No parts have been constructed yet. Agents choose whether a project is worth pursuing.":"This saved study uses the earlier building model. New runs use physical construction; your current study will stay archived."}</p>}</section>:null}
 
         {selectedAgent ? <div className={styles.agentSheet} data-level={sheetLevel}>
           <div className={styles.sheetDragZone} onPointerDown={sheetPointerDown} onPointerUp={sheetPointerUp} onPointerCancel={() => { sheetDragRef.current = null; }} />
           <AgentRail world={world} selectedId={effectiveSelectedId} onSelect={selectFromRail} />
-          <AgentInspector world={world} agent={selectedAgent} level={sheetLevel} onLevelChange={setSheetLevel} onSelectAgent={(id) => { const nextAgent = world.agents.find((agent) => agent.id === id); selectAgent(id, Boolean(nextAgent?.alive)); }} onHandlePointerDown={sheetPointerDown} onHandlePointerUp={sheetPointerUp} />
+          {selectedPartId?<ConstructionInspector world={world} id={selectedPartId} level={sheetLevel} onLevelChange={setSheetLevel} onBack={()=>selectAgent(selectedAgent.id,selectedAgent.alive)}/>:<AgentInspector world={world} agent={selectedAgent} level={sheetLevel} onLevelChange={setSheetLevel} onInspectPart={inspectPart} onSelectAgent={(id) => { const nextAgent = world.agents.find((agent) => agent.id === id); selectAgent(id, Boolean(nextAgent?.alive)); }} onHandlePointerDown={sheetPointerDown} onHandlePointerUp={sheetPointerUp} />}
         </div> : null}
       </section>
 
@@ -223,7 +243,7 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
 
     <dialog ref={directoryDialogRef} className={styles.directoryDialog} aria-labelledby="agent-record-dialog-title" onCancel={() => setDirectoryInspectorOpen(false)}>
       <header><span id="agent-record-dialog-title">Agent record</span><button type="button" onClick={() => setDirectoryInspectorOpen(false)} aria-label="Close agent record"><X size={20} /></button></header>
-      {directoryInspectorOpen && selectedAgent ? <AgentInspector key={selectedAgent.id} world={world} agent={selectedAgent} level="expanded" onLevelChange={() => setDirectoryInspectorOpen(false)} onSelectAgent={(id) => setSelectedId(id)} /> : null}
+      {directoryInspectorOpen && selectedAgent ? <AgentInspector key={selectedAgent.id} world={world} agent={selectedAgent} level="expanded" onLevelChange={() => setDirectoryInspectorOpen(false)} onSelectAgent={(id) => setSelectedId(id)} onInspectPart={inspectPart}/> : null}
       {selectedAgent?.alive ? <button className={styles.dialogWorldButton} type="button" onClick={() => { selectAgent(selectedAgent.id, true); setDirectoryInspectorOpen(false); setSheetLevel("half"); navigate("world"); }}><Eye size={17} /> View {selectedAgent.label} in world</button> : null}
     </dialog>
 

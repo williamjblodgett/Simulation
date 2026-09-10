@@ -2,6 +2,9 @@
 
 September 9, 2026. Implementation following the Astra review of revision `dce7792`, including the final observer-interface refinement and verified GitHub Pages release.
 
+For the September 10 construction reasoning, adaptive project inspector and
+138-test verification, see [the construction release report](CONSTRUCTION_RELEASE.md).
+
 ## Autonomous freshwater traversal — September 9, 2026
 
 - Removed the pond-as-solid-wall restriction. Active policies 2/3 can wade and

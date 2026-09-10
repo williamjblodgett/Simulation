@@ -4,6 +4,7 @@ import { survivalUnit } from "./random";
 import { depthAt, estimateWaterTravel, observedWater } from "./water";
 import type { LearnedProcedure, Manipulation, MaterialKind, PhysicalProject, PhysicalReading, Vec3 } from "./physical-types";
 import type { SurvivalAgent } from "./types";
+import { findObservedPose, observedParts } from "./physical-spatial";
 
 // The policy deliberately does not import physical-world or MATERIALS. It cannot run the true solver.
 export const PHYSICAL_SEARCH_BUDGET = { candidates: 24, horizon: 72, maxProjects: 8, maxReadings: 64, maxProcedures: 16 } as const;
@@ -12,14 +13,30 @@ const distance=(a:{x:number;z:number},b:{x:number;z:number})=>Math.hypot(a.x-b.x
 const feature=(size:Vec3,rotation:number)=>clip(size.x*size.y/5)*Math.max(0.15,Math.abs(Math.cos(rotation)));
 function observedBindings(raw:unknown):string[]{try{const parsed=JSON.parse(String(raw??"[]"));return Array.isArray(parsed)?parsed.filter((v):v is string=>typeof v==="string"&&/^joint-[1-9]\d*$/.test(v)):[];}catch{return [];}}
 
+export function projectNote(project:PhysicalProject,tick:number,kind:NonNullable<PhysicalProject["history"]>[number]["kind"],summary:string) {
+  if(project.history?.at(-1)?.summary===summary)return;
+  project.history=[...(project.history??[]),{tick,kind,summary}].slice(-16);
+}
+
 /** Evidence is retained privately; sharing a demonstration does not copy the other agent's model. */
 export function learnPhysicalReading(agent: SurvivalAgent, reading: PhysicalReading): void {
   const mind=agent.physicalMind;if(!mind)return;
   mind.readings.push(structuredClone(reading));mind.readings=mind.readings.slice(-64);
-  const evaluatedProject=mind.projects.find(p=>p.partIds.includes(reading.partId)&&p.status!=="abandoned");
-  if(evaluatedProject && reading.metric==="protection"){
-    evaluatedProject.lastReviewAt=reading.tick;evaluatedProject.status=reading.after>=evaluatedProject.target?"satisfied":"abandoned";
-    evaluatedProject.reason=`Measured protection ${reading.after.toFixed(2)} ${reading.after>=evaluatedProject.target?"met":"did not meet"} the proposed ${evaluatedProject.target.toFixed(2)} target. Retain this evidence for later decisions.`;
+  const project=reading.source==="test"?[...mind.projects].reverse().find(p=>p.createdAt<=reading.tick&&p.partIds.includes(reading.partId)&&(p.status==="active"||p.status==="interrupted")):undefined;
+  // Preserve only the operations that produced this reading. A proposed repair
+  // below must not be remembered as if it had already been tried successfully.
+  const completedOperations=project?structuredClone(project.operations.slice(0,project.cursor)):[];
+  if(project&&reading.metric==="protection"){
+    project.lastReviewAt=reading.tick;
+    project.reason=`Measured protection ${reading.after.toFixed(2)} ${reading.after>=project.target?"met":"did not meet"} the proposed ${project.target.toFixed(2)} target.`;
+    projectNote(project,reading.tick,"measured",project.reason);
+    if(reading.after>=project.target){project.status="satisfied";delete project.blocker;}
+    else if(mind.version===2&&(project.failures??0)<3){
+      project.failures=(project.failures??0)+1;project.revisions++;project.status="interrupted";project.retryAt=reading.tick+3;
+      project.blocker="Protection was below the target; reconsider the orientation and test again.";
+      project.operations=[...project.operations.slice(0,project.cursor),{kind:"place" as const,partId:reading.partId,position:{x:project.position.x,y:reading.size.y/2,z:project.position.z+1.4},rotation:reading.rotation+Math.PI/4},{kind:"test" as const,partId:reading.partId,measure:"protection" as const,dose:1}].slice(0,24);
+      projectNote(project,reading.tick,"revised",project.blocker);
+    } else {project.status="abandoned";project.blocker="Repeated measurements did not justify further work.";project.reserved={};}
   }
   if(!mind.learningEnabled)return;
   const effect=reading.metric==="protection"?Math.max(0,reading.after-reading.before)/Math.max(0.05,feature(reading.size,reading.rotation)):reading.metric==="retention"?reading.after/reading.dose:reading.after<reading.before?reading.dose*0.5:reading.dose;
@@ -28,16 +45,15 @@ export function learnPhysicalReading(agent: SurvivalAgent, reading: PhysicalRead
   estimate.samples++;const delta=effect-estimate.mean;estimate.mean+=delta/estimate.samples;estimate.variance=(estimate.variance*(estimate.samples-1)+delta*(effect-estimate.mean))/estimate.samples;
   estimate.evidenceIds=[...estimate.evidenceIds,reading.id].slice(-12);
   if(reading.metric!=="protection")return;
-  const project=mind.projects.find(p=>p.partIds.includes(reading.partId));
   if(!project)return;
   const measured=Math.max(0,reading.after-reading.before);
   let procedure=mind.procedures.find(p=>p.id===`procedure-${project.id}`);
   if(!procedure&&measured>0.025){
-    const place=project.operations.find(o=>o.kind==="place");
+    const place=completedOperations.find(o=>o.kind==="place");
     procedure={id:`procedure-${project.id}`,learnedAt:reading.tick,material:reading.material,sizePerMass:{x:reading.size.x,y:reading.size.y,z:reading.size.z},relativePosition:place?.kind==="place"?{x:place.position.x-project.position.x,y:place.position.y,z:place.position.z-project.position.z}:{x:0,y:reading.size.y/2,z:1},rotation:reading.rotation,mass:reading.mass,effect:measured,uncertainty:0.5,successes:0,failures:0,evidenceIds:[],conditions:{minTemperature:reading.temperature,maxTemperature:reading.temperature,weather:[]}};
-    const produced=project.operations.some(o=>o.kind==="shape")?project.partIds.at(-1):null;
+    const produced=completedOperations.some(o=>o.kind==="shape")?project.partIds.at(-1):null;
     procedure.origin={...project.position};
-    procedure.program=structuredClone(project.operations).map(o=>"partId"in o&&o.partId===produced?{...o,partId:"$new"}:o.kind==="join"||o.kind==="mix"?{...o,a:o.a===produced?"$new":o.a,b:o.b===produced?"$new":o.b}:o);
+    procedure.program=completedOperations.map(o=>"partId"in o&&o.partId===produced?{...o,partId:"$new"}:o.kind==="join"||o.kind==="mix"?{...o,a:o.a===produced?"$new":o.a,b:o.b===produced?"$new":o.b}:o);
     mind.procedures.push(procedure);mind.procedures=mind.procedures.slice(-16);
   }
   if(procedure){
@@ -48,9 +64,6 @@ export function learnPhysicalReading(agent: SurvivalAgent, reading: PhysicalRead
     procedure.conditions.minTemperature=Math.min(procedure.conditions.minTemperature,reading.temperature);procedure.conditions.maxTemperature=Math.max(procedure.conditions.maxTemperature,reading.temperature);
     procedure.conditions.weather=[...new Set([...procedure.conditions.weather,reading.weather])];
   }
-  project.lastReviewAt=reading.tick;
-  if(reading.after>=project.target){project.status="satisfied";project.reason=`Measured protection ${reading.after.toFixed(2)} reached the proposed ${project.target.toFixed(2)} target.`;}
-  else {project.status="abandoned";project.reason=`Measured protection ${reading.after.toFixed(2)} did not meet ${project.target.toFixed(2)}; retain the result for a revised attempt.`;}
 }
 
 function projectedValue(input:PrivatePolicyInput,protection:number,cost:number):number {
@@ -66,16 +79,45 @@ function projectedValue(input:PrivatePolicyInput,protection:number,cost:number):
   return survivalPotential(needs,inventory);
 }
 
-function projectChoice(input:PrivatePolicyInput,project:PhysicalProject):LocalPlanChoice|null {
-  const a=input.agent,op=project.operations[project.cursor];if(!op)return null;
+export function projectChoice(input:PrivatePolicyInput,project:PhysicalProject):LocalPlanChoice|null {
+  const a=input.agent;let op=project.operations[project.cursor];if(!op)return null;
+  if((project.retryAt??0)>input.tick)return null;
   const actions:LocalPlanChoice["actions"]=[];
-  if(distance(a.position,project.position)>2.5)actions.push({action:"move",targetId:null,destination:project.position,duration:1});
-  const required=op.kind==="shape"?{kind:op.material,amount:op.mass}:op.kind==="join"?{kind:"fiber" as const,amount:op.fiber}:op.kind==="heat"?{kind:"wood" as const,amount:op.fuel}:null;
+  // Knowing how an operation works is a capability, not an instruction to build.
+  const required=op.kind==="shape"?{kind:op.material,amount:op.mass+(op.material==="stone"?.5:0)}:op.kind==="join"?{kind:"fiber" as const,amount:op.fiber}:op.kind==="heat"?{kind:"wood" as const,amount:op.fuel}:null;
   if(required&&a.inventory[required.kind]<required.amount){
     const site=a.observations.filter(o=>o.kind==="resource"&&o.facts.resourceKind===required.kind&&o.position&&Number(o.facts.availableEstimate)>0).sort((x,y)=>distance(a.position,x.position!)-distance(a.position,y.position!))[0];
-    if(!site)return null;
+    project.blocker=`Needs ${Math.max(0,required.amount-a.inventory[required.kind]).toFixed(1)} more ${required.kind}${op.kind==="shape"&&op.material==="stone"?" including a separate striking stone":""}.`;
+    if(!site){project.blocker+=" No available source is remembered.";return null;}
     return {candidate:{goal:"gather_material",targetId:site.subjectId,score:project.predictedBenefit-2,expectedBenefit:project.predictedBenefit,risk:2,knownObservationIds:[site.id],summary:`Obtain ${required.kind} for a self-proposed exposure test; ${required.amount.toFixed(1)} material reserved.`},actions:[{action:"move",targetId:site.subjectId,destination:site.position,duration:1},{action:"gather",targetId:site.subjectId,destination:site.position,duration:1}],uncertainty:0.5};
   }
+  const workPoint=project.position;
+  if(distance(a.position,workPoint)>1.1){
+    project.blocker="Returning to the work site before handling the next part.";
+    return {candidate:{goal:"stay_warm",targetId:null,score:project.predictedBenefit,expectedBenefit:project.predictedBenefit,risk:1,knownObservationIds:a.observations.filter(o=>o.kind==="structure").map(o=>o.id),summary:project.blocker},actions:[{action:"move",targetId:null,destination:workPoint,duration:Math.max(1,Math.ceil(distance(a.position,workPoint)/7.5))}],uncertainty:.4};
+  }
+  const parts=observedParts(input);
+  if(op.kind==="place"){
+    const partId=op.partId,part=parts.find(p=>p.id===partId);
+    if(!part){project.blocker="The part is not in recent observations; locate it before placing it.";return null;}
+    const fit=findObservedPose(input,part.size,op.position,op.rotation,part.id);
+    if(!fit){project.blocker="No clear, supported pose with an accessible approach is currently known.";return null;}
+    if(distance(fit.position,op.position)>.05||Math.abs(fit.rotation-op.rotation)>.05){project.revisions++;projectNote(project,input.tick,"revised","Repositioned the proposal around observed obstacles, leaving an approach open.");}
+    op={...op,...fit};project.operations[project.cursor]=op;
+  }
+  if(op.kind==="join"){
+    const {a:firstId,b:secondId}=op,first=parts.find(p=>p.id===firstId),second=parts.find(p=>p.id===secondId);
+    if(!first||!second){project.blocker="Both parts must be observed before connecting them.";return null;}
+    // Place one component against the other before attempting a binding.
+    if(distance(first.position,second.position)>(Math.max(first.size.x,first.size.z)+Math.max(second.size.x,second.size.z))/2+.1){
+      const pose=findObservedPose(input,second.size,{x:first.position.x+(first.size.x+second.size.x)/2,y:second.size.y/2,z:first.position.z},0,second.id);
+      if(!pose){project.blocker="The parts cannot yet be brought together with a clear approach.";return null;}
+      if(project.operations.length>=23){project.blocker="The bounded positioning plan is exhausted; no further arrangement is currently known.";return null;}
+      project.operations.splice(project.cursor,0,{kind:"place",partId:second.id,...pose});op=project.operations[project.cursor];
+      projectNote(project,input.tick,"revised","Bring the observed surfaces together before binding.");
+    }
+  }
+  delete project.blocker;
   actions.push({action:op.kind==="test"?"test_hypothesis":"build",targetId:"partId"in op?op.partId:null,destination:null,duration:1,manipulation:op});
   return {candidate:{goal:op.kind==="test"?"research":"stay_warm",targetId:"partId"in op?op.partId:null,score:project.predictedBenefit,expectedBenefit:project.predictedBenefit,risk:1,knownObservationIds:a.observations.filter(o=>o.kind==="weather"||o.subjectId=== ("partId"in op?op.partId:null)).map(o=>o.id),summary:`${op.kind} for self-proposed project: reduce exposure to ${(1-project.target).toFixed(2)} or less. This is a prediction, not a confirmed benefit.`},actions,uncertainty:0.5};
 }
@@ -87,13 +129,16 @@ export function preparePhysicalProjects(input:PrivatePolicyInput):void {
   const emergency=Math.min(a.needs.health,a.needs.hydration,a.needs.nutrition,a.needs.energy)<32;
   const current=mind.projects.find(p=>p.status==="active"||p.status==="interrupted");
   if(current){
-    if(emergency){current.status="interrupted";current.reason="Immediate needs interrupted the project. Parts and remaining operations are retained.";return;}
-    if(input.tick-current.updatedAt>144){current.status="abandoned";current.reason="The project remained uneconomic for a full day; release its reservation.";current.reserved={};}
+    if(emergency){current.status="interrupted";current.blocker="Food, water, health or energy needs take priority. Work is retained.";projectNote(current,input.tick,"paused",current.blocker);return;}
+    if((current.retryAt??0)>input.tick)return;
+    if(input.tick-current.updatedAt>288){current.status="abandoned";current.reason="No progress for two days; release the reservation and reconsider alternatives.";current.reserved={};}
     else {
       const remembered=input.agent.physicalMind?.readings.filter(r=>r.metric==="protection"&&distance(r.position,current.position)<2&&input.tick-r.tick<36).at(-1)?.after??0;
       const benefit=projectedValue(input,Math.max(remembered,current.target),Math.max(0,current.operations.length-current.cursor)*0.6)-projectedValue(input,remembered,0);
       if(benefit<=0&&current.cursor===0){current.status="abandoned";current.reason="Updated conditions no longer justify this investment.";current.reserved={};current.lastReviewAt=input.tick;return;}
-      current.predictedBenefit=benefit;current.status="active";return;
+      current.predictedBenefit=benefit;
+      if(current.status==="interrupted")projectNote(current,input.tick,"resumed","Immediate needs allow the remaining work to compete with other choices again.");
+      current.status="active";return;
     }
   }
   if(emergency||Math.min(a.needs.hydration,a.needs.nutrition,a.needs.energy)<55||input.tick-(mind.projects.at(-1)?.lastReviewAt??-24)<12)return;
@@ -128,7 +173,8 @@ export function preparePhysicalProjects(input:PrivatePolicyInput):void {
     const value=survivalGain+informationValue-2.5-mass*1.2-(a.inventory[material]>=mass?0:travel*0.5)-(transfer?1:0);
     const offset=learned&&n%3===0?learned.relativePosition:{x:(random("offsetX")-0.5)*1.6,y:y/2,z:0.9+random("offsetZ")*0.8};
     const position={x:clip(a.position.x+offset.x,input.bounds.minX+2,input.bounds.maxX-2),y:y/2,z:clip(a.position.z+offset.z,input.bounds.minZ+2,input.bounds.maxZ-2)};
-    candidates.push({value,mass,material,target:Math.max(0.08,predicted*0.8),operations:[{kind:"shape",material,mass,size,hollow},{kind:"place",partId:"$new",position,rotation},{kind:"test",partId:"$new",measure:"protection",dose:1}]});
+    const fit=findObservedPose(input,size,position,rotation);if(!fit)continue;
+    candidates.push({value,mass,material,target:Math.max(0.08,predicted*0.8),operations:[{kind:"shape",material,mass,size,hollow},{kind:"place",partId:"$new",...fit},{kind:"test",partId:"$new",measure:"protection",dose:1}]});
     if(learned?.program&&n%3===0){
       const transferred=procedureForObservation(learned,a.position);
       const available=transferred.every(o=>"partId"in o?o.partId==="$new"||artifacts.some(p=>p.subjectId===o.partId):o.kind==="join"||o.kind==="mix"?[o.a,o.b].every(id=>id==="$new"||artifacts.some(p=>p.subjectId===id)):true);
@@ -183,15 +229,18 @@ export function planPhysicalKnowledge(input:PrivatePolicyInput):LocalPlanChoice[
       if(travel.wetDuration>0){action.duration=Math.max(action.duration,Math.ceil(travel.duration));cost+=travel.energy+travel.warmth*.75+travel.wetDuration*.12;}
     }
     if(cost>0){proposed.candidate.score-=cost;proposed.candidate.risk+=cost;proposed.candidate.summary+=" Observed water adds swimming effort, slower travel and cooling.";proposed.candidate.knownObservationIds=[...new Set([...proposed.candidate.knownObservationIds,...input.agent.observations.filter(o=>o.facts.resourceKind==="freshwater"&&typeof o.facts.waterRadiusX==="number").map(o=>o.id)])];}
-    choices.push(proposed);
+    proposed.projectId=project.id;choices.push(proposed);
   }}
   return choices.sort((a,b)=>b.candidate.score-a.candidate.score||a.candidate.summary.localeCompare(b.candidate.summary)).slice(0,8);
 }
 
-export function completePhysicalOperation(agent:SurvivalAgent,op:Manipulation,ok:boolean,partId:string|null,tick:number,effort:number):void{
+export function completePhysicalOperation(agent:SurvivalAgent,op:Manipulation,ok:boolean,partId:string|null,tick:number,effort:number,summary="The attempted operation failed."):void{
   const project=agent.physicalMind?.projects.find(p=>p.status==="active");if(!project)return;
   project.updatedAt=tick;project.spentEffort+=effort;
-  if(!ok){project.status="abandoned";project.reason="A physical attempt failed. Keep the prototype and evidence; release remaining material reservations.";project.reserved={};project.lastReviewAt=tick;return;}
+  if(!ok){project.failures=(project.failures??0)+1;project.blocker=summary;project.lastReviewAt=tick;projectNote(project,tick,"blocked",summary);
+    if(agent.physicalMind?.version===2&&project.failures<=3){project.status="interrupted";project.retryAt=tick+3;project.revisions++;project.reason="Retain progress and reconsider the failed operation using fresh observations.";}
+    else {project.status="abandoned";project.reason="Repeated failures made further investment uneconomic. Keep the evidence and release reservations.";project.reserved={};}return;}
+  delete project.blocker;
   if(op.kind==="shape"&&partId){project.partIds.push(partId);project.operations=project.operations.map(o=>"partId"in o&&o.partId==="$new"?{...o,partId}:o.kind==="join"||o.kind==="mix"?{...o,a:o.a==="$new"?partId:o.a,b:o.b==="$new"?partId:o.b}:o);project.reserved={};}
   project.cursor++;
   if(project.cursor>=project.operations.length&&op.kind!=="test"&&project.status==="active"){project.status="abandoned";project.reason="Operations ended without a confirming measurement.";}

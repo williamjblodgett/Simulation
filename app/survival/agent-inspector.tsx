@@ -7,7 +7,7 @@ import { activityLabel, AgentPortrait, ConditionLine, humanize, NeedMeter } from
 import styles from "./survival-experience.module.css";
 import { AgentKnowledge } from "./agent-knowledge";
 import { SuccessionRecord } from "./succession-record";
-import { PhysicalRecord } from "./physical-record";
+import { PhysicalRecord, ProjectSummary } from "./physical-record";
 
 export type InspectorLevel = "peek" | "half" | "expanded";
 const WIDE_INSPECTOR = "(min-width: 768px), (orientation: landscape) and (max-height: 540px)";
@@ -21,6 +21,7 @@ interface AgentInspectorProps {
   level: InspectorLevel;
   onLevelChange(level: InspectorLevel): void;
   onSelectAgent(id: string): void;
+  onInspectPart?(id:string):void;
   onHandlePointerDown?: PointerEventHandler<HTMLSpanElement>;
   onHandlePointerUp?: PointerEventHandler<HTMLSpanElement>;
 }
@@ -29,7 +30,7 @@ function inventoryRows(agent: SurvivalAgent) {
   return Object.entries(agent.inventory).filter(([, amount]) => amount > 0.01).sort((left, right) => right[1] - left[1]);
 }
 
-export function AgentInspector({ world, agent, level, onLevelChange, onSelectAgent, onHandlePointerDown, onHandlePointerUp }: AgentInspectorProps) {
+export function AgentInspector({ world, agent, level, onLevelChange, onSelectAgent, onInspectPart, onHandlePointerDown, onHandlePointerUp }: AgentInspectorProps) {
   const [panelState, setPanelState] = useState({ id: agent.id, panel: "overview" });
   const wideInspector=useSyncExternalStore(subscribeLayout,wideSnapshot,narrowServerSnapshot);
   const panel = level === "half" && !wideInspector ? "overview" : panelState.id === agent.id ? panelState.panel : "overview";
@@ -71,6 +72,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
         <NeedMeter label="Warmth" value={agent.needs.warmth} />
         <NeedMeter label="Safety" value={agent.needs.safety} />
       </section>
+      <ProjectSummary agent={agent} onInspect={onInspectPart}/>
       <section className={styles.intentOutcome}>
         <div><span>Recorded intent</span><strong>{agent.currentDeliberation?.recordedIntent ?? (agent.alive ? "Awaiting the next recorded decision." : "No active intent.")}</strong></div>
         <div><span>Latest confirmed outcome</span><strong>{agent.lastOutcome?.summary ?? "No completed action has been recorded yet."}</strong></div>
@@ -78,7 +80,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
     </div>
 
     <div className={styles.inspectorExpanded}>
-      <div hidden={panel !== "activity"}><PhysicalRecord agent={agent}/></div>
+      <div hidden={panel !== "activity"}><PhysicalRecord agent={agent} onInspect={onInspectPart}/></div>
       <div hidden={panel !== "lineage"}><section className={styles.recordSection}><header><Users size={17}/><div><span>A life in this world</span><small>Identity persists in the record after death</small></div></header><dl className={styles.rowList}><div><dt>Stable identity</dt><dd>{agent.label} · entry {agent.slotGeneration}</dd></div><div><dt>Time alive</dt><dd>{Math.floor(((agent.diedAt ?? world.tick) - agent.spawnedAt) * world.config.stepMinutes / 60)} modeled hours</dd></div></dl></section><SuccessionRecord world={world} agent={agent} onSelectAgent={onSelectAgent}/>{world.policyVersion === 3 && !world.config.continuity ? <p className={styles.emptyCopy}>This survival-only study does not give agents a next-generation objective. You can introduce a new life from Agents.</p> : null}</div>
       {decision ? <section className={styles.recordSection} hidden={panel !== "activity"}>
         <header><Route size={17} /><div><span>Decision evidence</span><small>{decision.id} · {(world.tick - decision.decidedAt) * world.config.stepMinutes} modeled minutes ago</small></div></header>
