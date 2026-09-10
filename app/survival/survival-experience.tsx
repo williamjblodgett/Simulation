@@ -1,8 +1,8 @@
 "use client";
 
-import { Camera, Cloud, CloudRain, Eye, List, Map, Maximize2, Minus, Orbit, Pause, Play, Plus, RotateCcw, Settings2, Snowflake, Sun, Users, X } from "lucide-react";
+import { Camera, Cloud, CloudRain, Compass, Eye, List, Map, Maximize2, Minus, Orbit, Pause, Play, Plus, RotateCcw, Settings2, Snowflake, Sun, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SurvivalAgent, SurvivalEvent, SurvivalRunState } from "../simulation/survival";
+import { freshwaterVisualFootprint, type SurvivalAgent, type SurvivalEvent, type SurvivalRunState } from "../simulation/survival";
 import { AgentInspector, type InspectorLevel } from "./agent-inspector";
 import { AgentsView } from "./agents-view";
 import { AGENT_IDS, AgentPortrait, formatClock, humanize } from "./presentation";
@@ -25,11 +25,11 @@ function currentSlotAgents(world: SurvivalRunState) {
   });
 }
 
-function MiniMap({ world, selectedId, onSelect }: { world: SurvivalRunState; selectedId: string | null; onSelect(id: string): void }) {
+function MiniMap({ world, selectedId, onSelect, onLandscape }: { world: SurvivalRunState; selectedId: string | null; onSelect(id: string): void; onLandscape(): void }) {
   const bounds = world.environment.bounds;
   const width = Math.max(1, bounds.maxX - bounds.minX);
   const depth = Math.max(1, bounds.maxZ - bounds.minZ);
-  return <div className={styles.miniMap} aria-label="Habitat minimap"><span>Habitat overview</span><div>{world.agents.filter(({ alive }) => alive).map((agent) => <button key={agent.id} type="button" aria-label={`Select ${agent.label}, ${agent.name}`} data-selected={selectedId === agent.id} onClick={() => onSelect(agent.id)} style={{ left: `${(agent.position.x - bounds.minX) / width * 100}%`, top: `${(agent.position.z - bounds.minZ) / depth * 100}%`, "--mini-color": `var(--${agent.label.toLowerCase()})` } as React.CSSProperties}>{agent.label}</button>)}</div></div>;
+  return <div className={styles.miniMap} aria-label="Habitat minimap"><span>Study map · Observer view</span><svg viewBox={`${bounds.minX} ${bounds.minZ} ${width} ${depth}`} role="img" aria-label="Resource sites and agent locations in the study bounds"><rect x={bounds.minX} y={bounds.minZ} width={width} height={depth} fill="#20362e"/>{world.environment.resources.map(resource => resource.kind === "freshwater" ? <ellipse key={resource.id} cx={resource.position.x} cy={resource.position.z} rx={freshwaterVisualFootprint(resource).radiusX} ry={freshwaterVisualFootprint(resource).radiusZ} transform={`rotate(${-freshwaterVisualFootprint(resource).rotation*180/Math.PI} ${resource.position.x} ${resource.position.z})`} fill="#78bccc"/> : <circle key={resource.id} cx={resource.position.x} cy={resource.position.z} r={width*.008} fill="#b8c7a5" opacity={resource.quantity>0?.75:.2}/>)}{world.agents.filter(a=>a.alive).map(agent=><circle key={agent.id} cx={agent.position.x} cy={agent.position.z} r={width*.014} fill={`var(--${agent.label.toLowerCase()})`} stroke={agent.id === selectedId ? "#fff" : "#0c141c"} strokeWidth={width*.005}/>)}</svg><div className={styles.mapAgentButtons}>{world.agents.filter(a=>a.alive).map(agent=><button key={agent.id} type="button" onClick={()=>onSelect(agent.id)} aria-label={`Select ${agent.label}, ${agent.name}`} data-selected={selectedId===agent.id}>{agent.label}</button>)}</div><button className={styles.landscapeButton} type="button" onClick={onLandscape}><Maximize2 size={15}/> View full landscape</button></div>;
 }
 
 function AgentRail({ world, selectedId, onSelect }: { world: SurvivalRunState; selectedId: string | null; onSelect(agent: SurvivalAgent): void }) {
@@ -44,7 +44,7 @@ function WorldHeader({ world, speed, onSpeed, onPause }: { world: SurvivalRunSta
   const isPaused = world.status === "paused";
   const isTerminal = world.status === "completed" || world.status === "extinct";
   return <header className={styles.appHeader}>
-    <div className={styles.brand}><Orbit size={29} aria-hidden="true" /><div className={styles.appTitle}><strong>Simulation</strong><span><i data-status={world.status} />{world.status === "running" ? "Observing" : humanize(world.status)}</span></div></div>
+    <div className={styles.brand}><Orbit size={29} aria-hidden="true" /><div className={styles.appTitle}><strong>Simulation</strong><span><i data-status={world.status} />{world.status === "running" ? "Running" : humanize(world.status)}<b> / Autonomous survival study</b></span></div></div>
     <div className={styles.clock}><span>Day {world.day}</span><strong>{formatClock(world.elapsedMinutes)}</strong></div>
     <div className={styles.playback} aria-label="Observer playback controls">
       <button type="button" onClick={onPause} disabled={isTerminal} aria-label={isTerminal ? "Playback unavailable for an ended run" : isPaused ? "Resume simulation" : "Pause simulation"}>{isPaused ? <Play size={18} /> : <Pause size={18} />}</button>
@@ -54,7 +54,7 @@ function WorldHeader({ world, speed, onSpeed, onPause }: { world: SurvivalRunSta
 }
 
 function BottomNavigation({ view, onChange }: { view: AppView; onChange(view: AppView): void }) {
-  const items: Array<{ id: AppView; icon: typeof Map }> = [{ id: "world", icon: Map }, { id: "agents", icon: Users }, { id: "timeline", icon: List }, { id: "run", icon: Settings2 }];
+  const items: Array<{ id: AppView; icon: typeof Map }> = [{ id: "world", icon: Compass }, { id: "agents", icon: Users }, { id: "timeline", icon: List }, { id: "run", icon: Settings2 }];
   return <nav className={styles.bottomNav} aria-label="Simulation views">{items.map(({ id, icon: Icon }) => <button type="button" key={id} data-active={view === id} aria-current={view === id ? "page" : undefined} onClick={() => onChange(id)}><Icon size={20} /><span>{VIEW_LABELS[id]}</span></button>)}</nav>;
 }
 
@@ -196,7 +196,8 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
         </div>
 
         <div className={styles.weatherChip}><WeatherIcon size={18} /><span><strong>{Math.round(world.environment.temperatureC)}°</strong><small>{weatherLabel}</small></span></div>
-        <div className={styles.habitatCaption}><span>Shared habitat</span><strong>{world.stats.livingAgents} {world.stats.livingAgents === 1 ? "life" : "lives"} · No commands</strong></div>
+        <div className={styles.habitatCaption}><span>Field observation / {String(world.seed).slice(-5)}</span><strong>Wooded basin</strong><small>{world.stats.livingAgents} living · {world.physical?.parts.length ?? world.environment.structures.length} {world.physical ? "constructed parts" : "structures"}</small></div>
+        <div className={styles.gestureHint}>Drag to orbit <span>·</span> Scroll or pinch to zoom <span>·</span> Select a life to observe</div>
         <div className={styles.zoomControls} aria-label="Camera zoom"><button type="button" disabled={rendererFailed} aria-label="Zoom in" onClick={() => setZoomRequest(value => ({direction: -1, sequence: (value?.sequence ?? 0) + 1}))}><Plus size={18}/></button><button type="button" disabled={rendererFailed} aria-label="Zoom out" onClick={() => setZoomRequest(value => ({direction: 1, sequence: (value?.sequence ?? 0) + 1}))}><Minus size={18}/></button></div>
         <div className={styles.cameraControls} aria-label="Camera controls">
           <button type="button" aria-label={rendererFailed ? "Overview unavailable while the 3D view is unavailable" : "Show habitat overview"} data-active={!rendererFailed && cameraMode === "overview" && !manualCamera && !focusPosition} disabled={rendererFailed} onClick={() => { setFocusPosition(null); setCameraMode("overview"); setManualCamera(false); }} aria-pressed={!rendererFailed && cameraMode === "overview" && !manualCamera && !focusPosition}><Maximize2 size={17} /><span>Overview</span></button>
@@ -204,10 +205,10 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
           <button type="button" aria-label="Toggle habitat minimap" onClick={() => setMiniMapOpen((current) => !current)} aria-expanded={miniMapOpen}><Map size={17} /><span>Map</span></button>
         </div>
         {manualCamera && selectedAgent?.alive ? <button type="button" className={styles.returnFollow} onClick={() => { setFocusPosition(null); setCameraMode("follow"); setManualCamera(false); }}><Eye size={16} /> Return to {selectedAgent.label}</button> : null}
-        {miniMapOpen ? <MiniMap world={world} selectedId={effectiveSelectedId} onSelect={(id) => { selectAgent(id, true); setMiniMapOpen(false); }} /> : null}
+        {miniMapOpen ? <MiniMap world={world} selectedId={effectiveSelectedId} onSelect={(id) => { selectAgent(id, true); setMiniMapOpen(false); }} onLandscape={() => { setFocusPosition(null); setCameraMode("habitat"); setManualCamera(false); setMiniMapOpen(false); }}/> : null}
 
         {selectedAgent ? <div className={styles.agentSheet} data-level={sheetLevel}>
-          <div className={styles.sheetDragZone} onPointerDown={sheetPointerDown} onPointerUp={sheetPointerUp} />
+          <div className={styles.sheetDragZone} onPointerDown={sheetPointerDown} onPointerUp={sheetPointerUp} onPointerCancel={() => { sheetDragRef.current = null; }} />
           <AgentRail world={world} selectedId={effectiveSelectedId} onSelect={selectFromRail} />
           <AgentInspector world={world} agent={selectedAgent} level={sheetLevel} onLevelChange={setSheetLevel} onSelectAgent={(id) => { const nextAgent = world.agents.find((agent) => agent.id === id); selectAgent(id, Boolean(nextAgent?.alive)); }} onHandlePointerDown={sheetPointerDown} onHandlePointerUp={sheetPointerUp} />
         </div> : null}
@@ -222,8 +223,8 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
 
     <dialog ref={directoryDialogRef} className={styles.directoryDialog} aria-labelledby="agent-record-dialog-title" onCancel={() => setDirectoryInspectorOpen(false)}>
       <header><span id="agent-record-dialog-title">Agent record</span><button type="button" onClick={() => setDirectoryInspectorOpen(false)} aria-label="Close agent record"><X size={20} /></button></header>
-      {selectedAgent ? <AgentInspector world={world} agent={selectedAgent} level="expanded" onLevelChange={() => setDirectoryInspectorOpen(false)} onSelectAgent={(id) => setSelectedId(id)} /> : null}
-      {selectedAgent?.alive ? <button className={styles.dialogWorldButton} type="button" onClick={() => { setDirectoryInspectorOpen(false); setSheetLevel("half"); setCameraMode("follow"); setManualCamera(false); navigate("world"); }}><Eye size={17} /> View {selectedAgent.label} in world</button> : null}
+      {directoryInspectorOpen && selectedAgent ? <AgentInspector key={selectedAgent.id} world={world} agent={selectedAgent} level="expanded" onLevelChange={() => setDirectoryInspectorOpen(false)} onSelectAgent={(id) => setSelectedId(id)} /> : null}
+      {selectedAgent?.alive ? <button className={styles.dialogWorldButton} type="button" onClick={() => { selectAgent(selectedAgent.id, true); setDirectoryInspectorOpen(false); setSheetLevel("half"); navigate("world"); }}><Eye size={17} /> View {selectedAgent.label} in world</button> : null}
     </dialog>
 
     <div className={styles.srStatus} aria-live="polite">{runtime.lastEvents.join(" ")}</div>

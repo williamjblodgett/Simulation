@@ -2,6 +2,60 @@
 
 September 9, 2026. Implementation following the Astra review of revision `dce7792`, including the final observer-interface refinement and verified GitHub Pages release.
 
+## Observatory visual redesign — September 9, 2026
+
+Implemented the supplied Observatory direction in the existing React/Three.js app,
+without changing the decision engine, saved-study schema, authentication or API contracts.
+
+- Mobile-first World / Agents / Timeline / Run shell with quieter surfaces, readable
+  controls, a compact portrait rail, and a matching desktop observation workspace.
+- Shared adaptive inspector with Overview, Activity, Knowledge and Lineage sections.
+  Half-height phone mode prioritizes the three immediate needs, intent and outcome;
+  the full record exposes all six needs and the existing evidence/project systems.
+- Rebuilt shared character assets: differentiated hair/face silhouettes, full-body
+  portrait captures, articulated walking/seated poses and batched static surfaces.
+  These are observer identity models, not invented agent-selected equipment.
+- New clustered forest geometry, meadow detail, improved resource silhouettes,
+  depth-toned freshwater, smooth shoreline banks and distant coastal relief. Physical
+  work remains on the same flat study plane; coastal relief is outside the study.
+- Actual resource/agent map plus a full-landscape camera. No decorative structures,
+  unearned tools, new resource stock, or agent commands were added.
+- Corrected rotated-pond alignment against existing engine shoreline/navigation
+  coordinates; corrected meadow/tree pond exclusions, seated foot clipping, instanced
+  GPU-buffer cleanup, and stale event focus when following from the roster dialog.
+- Resize notifications are coalesced outside ResizeObserver delivery. Render-loop
+  diagnostics and a bounded pixel-density fallback do not affect simulation time.
+
+### Checks performed
+
+- Full `npm test`: **123/123 passed**, including both production builds, Pages type
+  checks, persistence, autonomous decisions, succession, physical behavior and new
+  rotated-pond/disposal/seated-pose regressions. Lint passed.
+- The subsequent resize-delivery guard was checked with a fresh Pages type/build,
+  production-browser sheet/tab cycling, one retained canvas and an empty error/warning
+  console. No save/schema or worker code changed in this visual release.
+- Actual Chromium-in-Codex screenshots at 390×844, 375×667, 430×932, 844×390 and
+  1440×900. No horizontal overflow in checked sizes; one main canvas remained mounted.
+- Exercised World selection/follow, all inspector sections, roster-to-world, filtered
+  event details and location, map/landscape framing, setup confirmation/cancel/start,
+  real pause/resume and synchronized speed, one-agent night observation and admission
+  up to five lives. Add-agent correctly disables at capacity.
+- Existing local five-agent record stayed at Day 1 07:20 through view/selection tests.
+  A separate local one-agent test study was then created, paused, expanded to five
+  agents, and remained at Day 1 02:50 through About/back. Prior study retained in archive.
+- A five-agent render-loop sample after static-mesh batching reported 207 draw calls
+  and ~104 iterations/second on this desktop browser at DPR 1. These are sampled
+  renderer diagnostics, not real-phone FPS or a sustained performance guarantee.
+
+### Limits
+
+No Safari/physical-device verification, 200% browser-text enlargement, synthetic
+connection loss or forced WebGL context-loss browser test was performed in this pass.
+The existing error/retry and reduced-motion paths are retained. Decorative vegetation
+is not a new collision/resource system. The new visuals do not add general intelligence,
+free-form clothing choices, unrestricted chemistry or machine invention. Assets are
+authored geometry/shaders; there are no external image or model downloads to attribute.
+
 ## Physical construction update — September 9, 2026
 
 Implemented policy 3/schema 3 for newly configured studies. Existing runs retain

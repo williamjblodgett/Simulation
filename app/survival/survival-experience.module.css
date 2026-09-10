@@ -1,10 +1,10 @@
 .shell {
-  --bg: #080d12;
-  --surface: #111a23;
-  --raised: #17232f;
-  --text: #f3f6fa;
-  --muted: #a6b4c3;
-  --accent: #429fff;
+  --bg: var(--simulation-bg, #080d12);
+  --surface: var(--simulation-surface, #111a23);
+  --raised: var(--simulation-raised, #17232f);
+  --text: var(--simulation-text, #f3f6fa);
+  --muted: var(--simulation-muted, #a6b4c3);
+  --accent: var(--simulation-accent, #429fff);
   --positive: #4bd39a;
   --warning: #f2bd62;
   --critical: #f07780;
@@ -602,3 +602,251 @@
   .agentInspector .peekSummary { display: none; }
   .portrait[data-size="small"] { width: 30px; height: 34px; }
 }
+
+/* Observatory: one set of geometry tokens owns the canvas and its inspector. */
+.shell { --header-base: 72px; --nav-base: 68px; --peek-height: max(148px,9.25rem); --inspector-width: 360px; --inspector-gap: 16px; --scene-right: 0px; font-size: 16px; }
+.shell [hidden] { display: none !important; }
+.appHeader { background: #0c141c; padding-inline: max(16px,var(--safe-left)); border-bottom-color: #ffffff0c; gap: 10px; }
+.brand > svg { color: #86c6f7; width: 27px; }
+.appTitle strong { font-size: 21px; letter-spacing: -.045em; }
+.appTitle span { font-size: 12px; }
+.appTitle span b { display: none; font-weight: 400; }
+.clock span { font-size: 12px; }
+.playback { gap: 5px; }
+.playback > button,.playback label { border-color: #ffffff10; border-radius: 9px; background: #17232d; }
+.playback label { padding: 0 6px; }
+.playback select { min-width: 49px; font-size: 14px; }
+.bottomNav { background: #0c141c; }
+.bottomNav button { color: #90a0ae; gap: 5px; border-radius: 12px; }
+.bottomNav button span { font-size: 12px; font-weight: 500; }
+.bottomNav button[data-active="true"] { color: #9ed0ff; background: #429fff12; }
+.bottomNav button[data-active="true"]::before { display: none; }
+.worldView::after { display: none; }
+.worldCanvas > [data-survival-viewport][data-inspector-level] { inset: 0 0 var(--peek-height); }
+.worldCanvas > [data-survival-viewport][data-inspector-level="half"] { bottom: max(var(--peek-height),min(320px,70%),54%); }
+.worldCanvas > [data-survival-viewport][data-inspector-level="expanded"] { bottom: calc(100% - 100px); }
+.weatherChip { top: 16px; left: 16px; gap: 8px; border: 1px solid #ffffff12; border-radius: 10px; background: #101c25e8; padding: 8px 11px; box-shadow: none; }
+.weatherChip strong { font-size: 17px; font-weight: 550; }
+.weatherChip small { font-size: 12px; }
+.cameraControls { top: 16px; right: 16px; display: grid; padding: 3px; gap: 0; border: 1px solid #ffffff14; border-radius: 12px; background: #101c25e8; }
+.cameraControls button { width: 44px; height: 44px; border-radius: 8px; }
+.cameraControls button span { display: none; }
+.cameraControls button[data-active="true"] { background: #429fff2b; color: #92ccff; }
+.zoomControls { top: 166px; right: 16px; border: 1px solid #ffffff14; background: #101c25e8; border-radius: 10px; }
+.returnFollow { top: auto; bottom: calc(var(--peek-height) + 18px); right: 16px; font-size: 13px; background: #101c25ed; }
+.habitatCaption { left: 18px; bottom: calc(var(--peek-height) + 22px); gap: 5px; }
+.habitatCaption span { font-size: 10px; letter-spacing: .14em; font-weight: 600; }
+.habitatCaption strong { font-size: 22px; font-weight: 550; letter-spacing: -.035em; }
+.habitatCaption small { font-size: 12px; color: #e0e8e6; }
+.gestureHint { display: none; }
+.miniMap { top: 16px; right: 76px; width: 238px; max-width: calc(100% - 92px); background: #101c25f5; }
+.miniMap > span { font-size: 12px; }
+.miniMap > svg { width: 100%; aspect-ratio: 1.4; display: block; border: 1px solid #ffffff18; border-radius: 6px; background: #20362e; }
+.miniMap > .mapAgentButtons { height: auto; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 2px; border-radius: 0; background: none; margin-top: 6px; overflow: visible; }
+.miniMap .mapAgentButtons button { position: static; width: 100%; height: 44px; translate: none; border: 0; border-radius: 6px; background: #ffffff07; font-size: 12px; }
+.miniMap .mapAgentButtons button[data-selected="true"] { box-shadow: none; background: #429fff2b; }
+.miniMap .landscapeButton { position: static; width: 100%; height: 44px; translate: none; display: flex; gap: 8px; justify-content: center; border: 0; border-radius: 0; background: transparent; font-size: 13px; }
+.agentSheet { height: var(--peek-height); border-radius: 24px 24px 0 0; background: #111b24; border-color: #ffffff17; box-shadow: none; }
+.agentSheet[data-level="half"] { height: max(var(--peek-height),min(320px,70%),54%); }
+.agentSheet[data-level="expanded"] { height: calc(100% - 8px); }
+.sheetDragZone { height: 12px; top: 0; }
+.sheetDragZone::after { content: ""; position: absolute; width: 32px; height: 3px; background: #52606a; border-radius: 2px; top: 5px; left: 20px; }
+.agentRail { top: 14px; height: 48px; left: 16px; right: 16px; gap: 4px; grid-template-columns: repeat(5,minmax(0,1fr)); }
+.agentRail button { height: 44px; gap: 4px; border-radius: 12px; padding: 2px; }
+.agentRail button[data-selected="true"] { border-color: #81bbf43b; background: #429fff14; }
+.agentRail button > span { font-size: 12px; }
+.agentRail button > i { display: none; }
+.agentRail button[data-alive="false"] { opacity: .5; }
+.portrait { border: 1px solid color-mix(in srgb,var(--agent-color) 55%,transparent); border-radius: 12px; background: #16232c; width: 44px; height: 48px; }
+.portrait[data-size="small"] { width: 32px; height: 36px; border-radius: 9px; }
+.portrait[data-size="large"] { width: 74px; height: 90px; border-radius: 12px; }
+.portrait[data-size="hero"] { width: 152px; height: 172px; border: 0; border-radius: 0; background: transparent; }
+.portrait[data-size="hero"] img { mix-blend-mode: lighten; object-fit: contain; }
+.agentInspector { inset: 66px 0 0; padding: 0 18px 24px; }
+.agentInspector[data-level="half"],.agentInspector[data-level="expanded"] { overflow-y: auto; }
+.agentInspector[data-level="peek"] .peekIntent { display: none; }
+.peekSummary { display: none; }
+.sheetHandle { margin: 0 -6px; width: calc(100% + 12px); min-height: 44px; }
+.sheetHandle > span { font-size: 12px; padding-top: 0; }
+.sheetHandle i { display: none; }
+.inspectorIdentity { position: relative; display: grid; grid-template-columns: minmax(0,1fr) 134px; grid-template-rows: 1fr auto; min-height: 174px; gap: 0; margin: 0 0 12px; padding: 12px 0; overflow: hidden; }
+.inspectorIdentity .portrait,.agentInspector[data-level="expanded"] .inspectorIdentity .portrait { position: absolute; right: -8px; top: 0; width: 152px; height: 172px; grid-row: auto; }
+.inspectorIdentity > div { grid-column: 1; align-self: center; z-index: 1; }
+.inspectorIdentity > div > span { font-size: 11px; color: #98adba; letter-spacing: .08em; }
+.inspectorIdentity h2 { margin: 8px 0; font-size: 29px; line-height: 1.1; font-weight: 550; letter-spacing: -.05em; white-space: normal; overflow-wrap: anywhere; }
+.inspectorIdentity p { font-size: 14px; line-height: 1.4; margin: 0 0 5px; color: #e0e8ef; }
+.inspectorIdentity small { font-size: 12px; color: var(--muted); }
+.inspectorIdentity > .conditionLine { grid-column: 1; font-size: 12px; margin-top: 10px; justify-self: start; }
+.inspectorTabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); margin: 0 0 16px; gap: 0; border-bottom: 1px solid var(--border); }
+.inspectorTabs button { padding: 0 2px; min-height: 44px; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; font-size: 12px; cursor: pointer; }
+.inspectorTabs button[aria-pressed="true"] { color: #a6d4ff; border-bottom-color: var(--accent); }
+.agentInspector[data-level="half"] .inspectorExpanded { display: block; }
+.needsSection { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px 22px; padding: 2px 0 24px; border: 0; }
+.needMeter > div:first-child,.needMeter[data-compact="true"] > div:first-child { font-size: 12px; margin-bottom: 7px; }
+.needMeter strong { font-weight: 500; }
+.meterTrack { height: 5px; background: #263641; }
+.meterTrack i { background: #72c7b0; }
+.intentOutcome { padding-bottom: 8px; gap: 20px; }
+.intentOutcome > div { padding: 0; border: 0; }
+.intentOutcome span { color: #8ca2b2; font-size: 11px; letter-spacing: .08em; }
+.intentOutcome strong { font-size: 14px; font-weight: 400; line-height: 1.65; color: #d7e2ec; }
+.recordSection { padding: 20px 0; }
+.recordSection > header span { font-size: 15px; font-weight: 550; }
+.recordSection > header small { display: block; font-size: 12px; margin-top: 4px; }
+.recordSection p,.recordSection small,.rowList { overflow-wrap: anywhere; }
+.conditionLine { font-size: 12px; max-width: none; }
+.screenView { padding: 28px 16px 32px; background: #0b1219; }
+.screenHeading { align-items: center; gap: 12px; margin-bottom: 24px; }
+.screenHeading h1 { font-size: 28px; font-weight: 550; letter-spacing: -.04em; }
+.screenHeading p { font-size: 14px; line-height: 1.65; }
+.screenHeading > div:first-child > span { font-size: 11px; color: #8fa4b4; }
+.agentDirectory { gap: 12px; }
+.agentDirectory > article { border-radius: 16px; background: #131e28; }
+.agentDirectory > article[data-selected="true"] { border-color: #5481a352; }
+.agentDirectoryMain { padding: 18px; gap: 14px; }
+.agentDirectoryIdentity h2 { margin: 6px 0; font-size: 22px; font-weight: 550; letter-spacing: -.035em; }
+.agentDirectoryIdentity > span { font-size: 11px; letter-spacing: .06em; color: #8fa4b4; }
+.agentDirectoryIdentity p { font-size: 14px; }
+.compactNeeds { gap: 14px; padding-top: 6px; }
+.viewWorldButton { min-height: 46px; background: #ffffff02; font-size: 13px; color: #a4c7e6; }
+.admission { max-width: 980px; margin: 0 auto 20px; padding: 0 0 20px; gap: 10px; }
+.admission > div { flex-basis: 170px; }
+.admission p { font-size: 13px; }
+.admission > button { min-height: 46px; background: #1d3448; font-size: 14px; }
+.scopeButtons { margin-bottom: 20px; }
+.scopeButtons button { font-size: 13px; }
+.timelineFilters { gap: 8px; }
+.timelineFilters label { border-radius: 10px; background: #131e28; }
+.timelineFilters select { font-size: 14px; }
+.dayGroup { grid-template-columns: 1fr; gap: 10px; }
+.dayGroup > header { position: static; display: flex; flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 6px; padding: 16px 0 10px; width: 100%; height: auto; min-height: 44px; margin: 0; border: 0; border-radius: 0; background: transparent; }
+.dayGroup > header strong { font-size: 17px; font-weight: 550; }
+.dayGroup > header span { font-size: 13px; }
+.dayGroup ol { border-left: 1px solid #2a3d4b; padding-left: 14px; margin-left: 5px; }
+.dayGroup li { position: relative; border-bottom: 0; }
+.dayGroup li::before { content: ""; position: absolute; left: -18px; top: 24px; width: 7px; height: 7px; border-radius: 50%; background: #829fb4; border: 2px solid #0b1219; }
+.dayGroup li > button { padding: 14px 0; align-items: start; grid-template-columns: 42px minmax(0,1fr); gap: 6px 10px; }
+.dayGroup time { grid-column: 1; grid-row: 1; font-size: 12px; color: #92a8b9; padding-top: 2px; }
+.dayGroup li > button .eventAgents { grid-column: 1; grid-row: 2; flex-wrap: wrap; }
+.dayGroup li > button > span:last-of-type { grid-column: 2; grid-row: 1 / 3; }
+.dayGroup li > button strong { white-space: normal; font-size: 14px; font-weight: 500; line-height: 1.5; }
+.dayGroup li > button small { white-space: normal; font-size: 12px; line-height: 1.5; color: #91a3b1; margin-top: 6px; }
+.dayGroup li > button > em { display: none; }
+.eventAgents i { min-width: 32px; height: 20px; padding: 0 3px; font-size: 10px; }
+.eventDetail { margin: 0 0 16px; padding: 16px; border-radius: 12px; background: #15212c; }
+.eventDetail ol { border: 0; padding: 0; }
+.eventDetail li::before { display: none; }
+.runStatus { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.runStatusHeading { padding: 20px 0; }
+.runPreview { height: 220px; border-radius: 16px; }
+.runPreview strong { font-size: 24px; letter-spacing: -.04em; }
+.runPlayback { display: flex; gap: 10px; margin-bottom: 12px; }
+.runPlayback > button { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 1; min-height: 48px; border: 1px solid var(--border); background: #1b3448; border-radius: 12px; font-size: 14px; cursor: pointer; }
+.runPlayback label { display: flex; align-items: center; gap: 10px; padding: 0 12px; font-size: 12px; color: var(--muted); border: 1px solid var(--border); border-radius: 12px; }
+.runPlayback select { color: var(--text); background: #17232f; border: 0; min-height: 44px; font-size: 14px; }
+.runStatus > .admission { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.runStatusHeading strong { font-size: 22px; font-weight: 500; }
+.runStatus dl { border: 0; gap: 16px; margin-top: 16px; }
+.runStatus dl > div { padding: 14px 0; border: 0; border-top: 1px solid var(--border); }
+.runStatus dt { font-size: 12px; color: #8fa4b4; }
+.runStatus dd { font-size: 15px; margin-top: 8px; overflow-wrap: anywhere; }
+.runStatus details { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.runStatus details summary { min-height: 44px; padding: 12px 0; cursor: pointer; }
+.runLinks { margin: 24px auto; }
+.runLinks a { justify-content: flex-start; font-size: 14px; }
+.startButton { border-radius: 12px; background: #3b8cd5; color: white !important; font-size: 15px; font-weight: 600 !important; }
+.setupScreen .environmentPreview { height: 170px; }
+.fixedGoal { background: transparent; border: 0; padding: 12px 0; align-items: start; }
+.fixedGoal strong { font-size: 16px; margin: 4px 0; }
+.fixedGoal small { font-size: 13px; line-height: 1.6; }
+.agentSelector legend { font-size: 14px; }
+.agentSelector button { min-height: 64px; background: #16232f; }
+.agentSelector button small { font-size: 12px; }
+.setupGrid { gap: 16px; }
+.setupGrid label > span { font-size: 14px; }
+.setupGrid select,.advancedSetup input { height: 48px; background: #16232f; }
+.directoryDialog { max-height: calc(100dvh - 24px); border-radius: 24px; background: #111b24; }
+.directoryDialog .agentInspector { padding: 0 22px 20px; }
+.directoryDialog .inspectorIdentity { min-height: 190px; }
+.directoryDialog .inspectorTabs { display: grid; }
+.directoryDialog .peekSummary { display: none; }
+@media (max-width: 767px) and (orientation: portrait) {
+  .agentInspector[data-level="peek"] { inset: 66px 0 0; padding: 0 16px 8px; }
+  .agentInspector[data-level="peek"] .peekSummary { display: flex; align-items: center; min-height: 66px; gap: 12px; }
+  .peekSummary > div { display: grid; gap: 3px; min-width: 0; }
+  .peekSummary strong { font-size: 16px; }
+  .peekSummary p { margin: 0; color: #c2d2df; font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .peekSummary .conditionLine { font-size: 11px; }
+  .peekSummary > button { width: 44px; height: 44px; border: 0; background: #20303d; border-radius: 12px; }
+  .agentInspector[data-level="peek"] .inspectorTabs { display: none; }
+  .agentSheet[data-level="half"] .agentInspector { padding-bottom: 24px; }
+  .agentSheet[data-level="half"] .inspectorIdentity { min-height: 54px; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: auto; margin-bottom: 12px; padding: 0; }
+  .agentSheet[data-level="half"] .inspectorIdentity .portrait,.agentSheet[data-level="half"] .inspectorTabs { display: none; }
+  .agentSheet[data-level="half"] .inspectorIdentity small { display: none; }
+  .agentSheet[data-level="half"] .inspectorIdentity > div > span { display: none; }
+  .agentSheet[data-level="half"] .inspectorIdentity > .conditionLine { grid-column: 2; grid-row: 1; margin: 0; padding-left: 8px; align-self: center; max-width: 124px; }
+  .agentSheet[data-level="half"] .needsSection { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px 12px; padding-bottom: 20px; }
+  .agentSheet[data-level="half"] .needsSection > :nth-child(n+4) { display: none; }
+  .agentSheet[data-level="half"] .inspectorIdentity h2 { font-size: 19px; margin: 0 0 4px; }
+  .agentSheet[data-level="half"] .intentOutcome { gap: 12px; }
+  .agentSheet[data-level="half"] .intentOutcome strong { font-size: 13px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .agentSheet[data-level="half"] .sheetHandle { margin-bottom: 0; }
+  .agentSheet[data-level="expanded"] .agentInspector { padding-bottom: 24px; }
+}
+@media (min-width: 768px), (orientation: landscape) and (max-height: 540px) {
+  .shell { --scene-right: calc(var(--inspector-width) + var(--inspector-gap) * 2); }
+  .worldCanvas > [data-survival-viewport][data-inspector-level] { inset: 0 var(--scene-right) 0 0; }
+  .agentSheet,.agentSheet[data-level] { inset: var(--inspector-gap) var(--inspector-gap) var(--inspector-gap) auto; width: var(--inspector-width); height: auto; border: 1px solid var(--border); border-radius: 18px; }
+  .agentRail { top: 12px; }
+  .agentInspector { inset: 70px 0 0; overflow-y: auto; }
+  .sheetHandle,.sheetDragZone { display: none; }
+  .agentInspector .inspectorHalf,.agentInspector .inspectorExpanded { display: block; }
+  .cameraControls { right: calc(var(--scene-right) + 16px); }
+  .zoomControls { right: calc(var(--scene-right) + 16px); }
+  .miniMap { right: calc(var(--scene-right) + 76px); }
+  .returnFollow { right: calc(var(--scene-right) + 16px); bottom: 72px; }
+  .habitatCaption { bottom: 30px; left: 28px; }
+  .habitatCaption strong { font-size: 32px; }
+  .habitatCaption span { font-size: 11px; }
+  .gestureHint { display: flex; position: absolute; bottom: 26px; right: calc(var(--scene-right) + 24px); gap: 8px; color: #e4eceb; font-size: 11px; text-shadow: 0 1px 4px #080d12; pointer-events: none; }
+  .gestureHint span { opacity: .5; }
+}
+@media (min-width: 1024px) {
+  .shell { --nav-width: 88px; }
+  .appTitle span b { display: inline; }
+  .content { inset: var(--header-height) 0 0 var(--nav-width); }
+  .bottomNav { inset: var(--header-height) auto 0 0; width: var(--nav-width); height: auto; grid-template-columns: 1fr; grid-template-rows: repeat(4,76px); padding: 18px 10px; gap: 4px; }
+  .bottomNav button span { font-size: 12px; }
+  .screenView { padding: 42px max(32px,7vw) 48px; }
+  .clock { flex-direction: row; align-items: center; gap: 12px; }
+  .clock strong { font-size: 16px; }
+  .appHeader { grid-template-columns: 1fr auto auto; gap: 24px; padding-inline: 24px; }
+  .agentDirectoryMain { min-height: 130px; grid-template-columns: 74px minmax(0,1fr) 220px; padding: 22px; gap: 24px; }
+  .viewWorldButton { min-width: 148px; }
+  .gestureHint { max-width: 270px; flex-wrap: wrap; justify-content: flex-end; }
+}
+@media (min-width: 1440px) { .shell { --inspector-width: 376px; --inspector-gap: 20px; } }
+@media (min-width: 768px) and (max-width: 1023px) { .shell { --inspector-width: 320px; --inspector-gap: 10px; } .gestureHint { display: none; } }
+@media (max-height: 700px) and (max-width: 767px) {
+  .shell { --header-base: 64px; --nav-base: 60px; }
+  .bottomNav button { min-height: 48px; }
+  .habitatCaption span,.habitatCaption small { display: none; }
+  .habitatCaption strong { font-size: 20px; }
+  .zoomControls { display: none; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .shell { --inspector-width: min(320px,41vw); --inspector-gap: 8px; --header-base: 60px; --nav-base: 54px; }
+  .bottomNav button { min-height: 44px; flex-direction: row; }
+  .gestureHint,.habitatCaption,.zoomControls { display: none; }
+  .agentRail { top: 8px; left: 10px; right: 10px; gap: 2px; }
+  .agentRail button { gap: 2px; }
+  .agentRail button > span { font-size: 10px; }
+  .portrait[data-size="small"] { width: 27px; height: 32px; }
+  .agentInspector { inset: 58px 0 0; padding-inline: 14px; }
+  .inspectorIdentity { min-height: 136px; grid-template-columns: minmax(0,1fr) 100px; }
+  .inspectorIdentity .portrait { width: 108px; height: 128px; }
+  .inspectorIdentity h2 { font-size: 23px; }
+  .cameraControls { top: 10px; }
+}
+@media (max-width: 360px) { .appHeader { gap: 6px; padding-inline: 10px; } .brand > svg { display: none; } .playback label { padding: 0 3px; } .agentRail { gap: 2px; left: 10px; right: 10px; } .agentRail button { gap: 2px; } .portrait[data-size="small"] { width: 29px; } .recordCount { font-size: 12px; } }
+@media (prefers-reduced-motion: reduce) { .agentSheet { transition: none; } }

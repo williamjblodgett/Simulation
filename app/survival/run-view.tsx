@@ -1,12 +1,12 @@
 "use client";
 
-import { AlertTriangle, ChevronDown, Clock3, RotateCcw, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Clock3, Pause, Play, RotateCcw, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { AgentLimit, ClimateVolatility, ResourceAbundance, SurvivalRunOptions, SurvivalRunState } from "../simulation/survival";
-import { formatClock, humanize } from "./presentation";
+import { humanize } from "./presentation";
 import styles from "./survival-experience.module.css";
 import { SavedStudies } from "./saved-studies";
-import { useSurvivalRuntime } from "./use-survival-runtime";
+import { useSurvivalRuntime, type PlaybackSpeed } from "./use-survival-runtime";
 import { getHabitatPreview, getServerHabitatPreview, subscribeHabitatPreview } from "./portraits";
 import { AgentAdmission } from "./agent-admission";
 
@@ -64,14 +64,18 @@ export function RunView({ world, storageStatus, onStart, methodHref = "/about", 
   }
 
   return <section ref={screenRef} className={`${styles.screenView} ${setupOpen ? styles.setupScreen : ""}`} aria-labelledby="run-heading">
-    <header className={styles.screenHeading}><div><h1 id="run-heading">{setupOpen ? "New run" : "Run"}</h1><p>Set the world. Agents choose how to survive.</p></div></header>
-    {!setupOpen ? <AgentAdmission world={world}/> : null}
+    <header className={styles.screenHeading}><div><span>{setupOpen ? "Configure an environment" : "Observation controls"}</span><h1 id="run-heading">{setupOpen ? "New run" : "Your study"}</h1><p>Set the world and goal. Agents make the decisions.</p></div></header>
 
     <section className={styles.runStatus} hidden={setupOpen}>
-      <p>Policy {world.policyVersion ?? 1} · {world.policyVersion === 3 ? "Physical materials, private learning and self-proposed projects" : world.policyVersion === 2 ? "Preserved local planning and causal experiments" : "Preserved original decision model"}. Runs while this browser is active, including while you read About.</p>
-      {world.policyVersion!==3?<p className={styles.inlineNotice}>This study keeps its original rules. Configure a new run to observe physical construction and self-proposed experiments; the current study will remain archived.</p>:<p>{world.physical?.parts.length??0} physical parts · {world.physical?.joints.length??0} connections · {world.physical?.tests??0} material tests. Material and search limits keep this a bounded model, not unrestricted general intelligence.</p>}
+      {habitatPreview ? <figure className={`${styles.environmentPreview} ${styles.runPreview}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={habitatPreview} alt="Captured scene of this study's habitat"/><figcaption><strong>Wooded basin</strong><span>Current study · captured view</span></figcaption>
+      </figure> : null}
       <div className={styles.runStatusHeading}><span data-status={world.status} /><div><small>Current run</small><strong>{humanize(world.status)}</strong></div></div>
-      <dl><div><dt>Goal</dt><dd>{world.config.objective.statement}</dd></div><div><dt>Elapsed</dt><dd>Day {world.day} · {formatClock(world.elapsedMinutes)}</dd></div><div><dt>Survivors</dt><dd>{living} of {world.config.agentCap}</dd></div><div><dt>Environment</dt><dd>{humanize(world.config.resourceAbundance)} resources · {humanize(world.config.climateVolatility)} climate</dd></div><div><dt>Record</dt><dd>{storageStatus === "saved-on-device" ? "Saved on this device" : "Save unavailable · advancement stopped"}</dd></div><div><dt>Seed</dt><dd>{world.seedLabel}</dd></div><div><dt>Remaining</dt><dd>{remainingMinutes === null ? "Open-ended" : `${Math.floor(remainingMinutes / 60)}h ${remainingMinutes % 60}m modeled time`}</dd></div></dl>
+      <div className={styles.runPlayback}><button type="button" disabled={runtime.busy || ["completed","extinct"].includes(world.status)} onClick={() => void runtime.setPaused(world.status !== "paused").catch(() => {})}>{world.status === "paused" ? <Play size={19}/> : <Pause size={19}/>} {world.status === "paused" ? "Resume observation" : "Pause observation"}</button><label>Speed<select aria-label="Run playback speed" value={runtime.speed} disabled={["completed","extinct"].includes(world.status)} onChange={e=>runtime.setSpeed(Number(e.target.value) as PlaybackSpeed)}>{([.5,1,2,4] as const).map(speed=><option key={speed} value={speed}>{speed}×</option>)}</select></label></div>
+      <dl><div><dt>Goal</dt><dd>{world.config.objective.statement}</dd></div><div><dt>Elapsed</dt><dd>{Math.floor(world.elapsedMinutes / 60)}h {world.elapsedMinutes % 60}m modeled time</dd></div><div><dt>Survivors</dt><dd>{living} of {world.config.agentCap}</dd></div><div><dt>Environment</dt><dd>{humanize(world.config.resourceAbundance)} resources · {humanize(world.config.climateVolatility)} climate</dd></div><div><dt>Record</dt><dd>{storageStatus === "saved-on-device" ? "Saved on this device" : "Save unavailable · advancement stopped"}</dd></div><div><dt>Remaining</dt><dd>{remainingMinutes === null ? "Open-ended" : `${Math.floor(remainingMinutes / 60)}h ${remainingMinutes % 60}m modeled time`}</dd></div></dl>
+      <details><summary>Study model &amp; seed</summary><p>Policy {world.policyVersion ?? 1} · {world.policyVersion === 3 ? "Physical materials, private learning and self-proposed projects" : "Preserved original decision model"}. Seed: {world.seedLabel}. Runs while this browser is active, including while you read About.</p>{world.policyVersion!==3?<p>This study keeps its original rules. Configure a new run to observe physical construction and self-proposed experiments; the current study will remain archived.</p>:<p>{world.physical?.parts.length??0} physical parts · {world.physical?.joints.length??0} connections · {world.physical?.tests??0} material tests. Material and search limits keep this a bounded model, not unrestricted general intelligence.</p>}</details>
+      <AgentAdmission world={world}/>
       <section className={styles.successionSummary}><h2>Next generations</h2><p>{world.policyVersion===3&&!world.config.continuity?"Survival-only study. Autonomous succession is disabled; you can still introduce an agent as a recorded intervention.":world.policyVersion === 2 || world.policyVersion===3 ? "Optional continuity objective enabled. Agents can reserve supplies for a successor before their own death, or sponsor one after observing another death. They may decline or wait." : "This preserved early policy only considers a companion when one survivor remains."}</p><p>{world.succession?.plans.filter(p => p.status === "pending").length ?? 0} planned · {world.succession?.plans.filter(p => p.status === "fulfilled").length ?? 0} entered</p><small>These are modeled new-agent admissions, not biological reproduction or resurrection.</small></section>
       {addMessage ? <p className={styles.inlineNotice} role="status">{addMessage}</p> : null}
       {world.status === "completed" || world.status === "extinct" ? <div className={styles.outcomeSummary}><strong>Run outcome</strong><p>{world.status === "completed" ? `${living} agent${living === 1 ? "" : "s"} survived the configured observation period.` : "No agents remain alive. Agents shows the latest record for each habitat slot, and recent deaths remain in the bounded Timeline."}</p><small>{world.stats.decisions} decisions · {world.physical?.tests??world.stats.experiments} experiments · {world.physical?`${world.agents.reduce((n,a)=>n+(a.physicalMind?.procedures.length??0),0)} retained prototype procedures`:`${world.stats.discoveries} discoveries`} · {world.stats.deaths} deaths</small></div> : null}

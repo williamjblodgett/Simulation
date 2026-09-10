@@ -1,6 +1,13 @@
 @import "tailwindcss";
 
 :root {
+  --simulation-bg: #080d12;
+  --simulation-surface: #111a23;
+  --simulation-raised: #17232f;
+  --simulation-text: #f3f6fa;
+  --simulation-muted: #a6b4c3;
+  --simulation-accent: #429fff;
+  --simulation-border: rgb(255 255 255 / 8%);
   --ink: #edf1e8;
   --ink-soft: #c4cbc1;
   --muted: #7e8a82;

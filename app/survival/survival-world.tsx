@@ -138,7 +138,10 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
           ...footprint,
         };
       }),
-      clearings: world.environment.structures.map(({ position }) => ({ position, radius: 8 })),
+      clearings: [
+        ...world.environment.resources.map(({ position }) => ({ position, radius: 8 })),
+        ...world.environment.structures.map(({ position }) => ({ position, radius: 8 })),
+      ],
     },
     resourceNodes: world.environment.resources.map((resource) => ({
       id: resource.id,

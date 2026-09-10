@@ -17,6 +17,7 @@ import {
 type HeightAt = (point: HabitatPoint) => number;
 
 export function disposeObject(root: THREE.Object3D) {
+  const geometries=new Set<THREE.BufferGeometry>(),materialsSeen=new Set<THREE.Material>(),textures=new Set<THREE.Texture>();
   root.traverse((object) => {
     if (
       !(
@@ -28,12 +29,15 @@ export function disposeObject(root: THREE.Object3D) {
     ) {
       return;
     }
-    object.geometry?.dispose();
+    if(object.geometry&&!geometries.has(object.geometry)){object.geometry.dispose();geometries.add(object.geometry);}
+    if (object instanceof THREE.InstancedMesh) object.dispose();
     const materialOrMaterials = object.material;
     const materials = Array.isArray(materialOrMaterials) ? materialOrMaterials : [materialOrMaterials];
     for (const material of materials) {
+      if(materialsSeen.has(material))continue;
+      materialsSeen.add(material);
       for (const value of Object.values(material)) {
-        if (value instanceof THREE.Texture) value.dispose();
+        if (value instanceof THREE.Texture && !textures.has(value)) {value.dispose();textures.add(value);}
       }
       material.dispose();
     }
@@ -69,9 +73,12 @@ function resourceGeometry(kind: HabitatResourceKind): THREE.BufferGeometry {
     // The authoritative pond surface is rendered by terrain-world, not a blue token.
     add(new THREE.CylinderGeometry(.3, .3, .025, 16), RESOURCE_COLORS[kind], 0, .02, 0);
   } else if (kind === "timber") {
-    for (let i = 0; i < 3; i++) {
-      const log = new THREE.CylinderGeometry(.19, .22, 1.8 - i * .2, 8);
-      log.rotateZ(Math.PI / 2); add(log, i === 2 ? "#a18055" : "#70523c", 0, i === 2 ? .51 : .21, i === 2 ? 0 : (i - .5) * .48);
+    const fallen = new THREE.CylinderGeometry(.17, .26, 2.2, 9);
+    fallen.rotateZ(Math.PI / 2); fallen.rotateY(.32); add(fallen, "#70523c", 0, .24, 0);
+    for (let i=0;i<3;i++) {
+      const branch = new THREE.CylinderGeometry(.035,.075,.65,6);
+      branch.rotateZ(.8+i*.25); branch.rotateY(i*2.1);
+      add(branch,"#8c7250",-.7+i*.6,.37,Math.sin(i*2.1)*.22);
     }
   } else if (kind === "food" || kind === "medicine") {
     for (let i = 0; i < 3; i++) add(new THREE.IcosahedronGeometry(.48, 0), "#54714c", (i - 1) * .38, .42 + (i === 1 ? .18 : 0), i === 1 ? -.12 : .1);
@@ -452,6 +459,8 @@ interface AgentModel {
   actor: THREE.Group;
   leftArm: THREE.Mesh;
   rightArm: THREE.Mesh;
+  leftLeg: THREE.Mesh;
+  rightLeg: THREE.Mesh;
   selection: THREE.Mesh;
   statusDisc: THREE.Mesh;
   label: THREE.Sprite;
@@ -471,7 +480,7 @@ function createAgentModel(agent: HabitatAgentVisual): AgentModel {
   const root = new THREE.Group();
   root.name = `agent-${agent.id}`;
   root.userData.agentId = agent.id;
-  const { actor, leftArm, rightArm } = createCharacter(agent.id);
+  const { actor, leftArm, rightArm, leftLeg, rightLeg } = createCharacter(agent.id);
   root.add(actor);
 
   const toolAnchor = new THREE.Group();
@@ -540,6 +549,8 @@ function createAgentModel(agent: HabitatAgentVisual): AgentModel {
     actor,
     leftArm,
     rightArm,
+    leftLeg,
+    rightLeg,
     selection,
     statusDisc,
     label,
@@ -665,6 +676,9 @@ export function createAgentCollection(): AgentCollection {
 
       model.leftArm.rotation.x = 0;
       model.rightArm.rotation.x = 0;
+      model.leftLeg.rotation.x = 0;
+      model.rightLeg.rotation.x = 0;
+      model.actor.rotation.x = 0;
       model.actor.rotation.z = 0;
       model.actor.position.y = 0;
       model.actor.position.x = 0;
@@ -675,26 +689,33 @@ export function createAgentCollection(): AgentCollection {
         model.statusDisc.visible = false;
         continue;
       }
-      if (reducedMotion || data.status === "blocked" || data.status === "awaiting-decision" || data.status === "connection-lost") continue;
+      if (data.status === "blocked" || data.status === "awaiting-decision" || data.status === "connection-lost") continue;
+      const motion = reducedMotion ? 0 : 1;
 
       if (["move", "explore", "relocate"].includes(action) || data.status === "moving") {
-        const stride = Math.sin(timeSeconds * 7 + Number(model.id.slice(1))) * 0.7;
+        const stride = Math.sin(timeSeconds * 7 + Number(model.id.slice(1))) * 0.48 * motion;
         model.leftArm.rotation.x = stride;
         model.rightArm.rotation.x = -stride;
-        model.actor.position.y = Math.abs(Math.sin(timeSeconds * 7)) * 0.055;
+        model.leftLeg.rotation.x = -stride;
+        model.rightLeg.rotation.x = stride;
+        model.actor.position.y = Math.abs(Math.sin(timeSeconds * 7)) * .04 * motion;
       } else if (["gather", "build", "craft", "defend"].includes(action)) {
-        model.rightArm.rotation.x = -0.75 + Math.sin(timeSeconds * 5.4) * 0.75;
-        model.leftArm.rotation.x = -0.32;
+        model.rightArm.rotation.x = -.9 + Math.sin(timeSeconds * 4.1) * .38 * motion;
+        model.leftArm.rotation.x = -.65;
+        model.actor.rotation.x = .13;
       } else if (["research", "test"].includes(action)) {
         model.leftArm.rotation.x = -1.05;
-        model.rightArm.rotation.x = -1.16 + Math.sin(timeSeconds * 2.1) * 0.1;
+        model.rightArm.rotation.x = -1.16 + Math.sin(timeSeconds * 2.1) * 0.1 * motion;
       } else if (["drink", "eat"].includes(action)) {
         model.rightArm.rotation.x = -1.65;
       } else if (["communicate", "share", "trade", "rescue"].includes(action)) {
-        model.rightArm.rotation.x = -1.1 + Math.sin(timeSeconds * 2.4) * 0.18;
+        model.rightArm.rotation.x = -1.1 + Math.sin(timeSeconds * 2.4) * 0.18 * motion;
       } else if (["rest", "sleep"].includes(action) || data.status === "resting") {
-        model.actor.position.y = action === "sleep" ? 0.22 : -0.38;
-        model.actor.rotation.z = action === "sleep" ? -1.15 : 0;
+        model.actor.position.y = -.49;
+        model.leftLeg.rotation.x = -1.22;
+        model.rightLeg.rotation.x = -1.22;
+        model.leftArm.rotation.x = -.5;
+        model.rightArm.rotation.x = -.5;
       }
     }
   };
@@ -719,7 +740,7 @@ export function createAgentCollection(): AgentCollection {
       model.label.visible = projected.z > -1 && projected.z < 1 && center.x >= 10 && center.x <= width - 10 && center.y >= 0 && center.y <= height;
       if (!model.label.visible) continue;
       const positions = [0, -24, 24, -48, 48].flatMap(dy => [0, -42, 42].map(dx => ({ x: center.x + dx, y: center.y + dy })));
-      const position = positions.find(p => p.x >= 24 && p.x <= width - 24 && p.y >= 66 && p.y <= height - 16 && !occupied.some(other => Math.abs(p.x-other.x)<43 && Math.abs(p.y-other.y)<23));
+      const position = positions.find(p => p.x >= 24 && p.x <= width - 24 && p.y >= 66 && p.y <= height - 16 && (p.x<width-76||p.y>266) && !occupied.some(other => Math.abs(p.x-other.x)<43 && Math.abs(p.y-other.y)<23));
       model.label.visible = Boolean(position);
       if (!position) continue;
       occupied.push(position);

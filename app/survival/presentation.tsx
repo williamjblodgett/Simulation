@@ -70,11 +70,12 @@ export function mostImportantCondition(agent: SurvivalAgent) {
   return { label, value, key };
 }
 
-export function AgentPortrait({ id, name, size = "normal" }: { id: string; name?: string; size?: "small" | "normal" | "large" }) {
+export function AgentPortrait({ id, name, size = "normal" }: { id: string; name?: string; size?: "small" | "normal" | "large" | "hero" }) {
   const images = useSyncExternalStore(subscribePortraits, getPortraits, getServerPortraits);
+  const src = images[size === "hero" ? `${id}-figure` : id] ?? images[id];
   // Tiny renderer-generated data URLs require no network or image optimization service.
   // eslint-disable-next-line @next/next/no-img-element
-  return <span className={styles.portrait} data-size={size} style={{ "--agent-color": agentColor(id) } as React.CSSProperties} aria-hidden="true">{images[id] ? <img src={images[id]} alt="" title={name} /> : <b>{id}</b>}</span>;
+  return <span className={styles.portrait} data-size={size} style={{ "--agent-color": agentColor(id) } as React.CSSProperties} aria-hidden="true">{src ? <img src={src} alt="" title={name} /> : <b>{id}</b>}</span>;
 }
 
 export function NeedMeter({ label, value, compact = false }: { label: string; value: number; compact?: boolean }) {

@@ -205,7 +205,7 @@ export interface HabitatVisualSnapshot {
 }
 
 /** `free` is an observer-controlled camera and never recenters itself. */
-export type HabitatCameraMode = "overview" | "follow" | "free";
+export type HabitatCameraMode = "overview" | "follow" | "habitat" | "free";
 
 export interface SurvivalHabitatSceneOptions {
   onSelectAgent(id: SurvivalAgentId): void;
