@@ -14,6 +14,7 @@ September 10, 2026. [Release evidence and screenshots](docs/DISCOVERY_RELEASE.md
 The woodland presentation update adds branching foliage, detailed shores and
 stone, consistent adult-proportioned characters, and a restrained field-study
 interface. [Current changes, screenshots and publication status](docs/WOODLAND_RELEASE.md).
+Published and publicly verified September 11, 2026; reload open tabs for the new UI.
 It also includes the [raw-material foundation](docs/MATERIAL_FOUNDATION.md):
 28 finite geological feedstock families for explicitly new UI studies, using
 policy 4 / schema 6. Existing studies retain their original resource endowment.

@@ -102,3 +102,14 @@ The implementation supplies raw-stock provenance and feasible structural use,
 mechanisms, electrical/chemical systems, process measurements and learned
 manufacturing procedures remain future work. The smallest next implemented domain
 should be a single conservation-tested material transformation, not more catalogs.
+
+### Subsequent publication
+
+The material foundation was subsequently included in the user-authorized woodland
+UI release on September 11, 2026. The paragraph above records the earlier local
+implementation task, not the current deployment status. The combined survival
+source fingerprint still matches the final material comparison results:
+`e830002912812baed427100bad526c26d7d89a8d347b2a2f9aababc90d584630`.
+See [WOODLAND_RELEASE.md](WOODLAND_RELEASE.md#publication) for exact source/static
+revisions, successful GitHub deployment, public file hashes and browser checks.
+The observed public legacy study retained its original endowment and paused time.

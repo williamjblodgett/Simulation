@@ -153,6 +153,41 @@ technology unlock.
 
 ## Publication
 
-The user explicitly authorized publication to the existing GitHub Pages site.
-Publication receipts and post-deployment observations are recorded here only
-after the remote build and public verification complete.
+Published to the existing [Simulation site](https://williamjblodgett.github.io/Simulation/)
+on **September 11, 2026**, with explicit user authorization. No separate hosting
+target, public study reset or source-history rewrite.
+
+- Source implementation: [`73c29a049a6782c980f39e6bcb20bd949ef99f5e`](https://github.com/williamjblodgett/Simulation/commit/73c29a049a6782c980f39e6bcb20bd949ef99f5e).
+- Static `gh-pages` release: [`4e86c80eb51f5497ea4adca799571ae57f77bc7c`](https://github.com/williamjblodgett/Simulation/commit/4e86c80eb51f5497ea4adca799571ae57f77bc7c).
+- Source and static branches were pushed atomically with no force. The existing
+  Pages source remains `gh-pages` at `/`. When the push did not immediately queue
+  a build, the existing Pages build API was explicitly triggered; no settings or
+  permissions were broadened.
+- [Deployment 34600308219](https://github.com/williamjblodgett/Simulation/actions/runs/34600308219)
+  completed **successfully** at `2026-09-11T12:42:56Z`, with the exact static SHA
+  above. The Pages API separately reported that revision `built`, without error.
+- At `2026-09-11T12:43:53.043Z`, all **16 tested static files** returned HTTP 200
+  and byte-for-byte matching SHA-256 hashes. This includes the survival worker,
+  preserved planetary bundles, styles, fallback and existing social images.
+  The normal root URL without a cache-busting query also matched `index.html`.
+- `index.html`: `f8f5b01468ba56486f559591ae7b491bfa1d16de6f27f6c8efc80693ca0b9985`.
+- `assets/index-44dRS8fr.js`: `7c40f5ccd7660b05211311072ffa3163b12825efdab37ea0207a5df6b8765446`.
+- `assets/survival-simulation.worker-V8XlLlkv.js`:
+  `5ebc4e213373f1b7f8bbd42729f8919f0e8148fdf2ecd9d3ff9a4ced41ecf7f5`.
+
+The live site was reloaded in Chromium at its normal **1280 x 720** viewport.
+The page loaded the new `index-44dRS8fr.js` bundle, had one canvas, no horizontal
+overflow and empty warning/error logs. The screenshot shows the actual nonblank
+woodland and three original lives: [published World](screenshots/woodland/public-world-1280.jpg).
+World -> Agents -> Timeline -> Run -> World preserved the paused **Day 1, 03:10**
+study, all three agents, A1 selection and 60 history records. A1's needs remained
+94/62/94/71/69/73 for health/hydration/energy/nutrition/warmth/safety; its freshwater
+2.0 and food 1.5 were unchanged. Run explicitly displayed **preserved original
+endowment** and the earlier-policy notice. No live resume, added life, replaced
+study or requested decision was used to verify publication.
+
+All 16 generated files were also hash-checked after copying to the publication
+worktree. Older immutable hashed assets were retained for already-open clients;
+no files or user records were deleted. Source whitespace checks passed; generated
+shader/minified bytes were not reformatted. The subsequent source-only receipt
+commit changes documentation/screenshots, not the tested deployed application.
