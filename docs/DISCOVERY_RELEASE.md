@@ -192,6 +192,40 @@ claimed as a fresh 375px check. Earlier screenshots retain their actual distinct
 short of the configured CSS viewport; files retain the supplied image bytes.
 No real-device FPS, Safari, touch, reduced-motion or full network audit is claimed.
 
+## Verified public deployment
+
+Published to the existing [Simulation site](https://williamjblodgett.github.io/Simulation/)
+on September 10, 2026 (America/New_York); no separate hosting target was created.
+
+- Source implementation: [`03ec2f965a7894f550680533051d5b407b423be0`](https://github.com/williamjblodgett/Simulation/commit/03ec2f965a7894f550680533051d5b407b423be0).
+- Static `gh-pages` release: [`76524527c9f68353154848875268f95a18fc1dce`](https://github.com/williamjblodgett/Simulation/commit/76524527c9f68353154848875268f95a18fc1dce).
+- [GitHub Pages deployment 34551135499](https://github.com/williamjblodgett/Simulation/actions/runs/34551135499)
+  completed successfully at `2026-09-11T01:33:47Z`. The Pages API separately
+  reported this exact revision as `built`, with no error.
+- At `2026-09-11T01:34:54Z`, HTTP verification returned **200 for all 16 static
+  files**, including the survival worker. Every response's SHA-256 matched the
+  tested local build. The root URL also matched `index.html` exactly.
+- `index.html`: `cb2e0186ab3a87df470c481a841b39ff616ad3abc0fee693721ac746affd723d`.
+- `assets/index-BOhsWNQ-.js`: `dbc951836a728657b072294f93d2b337fb1ae6a4073d3f7d9e798072ae5448c6`.
+- `assets/survival-simulation.worker-B6PzYTBB.js`:
+  `2a5bbd5c2d3b1b342b96b369f2e8fac1e039e7fbfde2f9ef1642b5163dccc8fc`.
+
+The live site was then reloaded in Chromium at 1280×720. DOM inspection confirmed
+the new main bundle, one canvas and no horizontal overflow. An actual screenshot
+showed the nonblank Three.js habitat and all three agents. World → Run → Agents
+→ Timeline → World preserved the paused Day 1, 03:10 study; A1's displayed needs
+and inventory stayed identical. Run showed three of three admitted lives and
+the preserved earlier-policy notice. Timeline retained 60 records. The browser
+error log remained empty. No live agent was added, no decision was requested,
+and no live study was resumed, replaced or reset for this verification.
+
+The release replaced six obsolete generated bundles; their original versions
+remain recoverable in git. Generated Three.js shader-string whitespace was left
+untouched to preserve exact tested bytes. Repository source whitespace checks
+passed. The hosting skill's helper was attempted, but the documented Windows
+shim limitation required the repository build commands and existing GitHub Pages
+workflow. These publication checks do not imply real-device or Safari testing.
+
 ## Compatibility and limits
 
 New UI studies use policy 4, schema 5, discovery version 1. Existing policy-1/2/3
@@ -199,8 +233,9 @@ studies retain their policy family; no retrospective private measurements or
 goals are invented. The public constructor still defaults to policy 2 unless
 explicitly configured. Storage fencing, compare-and-swap, archives, exports,
 permanent death and the separately configured optional continuity objective are
-preserved. The observed public study was paused at Day 1, 03:10 with three lives
-before publication; verification must not advance or reset it.
+preserved. The observed public study stayed paused at Day 1, 03:10 with three
+lives before and after publication. Refresh loads the new interface; explicitly
+configure another study to use policy 4. Existing studies are not converted.
 
 The remaining smallest useful step is to profile and strengthen private
 recovery valuation under changed conditions, using common held-out measurements

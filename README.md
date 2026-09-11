@@ -8,6 +8,9 @@ The earlier large-scale planetary civilization and Three.js civilization studies
 
 - GitHub Pages: <https://williamjblodgett.github.io/Simulation/>
 
+The bounded autonomous-discovery release was published and publicly verified on
+September 10, 2026. [Release evidence and screenshots](docs/DISCOVERY_RELEASE.md).
+
 The survival study keeps revisioned checkpoints and a per-study event ledger in IndexedDB on this device. Previous studies can be listed and exported from Run. Each archive retains at most 100,000 events; Timeline pages a bounded window. Earlier records lost before this upgrade cannot be reconstructed. Browser storage is not a remote backup—export important studies.
 
 The discovery release introduces **policy 4 / schema 5** for new UI studies: private protection goals, support dependencies, contextual predictions, decision-directed physical tests and reusable executed procedures. Existing policy-1/2/3 studies keep their policy family; refresh loads the interface but does not convert an existing study. The public constructor still defaults to policy 2 for integrations. A worker runs calculations while the browser can execute; it does not continue after every tab is closed. The static build makes no model/API calls. Preserved planetary studies keep separate records. See the [current release, verification and evaluation report](docs/DISCOVERY_RELEASE.md), including retained negative results and publication receipts.
