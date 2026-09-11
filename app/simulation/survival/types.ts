@@ -26,10 +26,15 @@ export interface SurvivalObjective {
 
 export interface SurvivalRunOptions {
   materialFoundation?: "geology-v1";
+  /** Explicit opt-in for executable thermal/material transformations. */
+  knowledgeFoundation?: "materials-v1";
+  /** Explicit opt-in for persistent, non-conscious affective control signals. */
+  affectModel?: "adaptive-v1";
   policyVersion?: 2 | 3 | 4;
   continuity?: boolean;
   agentCount?: AgentLimit;
   agentCap?: AgentLimit;
+  /** Omit or use null for the normal open-ended study. A number is an explicit finite evaluation horizon. */
   durationHours?: number | null;
   resourceAbundance?: ResourceAbundance;
   climateVolatility?: ClimateVolatility;
@@ -38,6 +43,8 @@ export interface SurvivalRunOptions {
 
 export interface SurvivalRunConfig {
   materialFoundation?: "geology-v1";
+  knowledgeFoundation?: "materials-v1";
+  affectModel?: "adaptive-v1";
   continuity?: boolean;
   initialAgentCount: AgentLimit;
   agentCap: AgentLimit;
@@ -161,6 +168,7 @@ export type AgentGoalKind =
   | "gather_material"
   | "build_shelter"
   | "research"
+  | "develop_capability"
   | "share"
   | "request_help"
   | "cooperate"
@@ -180,6 +188,8 @@ export type SurvivalActionKind =
   | "prepare_experiment"
   | "test_hypothesis"
   | "review_evidence"
+  | "process_material"
+  | "test_material"
   | "share"
   | "request"
   | "cooperate"
@@ -218,6 +228,7 @@ export interface SurvivalPlanStep {
   /** Policy-4 work approaches can request a precise position, not movement orders from the observer. */
   arrivalRadius?: number;
   manipulation?: import("./physical-types").Manipulation;
+  materialOperation?: import("./material-types").MaterialOperation;
   experimentDose?: number;
   resource?: "freshwater" | "food";
   amount?: number;
@@ -231,6 +242,7 @@ export interface SurvivalPlanStep {
 
 export interface SurvivalPlan {
   discoveryProjectId?: string;
+  materialGoalId?: string;
   initialInventory?: SurvivalInventory;
   decisionId?: string;
   initialNeeds?: SurvivalNeeds;
@@ -317,6 +329,10 @@ export interface AgentResearchProject {
 export interface SurvivalAgent {
   /** Embedded in inventory.stone; observer provenance, not extra inventory. */
   rawFeedstocks?: import("./geology").FeedstockMass;
+  /** New studies only: private, fallible material expectations and evidence. */
+  materialMind?: import("./material-types").MaterialMind;
+  /** Authored control signals derived from experienced conditions, not consciousness. */
+  affect?: import("./affect").AgentAffect;
   /** Policy 4 only: private goals, contextual expectations and executed evidence. */
   discovery?: import("./discovery-types").DiscoveryMind;
   /** Private route experience; never populated from the observer's global map. */
@@ -461,13 +477,14 @@ export interface SurvivalEventWindow {
 }
 
 export interface SurvivalRunState {
+  materials?: import("./material-types").MaterialWorld;
   geology?: import("./geology").GeologyState;
   survivalRevision?: 1;
   physical?: import("./physical-types").PhysicalWorld;
   succession?: SuccessionState;
   /** Missing means the preserved original policy; new runs use version 2. */
   policyVersion?: 1 | 2 | 3 | 4;
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   id: string;
   seed: number;
   seedLabel: string;

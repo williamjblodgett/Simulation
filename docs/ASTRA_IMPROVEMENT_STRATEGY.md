@@ -12,7 +12,7 @@ Keep the small five-agent Three.js study. Its foundation is useful, but its curr
 
 The next milestone should be **agents that build their own imperfect models, compose plans, test predictions, and revise behavior from consequences**. This can be implemented locally without an API or a language model. More technology names, narrative explanations, decorative animation, or random action selection would not establish deeper autonomy.
 
-Keep the sole declared terminal objective: **“Survive as long as possible.”** Securing water, learning a technique, cooperating, stockpiling, and requesting a companion should be agent-selected means to that objective, not additional externally assigned missions. The 72-hour duration is the observer's experiment window, not a second agent goal.
+Keep the sole declared terminal objective: **“Survive as long as possible.”** Securing water, learning a technique, cooperating, stockpiling, and requesting a companion should be agent-selected means to that objective, not additional externally assigned missions. Interactive studies are open-ended. The 72-hour values below are explicit benchmark horizons, not a product runtime limit or a second agent goal.
 
 “Autonomous” here should mean independent closed-loop decision-making within a bounded simulated world. It does not imply consciousness, free will, general human reasoning, or invention beyond the world's implemented interactions. The designer still supplies bodies, senses, executable actions, environmental rules, learning mechanisms, and initial assumptions. Publish those assumptions instead of claiming that the agents start with literally nothing except a goal.
 

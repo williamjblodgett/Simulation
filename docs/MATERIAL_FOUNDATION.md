@@ -1,5 +1,11 @@
 # Raw-material foundation v1
 
+> This document describes `geology-v1` by itself. New studies may now explicitly
+> add the schema-7 `materials-v1` processing and `adaptive-v1` decision-state model.
+> That later, bounded implementation is documented in
+> [MATERIAL_PROCESSING_AND_AFFECT.md](MATERIAL_PROCESSING_AND_AFFECT.md). Preserved
+> schema-6 geology studies still behave exactly as described below.
+
 ## Scope and honest capability boundary
 
 Source baseline: `42f14274a7c0d4bbfb7ed9c195f780ff8ca277e7` (2026-09-10).
@@ -9,7 +15,7 @@ their local appearance, collect raw rock through the existing gathering executor
 and use it in the existing structural/protection domain. Its provenance survives
 shaping, splitting, mixing, heating, damage and reclamation.
 
-**This does not yet give agents the physical ability to make modern technology.**
+**Geology-v1 alone does not give agents the physical ability to make modern technology.**
 All these raw rocks still behave as the existing generic stone material. There is
 no smelting, refined-metal inventory, circuit solver, powered mechanism, chemical
 separation, semiconductor process or chemical-assay action. Heating an ore part

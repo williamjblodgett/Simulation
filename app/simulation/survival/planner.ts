@@ -6,11 +6,13 @@ import { chooseExperimentDose, preparedMaterialContext } from "./experiments";
 import { depthAt, estimateWaterTravel, observedWater, shorePoints } from "./water";
 import { rememberedConditions, rememberedProtection, requestExpectation, timeToHarm } from "./survival-forecast";
 import { findPrivateRoute, privateSegmentClear, privateTraversable } from "./private-navigation";
+import { affectDecisionAdjustment } from "./affect";
 import type { AgentDecisionCandidate, AgentGoalKind, AgentObservation, SurvivalActionKind, SurvivalAgent, SurvivalInventory, SurvivalNeeds, SurvivalPosition } from "./types";
 
 /** This is the entire policy boundary: no resources, other agents or world truth. */
 export interface PrivatePolicyInput {
   physical?: boolean;
+  materialBatches?: import("./material-types").PrivateMaterialBatch[];
   agent: Omit<SurvivalAgent, "survivalRecord">;
   tick: number;
   seed: number;
@@ -19,6 +21,7 @@ export interface PrivatePolicyInput {
 export interface PlannedAction {
   arrivalRadius?: number;
   manipulation?: import("./physical-types").Manipulation;
+  materialOperation?: import("./material-types").MaterialOperation;
   experimentDose?: number;
   action: SurvivalActionKind;
   targetId: string | null;
@@ -31,6 +34,7 @@ export interface LocalPlanChoice {
   searchExpansions?: number;
   discoveryId?: string;
   projectId?: string;
+  materialGoalId?: string;
   candidate: AgentDecisionCandidate;
   actions: PlannedAction[];
   uncertainty: number;
@@ -133,7 +137,8 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
       const accepted = { ...node.inventory, [node.aid.resource]: node.inventory[node.aid.resource] + node.aid.amount };
       potential = potential * (1 - node.aid.probability) + survivalPotential(horizon.needs, accepted) * node.aid.probability;
     }
-    const value = potential - initialValue + (input.physical ? 0 : materialValue(node, agent)) + node.informationValue * informationOpportunity - node.risk - learnedLoss - node.elapsed * 0.12;
+    const affect = affectDecisionAdjustment(agent.affect, node.goal, node.risk, node.informationValue, Math.min(...Object.values(node.needs)));
+    const value = potential - initialValue + (input.physical ? 0 : materialValue(node, agent)) + node.informationValue * informationOpportunity - node.risk - learnedLoss - node.elapsed * 0.12 + affect;
     rankCache.set(node, value);
     return value;
   };

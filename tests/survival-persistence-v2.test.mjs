@@ -110,6 +110,27 @@ test("next-generation version fence survives both backup creation and recovery o
   assert.equal((await loadCheckpoint()).world.succession,undefined,"no past agent decision is invented by a version-only migration");
 });
 
+test("material and affect schema fencing preserves an older policy-four backup without inventing knowledge", async () => {
+  await clearDB();
+  const priorWorld = createSurvivalRun("pre-material-backup", { policyVersion: 4, materialFoundation: "geology-v1", agentCount: 1 });
+  const prior = envelope(priorWorld, 1, "pre-material-study");
+  await commitCheckpoint(prior, priorWorld.events, null);
+  const currentWorld = createSurvivalRun("material-backup", { policyVersion: 4, materialFoundation: "geology-v1", knowledgeFoundation: "materials-v1", affectModel: "adaptive-v1", agentCount: 1 });
+  const current = envelope(currentWorld, 2, "material-study");
+  await commitCheckpoint(current, currentWorld.events, 1);
+  const backup = await loadCheckpoint("last-good");
+  assert.equal(backup.world.schemaVersion, 7);
+  assert.equal(backup.world.config.knowledgeFoundation, undefined);
+  assert.equal(backup.world.config.affectModel, undefined);
+  assert.equal(backup.world.materials, undefined);
+  assert.ok(backup.world.agents.every(agent => agent.materialMind === undefined && agent.affect === undefined));
+  assert.equal(validateCheckpoint(backup), true);
+  const recovered = await recoverLastGoodCheckpoint();
+  assert.equal(recovered.world.schemaVersion, 7);
+  assert.equal(recovered.runInstanceId, "pre-material-study");
+  assert.equal(validateCheckpoint(recovered), true);
+});
+
 test("survival recovery fences old backups without inventing adoption or measurements", async () => {
   for (const policyVersion of [2,3]) {
     await clearDB();

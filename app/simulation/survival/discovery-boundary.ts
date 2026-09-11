@@ -36,6 +36,7 @@ export function discoveryInput(agent: SurvivalAgent, tick: number, bounds: Survi
     currentAction: { kind: agent.currentAction.kind, status: agent.currentAction.status, targetId: agent.currentAction.targetId,
       startedAt: agent.currentAction.startedAt, updatedAt: agent.currentAction.updatedAt }, lastOutcome: null,
     navigation: privateRecord(agent.navigation), materialSamples: privateRecord(agent.materialSamples),
+    affect: agent.affect ? structuredClone(agent.affect) : undefined,
     physicalMind: privateRecord(agent.physicalMind), discovery: privateRecord(agent.discovery),
   };
   if(copy.physicalMind)copy.physicalMind.readings=copy.physicalMind.readings.filter(r=>r.measurementKind==="local");

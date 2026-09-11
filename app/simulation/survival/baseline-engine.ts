@@ -241,7 +241,7 @@ function normalizeOptions(options: SurvivalRunOptions): SurvivalRunState["config
   assertAgentLimit(requestedCap, "agentCap");
   if (requestedCount > requestedCap) throw new RangeError("agentCount cannot exceed agentCap.");
 
-  const durationHours = options.durationHours === undefined ? 72 : options.durationHours;
+  const durationHours = options.durationHours ?? null;
   if (durationHours !== null && (!Number.isFinite(durationHours) || durationHours <= 0)) {
     throw new RangeError("durationHours must be a positive number or null.");
   }
@@ -1204,6 +1204,7 @@ function actionForGoal(goal: AgentGoalKind): SurvivalActionKind {
     gather_material: "gather",
     build_shelter: "build",
     research: "test_hypothesis",
+    develop_capability: "process_material",
     share: "share",
     request_help: "request",
     cooperate: "cooperate",
@@ -2192,6 +2193,14 @@ export function setSurvivalRunPaused(stateInput: SurvivalRunState, paused: boole
   const state = cloneState(stateInput);
   if (state.status === "completed" || state.status === "extinct") return state;
   state.status = paused ? "paused" : "running";
+  return state;
+}
+
+/** Preserves completed records while removing the horizon from an active finite study. */
+export function setSurvivalRunOpenEnded(stateInput: SurvivalRunState): SurvivalRunState {
+  const state = cloneState(stateInput);
+  if (state.status === "completed" || state.config.durationHours === null) return state;
+  state.config.durationHours = null;
   return state;
 }
 

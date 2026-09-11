@@ -98,7 +98,7 @@ export function validateGeology(state: SurvivalRunState): boolean {
   const sites = state.environment.resources;
   const parts = state.physical?.parts ?? [];
   if (state.geology === undefined) return state.config.materialFoundation === undefined && sites.every(s => s.feedstock === undefined) && state.agents.every(a => a.rawFeedstocks === undefined) && parts.every(p => p.rawFeedstocks === undefined);
-  if (state.schemaVersion !== 6 || state.policyVersion !== 4 || state.config.materialFoundation !== "geology-v1" || !record(state.geology) || state.geology.version !== 1 || Object.keys(state.geology).length !== 1) return false;
+  if ((state.schemaVersion !== 6 && state.schemaVersion !== 7) || state.policyVersion !== 4 || state.config.materialFoundation !== "geology-v1" || !record(state.geology) || state.geology.version !== 1 || Object.keys(state.geology).length !== 1) return false;
   const deposits = sites.filter(s => s.feedstock !== undefined);
   if (deposits.length !== feedstockKinds.length || new Set(deposits.map(s => s.feedstock)).size !== feedstockKinds.length) return false;
   if (deposits.some(s => !Object.hasOwn(GEOLOGICAL_FEEDSTOCKS, s.feedstock!) || s.kind !== "stone" || s.regenerationPerDay !== 0 || s.contaminated || s.capacity <= 0 || inFreshwater(state.environment, s.position, .4))) return false;
@@ -108,7 +108,8 @@ export function validateGeology(state: SurvivalRunState): boolean {
     const deposit = deposits.find(s => s.feedstock === kind)!;
     const abundance = state.config.resourceAbundance === "scarce" ? .62 : state.config.resourceAbundance === "plentiful" ? 1.55 : 1;
     if (deposit.capacity !== Math.round(GEOLOGICAL_FEEDSTOCKS[kind].stock * abundance)) return false;
-    const accounted = deposit.quantity + state.agents.reduce((n, a) => n + (a.rawFeedstocks?.[kind] ?? 0), 0) + parts.reduce((n, p) => n + (p.rawFeedstocks?.[kind] ?? 0), 0);
+    const processed = state.materials?.batches.reduce((sum, batch) => sum + (batch.provenance.feedstocks?.[kind] ?? 0), 0) ?? 0;
+    const accounted = deposit.quantity + state.agents.reduce((n, a) => n + (a.rawFeedstocks?.[kind] ?? 0), 0) + parts.reduce((n, p) => n + (p.rawFeedstocks?.[kind] ?? 0), 0) + processed;
     if (Math.abs(deposit.capacity - accounted) > .001) return false;
   }
   return true;

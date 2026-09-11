@@ -14,6 +14,7 @@ import {
   normalizeSurvivalRun,
   restoreSurvivalRun,
   serializeSurvivalRun,
+  setSurvivalRunOpenEnded,
   setSurvivalRunPaused,
   validateSurvivalRun,
 } from "../app/simulation/survival/index.ts";
@@ -64,6 +65,8 @@ test("creates one through five agents, defaults to three with room for five, and
   const defaults = createSurvivalRun("default-run");
   assert.equal(defaults.agents.length, 3);
   assert.equal(defaults.config.agentCap, 5);
+  assert.equal(defaults.config.durationHours, null);
+  assert.equal(baselineCreate("baseline-default").config.durationHours, null);
   assert.deepEqual(defaults.config.objective, SURVIVAL_OBJECTIVE);
 
   const one = createSurvivalRun("one-agent", { agentCount: 1, agentCap: 5 });
@@ -114,18 +117,7 @@ test("fixed-step advance is pure, seed deterministic, split-replay exact, and JS
   assert.equal(direct.status, "running");
 });
 
-test("the default observation duration is a real 72 hours and fractional stock is not a full ration", () => {
-  const configured = createSurvivalRun("duration", {
-    agentCount: 3,
-    agentCap: 3,
-    resourceAbundance: "plentiful",
-    climateVolatility: "stable",
-  });
-  assert.equal(configured.config.durationHours, 72);
-  const completed = advanceSurvivalRun(configured, 432).state;
-  assert.equal(completed.elapsedMinutes, 72 * 60);
-  assert.equal(completed.status, "completed");
-
+test("fractional stock is not a full ration", () => {
   const fractional = createSurvivalRun("fractional", { agentCount: 1, agentCap: 1, durationHours: null });
   const half = fractional.environment.size / 2;
   fractional.agents[0].position = { x: -half + 1, z: -half + 1 };
@@ -146,6 +138,27 @@ test("the default observation duration is a real 72 hours and fractional stock i
   const wholeAdvanced = advanceSurvivalRun(whole, 1).state.agents[0];
   assert.equal(wholeAdvanced.currentDeliberation.selectedGoal, "secure_water");
   assert.equal(wholeAdvanced.inventory.freshwater, 0);
+});
+
+test("an active finite study can continue indefinitely without mutating its source or reviving a completed record", () => {
+  const finite = createSurvivalRun("finite-to-open", { agentCount: 1, durationHours: 1 });
+  const source = serializeSurvivalRun(finite);
+  const open = setSurvivalRunOpenEnded(finite);
+  assert.equal(serializeSurvivalRun(finite), source);
+  assert.equal(open.config.durationHours, null);
+  assert.equal(open.status, "running");
+  assert.equal(validateSurvivalRun(open), true);
+  assert.equal(restoreSurvivalRun(serializeSurvivalRun(open)).config.durationHours, null);
+  const beyondFormerEnd = advanceSurvivalRun(open, 7).state;
+  assert.equal(beyondFormerEnd.elapsedMinutes, 70);
+  assert.equal(beyondFormerEnd.status, "running");
+
+  const completed = advanceSurvivalRun(finite, 6).state;
+  assert.equal(completed.status, "completed");
+  const preserved = setSurvivalRunOpenEnded(completed);
+  assert.equal(preserved.status, "completed");
+  assert.equal(preserved.config.durationHours, 1);
+  assert.equal(validateSurvivalRun(preserved), true);
 });
 
 test("a zero-survivor duration boundary completes the configured study and cannot be restarted", () => {

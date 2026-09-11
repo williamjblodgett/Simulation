@@ -10,6 +10,7 @@ import {
   createSurvivalRun,
   restoreSurvivalRun,
   validateSurvivalRun,
+  setSurvivalRunOpenEnded,
   setSurvivalRunPaused,
   type AddObserverAgentResult,
   type SurvivalRunOptions,
@@ -54,6 +55,7 @@ export interface SurvivalRuntime {
   lastEvents: string[];
   setSpeed(speed: PlaybackSpeed): void;
   setPaused(paused: boolean): Promise<void>;
+  continueIndefinitely(): Promise<void>;
   start(options: SurvivalRunOptions, seed?: string | number): Promise<void>;
   addAgent(): Promise<AddObserverAgentResult | null>;
   dismissRecoveryNotice(): void;
@@ -206,7 +208,7 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
           }
           const legacy = loadStoredRun();
           if (legacy.recoveryNotice) throw new Error(legacy.recoveryNotice);
-          const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { policyVersion: 4, materialFoundation: "geology-v1", agentCount: 3, agentCap: 5, durationHours: 72 });
+          const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { policyVersion: 4, materialFoundation: "geology-v1", knowledgeFoundation: "materials-v1", affectModel: "adaptive-v1", agentCount: 3, agentCap: 5, durationHours: null });
           if (world.policyVersion === 2 && world.schemaVersion === 1) world.schemaVersion = 2;
           await save({ runInstanceId: crypto.randomUUID(), revision: 1, savedAt: Date.now(), speed: 1, world, missingBefore: world.eventWindow.droppedEvents }, world.events, null);
         });
@@ -283,6 +285,9 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
   const setPaused = useCallback(async (paused: boolean) => {
     await command(source => ({ next: { ...source, world: setSurvivalRunPaused(source.world, paused) }, events: [], value: null }));
   }, [command]);
+  const continueIndefinitely = useCallback(async () => {
+    await command(source => ({ next: { ...source, world: setSurvivalRunOpenEnded(source.world) }, events: [], value: null }));
+  }, [command]);
   const start = useCallback(async (options: SurvivalRunOptions, seed?: string | number) => {
     await command(source => {
       const world = createSurvivalRun(seed ?? `survival-${Date.now()}`, options);
@@ -351,7 +356,7 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
     archiveStatus: storageStatus === "save-unavailable" ? "unavailable" : checkpoint?.missingBefore ? "partial" : "saved",
     hasOlderEvents: Boolean(checkpoint && historyEvents.length < 4608 && historyEvents.length && eventSequence(historyEvents[0]) > checkpoint.missingBefore + 1),
     historyFrozen, freezeHistory, returnLiveHistory,
-    loadOlderEvents, exportHistory, retry, recoverBackup, setPaused, start, addAgent, setSpeed,
+    loadOlderEvents, exportHistory, retry, recoverBackup, setPaused, continueIndefinitely, start, addAgent, setSpeed,
     dismissRecoveryNotice: () => setRecoveryNotice(null),
   };
 }

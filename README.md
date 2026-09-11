@@ -2,6 +2,8 @@
 
 An observational survival study for up to five living autonomous agents in a shared Three.js habitat. Each agent receives the primary goal—survive as long as possible—then acts from its own nearby evidence, needs, memories, relationships, and confirmed outcomes. Agents can explore, gather, cooperate, build, and choose whether to run bounded research tests; the observer configures a run and watches without issuing survival commands. The next-generation update adds an explicitly authored, optional continuity objective, subordinate to immediate survival.
 
+New interactive studies are open-ended: their modeled clock has no automatic completion horizon. They advance only while a browser tab is actively running the local worker. Death remains permanent, extinction remains possible, and closing every tab pauses the study instead of fabricating off-browser history. Explicit finite durations remain available to code-driven regression and evaluation harnesses; preserved completed studies are not rewritten.
+
 The earlier large-scale planetary civilization and Three.js civilization studies remain available as preserved prior models from the Run screen.
 
 ## Live edition
@@ -22,6 +24,23 @@ This is material accounting, not implemented refining, electronics or modern
 manufacturing. No observer-selected invention or automatic technological
 progression was added.
 
+Newly configured survival studies can additionally use **policy 4 / schema 7**
+material processing and adaptive state. Agents can form a survival-derived
+capability goal, prepare carbon-rich fuel, separate locally observed copper- or
+iron-bearing rock, build and wear a fired hearth, attempt reduction, hot-work the
+retained product and physically test a degrading tool. Every accepted intervention
+pays time, energy and material costs; unsuccessful heating leaves explicit products,
+waste and provenance instead of refunding inputs. Exact grades and thresholds remain
+hidden from the policy. A disclosed catalog supplies broad physical priors, while
+contextual expectations come from each life&apos;s own measurements.
+
+Fear, frustration, confidence, curiosity and social need now act as persistent,
+bounded decision weights for those new studies. They respond to factual needs,
+weather, uncertainty, isolation and confirmed outcomes. They are not a claim of
+sentience, personality or hidden chain-of-thought, and curiosity never rewards raw
+novelty or construction. See [material processing and adaptive state](docs/MATERIAL_PROCESSING_AND_AFFECT.md)
+for implemented rules, units, information isolation, compatibility and limits.
+
 The survival study keeps revisioned checkpoints and a per-study event ledger in IndexedDB on this device. Previous studies can be listed and exported from Run. Each archive retains at most 100,000 events; Timeline pages a bounded window. Earlier records lost before this upgrade cannot be reconstructed. Browser storage is not a remote backup—export important studies.
 
 The discovery release introduced **policy 4 / schema 5**: private protection goals, support dependencies, contextual predictions, decision-directed physical tests and reusable executed procedures. Existing policy-1/2/3 studies keep their policy family; refresh loads the interface but does not convert an existing study. The public constructor still defaults to policy 2 for integrations. A worker runs calculations while the browser can execute; it does not continue after every tab is closed. The static build makes no model/API calls. Preserved planetary studies keep separate records. See the [discovery release, verification and evaluation report](docs/DISCOVERY_RELEASE.md), including retained negative results and publication receipts.
@@ -32,7 +51,7 @@ This is bounded simulation autonomy, not general intelligence. Designers supply 
 
 In policies 3 and 4, the succession behavior below runs only when optional continuity was enabled at setup. Survival-only studies never fund an autonomous successor. This distinction does not change saved policy-2 studies.
 
-Use **Add agent** in Agents or Run to fill unused slots without restarting, even before a death or after extinction. The limit is five **living** agents, not five lives over the entire study. Observer additions are logged and preserve pause. A completed observation period cannot be extended by admitting another agent.
+Use **Add agent** in Agents or Run to fill unused slots without restarting, even before a death or after extinction. The limit is five **living** agents, not five lives over the entire study. Observer additions are logged and preserve pause. Preserved finite studies can be made open-ended before completion; completed records remain final and cannot be extended by admitting another agent.
 
 Policy-2 agents may plan their own successor before death, or sponsor one after personally observing another agent's death. After at least six modeled hours of experience, they evaluate private evidence, forecast needs and retained reserves. They can defer or decline. Committing reserves 0.5 food and 0.5 water; the kit transfers once when the predecessor is dead and a slot is free. Conflicting requests receive an admission result without spending supplies. A new life has a unique ID and lineage, but no inherited memory, research or assigned role. This is abstract admission, not biological reproduction or resurrection. The expanded inspector and Timeline expose decisions and outcomes.
 

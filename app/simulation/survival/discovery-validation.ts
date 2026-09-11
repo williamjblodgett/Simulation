@@ -28,7 +28,7 @@ function alternative(v: unknown) {
 }
 export function validateDiscoveryState(state: SurvivalRunState): boolean {
   if (state.policyVersion !== 4) return state.agents.every(a => a.discovery === undefined);
-  if ((state.schemaVersion !== 5 && state.schemaVersion !== 6) || state.survivalRevision !== 1) return false;
+  if ((state.schemaVersion !== 5 && state.schemaVersion !== 6 && state.schemaVersion !== 7) || state.survivalRevision !== 1) return false;
   for (const agent of state.agents) {
     if (agent.physicalMind?.readings.some(r => r.measurementKind !== "local")) return false;
     if (agent.currentPlan?.discoveryProjectId !== undefined && !agent.physicalMind?.projects.some(p => p.id === agent.currentPlan!.discoveryProjectId)) return false;
