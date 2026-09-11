@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, Cloud, CloudRain, Compass, Eye, Hammer, List, Map, Maximize2, Minus, Orbit, Pause, Play, Plus, RotateCcw, Settings2, Snowflake, Sun, Users, X } from "lucide-react";
+import { Camera, Cloud, CloudRain, Compass, Eye, Hammer, List, Map, Maximize2, Minus, Pause, Play, Plus, RotateCcw, Settings2, Snowflake, Sun, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { freshwaterVisualFootprint, type SurvivalAgent, type SurvivalEvent, type SurvivalRunState } from "../simulation/survival";
 import { AgentInspector, type InspectorLevel } from "./agent-inspector";
@@ -49,7 +49,7 @@ function WorldHeader({ world, speed, onSpeed, onPause }: { world: SurvivalRunSta
   const isPaused = world.status === "paused";
   const isTerminal = world.status === "completed" || world.status === "extinct";
   return <header className={styles.appHeader}>
-    <div className={styles.brand}><Orbit size={29} aria-hidden="true" /><div className={styles.appTitle}><strong>Simulation</strong><span><i data-status={world.status} />{world.status === "running" ? "Running" : humanize(world.status)}<b> / Autonomous survival study</b></span></div></div>
+    <div className={styles.brand}><div className={styles.appTitle}><strong>Simulation</strong><span><i data-status={world.status} />{world.status === "running" ? "Running" : humanize(world.status)}<b> / Browser-local field study</b></span></div></div>
     <div className={styles.clock}><span>Day {world.day}</span><strong>{formatClock(world.elapsedMinutes)}</strong></div>
     <div className={styles.playback} aria-label="Observer playback controls">
       <button type="button" onClick={onPause} disabled={isTerminal} aria-label={isTerminal ? "Playback unavailable for an ended run" : isPaused ? "Resume simulation" : "Pause simulation"}>{isPaused ? <Play size={18} /> : <Pause size={18} />}</button>
@@ -220,11 +220,11 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
           {!rendererFailed ? <SurvivalWorld world={world} selectedId={selectedAgent?.alive ? selectedAgent.label as SurvivalAgentId : null} selectedPartId={selectedPartId} onSelectPart={inspectPart} cameraMode={cameraMode} onSelectAgent={handleSceneSelect} onManualCamera={handleManualCamera} onContextLost={handleContextLost} retryKey={rendererRetry} active={view === "world"} focusPosition={focusPosition} inspectorLevel={sheetLevel} zoomRequest={zoomRequest} /> : <div className={styles.rendererFallback}><Camera size={27} /><h2>3D view unavailable</h2><p>The saved run, agent records and timeline remain available.</p><button type="button" onClick={() => { setRendererFailed(false); setRendererRetry((current) => current + 1); }}><RotateCcw size={16} /> Retry renderer</button></div>}
         </div>
 
-        <div className={styles.weatherChip}><WeatherIcon size={18} /><span><strong>{Math.round(world.environment.temperatureC)}°</strong><small>{weatherLabel}</small></span></div>
+        <div className={styles.weatherChip} data-world-overlay><WeatherIcon size={16} aria-hidden="true" /><span><strong>{Math.round(world.environment.temperatureC)}°C</strong><small>{weatherLabel}</small></span></div>
         <div className={styles.habitatCaption}><span>Field observation / {String(world.seed).slice(-5)}</span><strong>Wooded basin</strong><small>{world.stats.livingAgents} living · {world.physical?.parts.length ?? world.environment.structures.length} {world.physical ? "constructed parts" : "structures"}</small></div>
         <div className={styles.gestureHint}>Drag to orbit <span>·</span> Scroll or pinch to zoom <span>·</span> Select a life to observe</div>
-        <div className={styles.zoomControls} aria-label="Camera zoom"><button type="button" disabled={rendererFailed} aria-label="Zoom in" onClick={() => setZoomRequest(value => ({direction: -1, sequence: (value?.sequence ?? 0) + 1}))}><Plus size={18}/></button><button type="button" disabled={rendererFailed} aria-label="Zoom out" onClick={() => setZoomRequest(value => ({direction: 1, sequence: (value?.sequence ?? 0) + 1}))}><Minus size={18}/></button></div>
-        <div className={styles.cameraControls} aria-label="Camera controls">
+        <div className={styles.zoomControls} data-world-overlay aria-label="Camera zoom"><button type="button" disabled={rendererFailed} aria-label="Zoom in" onClick={() => setZoomRequest(value => ({direction: -1, sequence: (value?.sequence ?? 0) + 1}))}><Plus size={18}/></button><button type="button" disabled={rendererFailed} aria-label="Zoom out" onClick={() => setZoomRequest(value => ({direction: 1, sequence: (value?.sequence ?? 0) + 1}))}><Minus size={18}/></button></div>
+        <div className={styles.cameraControls} data-world-overlay aria-label="Camera controls">
           <button type="button" aria-label={rendererFailed ? "Overview unavailable while the 3D view is unavailable" : "Show habitat overview"} data-active={!rendererFailed && cameraMode === "overview" && !manualCamera && !focusPosition} disabled={rendererFailed} onClick={() => { setFocusPosition(null); setCameraMode("overview"); setManualCamera(false); }} aria-pressed={!rendererFailed && cameraMode === "overview" && !manualCamera && !focusPosition}><Maximize2 size={17} /><span>Overview</span></button>
           <button type="button" aria-label={rendererFailed ? "Follow unavailable while the 3D view is unavailable" : selectedAgent ? `Follow ${selectedAgent.label}` : "Follow selected agent"} data-active={!rendererFailed && cameraMode === "follow" && Boolean(selectedAgent?.alive)} disabled={rendererFailed || !selectedAgent?.alive} onClick={() => { setFocusPosition(null); setCameraMode("follow"); setManualCamera(false); }} aria-pressed={!rendererFailed && cameraMode === "follow" && Boolean(selectedAgent?.alive)}><Eye size={17} /><span>Follow</span></button>
           <button type="button" aria-label="Toggle habitat minimap" onClick={() => {setPartsOpen(false);setMiniMapOpen((current) => !current);}} aria-expanded={miniMapOpen}><Map size={17} /><span>Map</span></button>

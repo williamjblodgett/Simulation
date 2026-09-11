@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { createCharacter } from "./character-model";
+import { fracturedRockGeometry, shrubGeometry } from "./woodland-geometry";
 import { SWIMMING_DEPTH } from "../../simulation/survival/water";
 import {
   SURVIVAL_AGENT_COLORS,
@@ -66,7 +67,12 @@ function resourceGeometry(kind: HabitatResourceKind): THREE.BufferGeometry {
     if (normalized !== geometry) geometry.dispose();
     const tint = new THREE.Color(color), count = normalized.getAttribute("position").count;
     const colors = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) tint.toArray(colors, i * 3);
+    const baseColor=normalized.getAttribute("color");
+    for (let i = 0; i < count; i++) {
+      const color=tint.clone();
+      if(baseColor) color.multiply(new THREE.Color(baseColor.getX(i),baseColor.getY(i),baseColor.getZ(i)));
+      color.toArray(colors, i * 3);
+    }
     normalized.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     normalized.deleteAttribute("uv"); parts.push(normalized);
   };
@@ -82,7 +88,7 @@ function resourceGeometry(kind: HabitatResourceKind): THREE.BufferGeometry {
       add(branch,"#8c7250",-.7+i*.6,.37,Math.sin(i*2.1)*.22);
     }
   } else if (kind === "food" || kind === "medicine") {
-    for (let i = 0; i < 3; i++) add(new THREE.IcosahedronGeometry(.48, 0), "#54714c", (i - 1) * .38, .42 + (i === 1 ? .18 : 0), i === 1 ? -.12 : .1);
+    add(shrubGeometry(), "#ffffff", 0, 0, 0);
     for (let i = 0; i < 7; i++) add(new THREE.IcosahedronGeometry(.085, 0), kind === "food" ? "#bc6a50" : "#c9adcf", Math.sin(i * 2.4) * .54, .66 + (i % 3) * .12, Math.cos(i * 2.4) * .38);
   } else if (kind === "fiber") {
     for (let i = 0; i < 7; i++) {
@@ -91,7 +97,7 @@ function resourceGeometry(kind: HabitatResourceKind): THREE.BufferGeometry {
     }
   } else {
     for (let i = 0; i < 3; i++) {
-      const rock = new THREE.DodecahedronGeometry(.5 - i * .075, 0);
+      const rock = fracturedRockGeometry(39+i*7).scale(.5-i*.075,.5-i*.075,.5-i*.075);
       rock.scale(1.1, kind === "clay" ? .45 : .7, .85);
       add(rock, i === 1 && kind === "ore" ? "#bda277" : RESOURCE_COLORS[kind], (i - 1) * .38, kind === "clay" ? .16 : .29, i === 1 ? -.18 : .12);
     }
@@ -598,7 +604,7 @@ export interface AgentCollection {
   group: THREE.Group;
   sync(agents: HabitatAgentVisual[], selectedId: SurvivalAgentId | null, heightAt: HeightAt): void;
   animate(timeSeconds: number, reducedMotion: boolean): void;
-  placeLabels(camera: THREE.Camera, width: number, height: number, selectedId: SurvivalAgentId | null): void;
+  placeLabels(camera: THREE.Camera, width: number, height: number, selectedId: SurvivalAgentId | null, exclusions?: Array<{left:number;right:number;top:number;bottom:number}>): void;
   positionOf(id: SurvivalAgentId): THREE.Vector3 | null;
   raycast(raycaster: THREE.Raycaster): SurvivalAgentId | null;
   dispose(): void;
@@ -741,7 +747,7 @@ export function createAgentCollection(): AgentCollection {
     return null;
   };
 
-  const placeLabels = (camera: THREE.Camera, width: number, height: number, selectedId: SurvivalAgentId | null) => {
+  const placeLabels: AgentCollection["placeLabels"] = (camera, width, height, selectedId, exclusions = []) => {
     const occupied: Array<{ x: number; y: number }> = [];
     const ordered = [...models.values()].sort((a,b) => Number(b.id === selectedId) - Number(a.id === selectedId) || a.id.localeCompare(b.id));
     for (const model of ordered) {
@@ -750,8 +756,8 @@ export function createAgentCollection(): AgentCollection {
       const center = { x: (projected.x + 1) * width / 2, y: (1 - projected.y) * height / 2 };
       model.label.visible = projected.z > -1 && projected.z < 1 && center.x >= 10 && center.x <= width - 10 && center.y >= 0 && center.y <= height;
       if (!model.label.visible) continue;
-      const positions = [0, -24, 24, -48, 48].flatMap(dy => [0, -42, 42].map(dx => ({ x: center.x + dx, y: center.y + dy })));
-      const position = positions.find(p => p.x >= 24 && p.x <= width - 24 && p.y >= 66 && p.y <= height - 16 && (p.x<width-76||p.y>266) && !occupied.some(other => Math.abs(p.x-other.x)<43 && Math.abs(p.y-other.y)<23));
+      const positions = [0, -32, 32, -64, 64].flatMap(dy => [0, -52, 52].map(dx => ({ x: center.x + dx, y: center.y + dy })));
+      const position = positions.find(p => p.x >= 24 && p.x <= width - 24 && p.y >= 26 && p.y <= height - 16 && !exclusions.some(r=>p.x+24>r.left&&p.x-24<r.right&&p.y+14>r.top&&p.y-14<r.bottom) && !occupied.some(other => Math.abs(p.x-other.x)<48 && Math.abs(p.y-other.y)<28));
       model.label.visible = Boolean(position);
       if (!position) continue;
       occupied.push(position);

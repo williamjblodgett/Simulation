@@ -22,27 +22,34 @@ export function meadowMaterial(ponds: HabitatWaterFeature[] = []) {
         float grain = groundNoise(vGroundPosition.xz*12.0);
         float patches = groundNoise(vGroundPosition.xz*.34);
         float blades = groundNoise(vGroundPosition.xz*vec2(44.,7.));
-        diffuseColor.rgb *= .91 + grain*.12 + blades*.035;
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb*vec3(1.11,.95,.78), smoothstep(.46,.78,patches)*.28);
+        float litter = groundNoise(vGroundPosition.xz*2.8);
+        float seams = smoothstep(.49,.51, groundNoise(vGroundPosition.xz*17.0));
+        diffuseColor.rgb *= .80 + grain*.21 + blades*.045;
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb*vec3(.83,.76,.60), smoothstep(.38,.76,patches)*.6);
+        diffuseColor.rgb += vec3(.10,.077,.040)*smoothstep(.68,.77,litter)*seams;
       `);
   };
-  material.customProgramCacheKey = () => `observatory-meadow-v2-${ponds.length}`;
+  material.customProgramCacheKey = () => `observatory-meadow-v3-${ponds.length}`;
   return material;
 }
 
 export function basinMaterial() {
-  const material = new THREE.MeshStandardMaterial({ color: "#317e89", roughness: .29, metalness: .2, transparent: true, opacity: .92 });
+  const material = new THREE.MeshStandardMaterial({ color: "#527e7c", roughness: .20, metalness: .05, transparent: true, opacity: .78, depthWrite:false });
   material.onBeforeCompile = shader => {
     shader.fragmentShader = shader.fragmentShader.replace("#include <color_fragment>", `#include <color_fragment>
       vec2 p = vUv - .5;
       float depth = 1.0-smoothstep(.28,.51,length(p));
       float ripples = sin(vUv.x*116.0+sin(vUv.y*57.0)*2.0)*sin(vUv.y*130.0+vUv.x*9.0);
-      diffuseColor.rgb *= mix(vec3(1.1,1.42,1.24),vec3(.39,.75,.88),depth);
-      diffuseColor.rgb += vec3(.012,.025,.025)*smoothstep(.72,1.0,ripples);
+      diffuseColor.rgb *= mix(vec3(1.12,1.22,.98),vec3(.30,.62,.66),depth);
+      diffuseColor.rgb += vec3(.036,.05,.044)*smoothstep(.65,1.0,ripples);
+      diffuseColor.a *= mix(.52,1.,depth);
+    `);
+    shader.fragmentShader=shader.fragmentShader.replace("#include <normal_fragment_begin>",`#include <normal_fragment_begin>
+      normal = normalize(normal + vec3(sin(vUv.x*186.+sin(vUv.y*60.))*.025, cos(vUv.y*164.)*.025, 0.));
     `);
   };
   // The circle's UV field maps depth and still ripples; no fictitious current.
   material.defines = { USE_UV: "" };
-  material.customProgramCacheKey = () => "observatory-basin-v1";
+  material.customProgramCacheKey = () => "observatory-basin-v2";
   return material;
 }

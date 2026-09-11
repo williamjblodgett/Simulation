@@ -7,6 +7,8 @@ export interface MaterialProperties {
   flammability: number; hardness: number; heatCapacity: number;
 }
 export interface PhysicalPart {
+  /** Raw feedstock mass contained within composition.stone, never additional mass. */
+  rawFeedstocks?: import("./geology").FeedstockMass;
   sources?: string[];
   peakTemperature?: number;
   id: string; makerId: string; createdAt: number;

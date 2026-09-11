@@ -7,6 +7,7 @@ import { discoveryInput } from "./discovery-boundary";
 import { prepareDiscovery } from "./discovery-policy";
 import { beginDiscoveryOperation, finishDiscoveryOperation, receiveDiscoveryTestimony } from "./discovery-outcomes";
 import { validateDiscoveryState } from "./discovery-validation";
+import { addGeologicalDeposits, GEOLOGICAL_FEEDSTOCKS, validateGeology } from "./geology";
 import { physicalNextPosition } from "./physical-navigation";
 import { findPrivateRoute, freshNavigation, privateSegmentClear } from "./private-navigation";
 import { MOVEMENT_ARRIVAL_RADIUS } from "./navigation-geometry";
@@ -276,6 +277,7 @@ function normalizeOptions(options: SurvivalRunOptions): SurvivalRunState["config
   }
   return {
     ...(options.policyVersion === 3 || options.policyVersion === 4 ? { continuity: options.continuity ?? false } : {}),
+    ...(options.policyVersion === 4 && options.materialFoundation === "geology-v1" ? { materialFoundation: "geology-v1" as const } : {}),
     initialAgentCount: requestedCount,
     agentCap: requestedCap,
     durationHours,
@@ -401,6 +403,7 @@ function makeAgent(
   return {
     ...(state.policyVersion === 3 || state.policyVersion === 4 ? { physicalMind: freshPhysicalMind() } : {}),
     ...(state.policyVersion === 4 ? { discovery: freshDiscoveryMind() } : {}),
+    ...(state.geology ? { rawFeedstocks: {} } : {}),
     ...(state.survivalRevision ? { navigation: freshNavigation(), survivalRecord: freshSurvivalRecord(state.tick) } : {}),
     id,
     label: `A${slot}`,
@@ -459,13 +462,15 @@ function introduceAgent(
 }
 
 export function createSurvivalRun(seedInput: SurvivalSeed, options: SurvivalRunOptions = {}): SurvivalRunState {
+  if (options.materialFoundation !== undefined && (options.materialFoundation !== "geology-v1" || options.policyVersion !== 4)) throw new TypeError("The raw-material foundation requires an explicit policy-4 study.");
   const config = normalizeOptions(options);
   const seed = survivalSeedToUint32(seedInput);
   const state: SurvivalRunState = {
     ...(options.policyVersion === 3 || options.policyVersion === 4 ? { physical: freshPhysicalWorld() } : {}),
     ...((options.policyVersion !== 3 && options.policyVersion !== 4) || config.continuity ? { succession: { version: 1 as const, enabledAt: 0, plans: [] } } : {}),
     policyVersion: options.policyVersion ?? 2,
-    schemaVersion: options.policyVersion === 4 ? 5 : SURVIVAL_SCHEMA_VERSION,
+    schemaVersion: config.materialFoundation ? 6 : options.policyVersion === 4 ? 5 : SURVIVAL_SCHEMA_VERSION,
+    ...(config.materialFoundation ? { geology: { version: 1 as const } } : {}),
     survivalRevision: 1,
     id: `survival-${survivalHash(seed, "run").toString(36)}`,
     seed,
@@ -518,6 +523,7 @@ export function createSurvivalRun(seedInput: SurvivalSeed, options: SurvivalRunO
       companionAgentId: null,
     },
   };
+  if (state.geology) addGeologicalDeposits(state.environment, seed, config.resourceAbundance);
   for (let index = 0; index < config.initialAgentCount; index += 1) {
     introduceAgent(state, "initial", null, false);
   }
@@ -767,6 +773,7 @@ function perceive(state: SurvivalRunState, agent: SurvivalAgent): void {
       confidence: 0.94,
       facts: {
         resourceKind: site.kind,
+        ...(site.feedstock ? { mineralAppearance: GEOLOGICAL_FEEDSTOCKS[site.feedstock].appearance } : {}),
         availableEstimate: Math.max(0, Math.round(site.quantity)),
         contaminated: site.contaminated,
         ...(site.kind === "freshwater" ? {
@@ -782,7 +789,7 @@ function perceive(state: SurvivalRunState, agent: SurvivalAgent): void {
         type: "resource_observed",
         category: "environment",
         agentIds: [agent.id],
-        summary: `${agent.label} observed ${site.kind}.`,
+        summary: site.feedstock ? `${agent.label} observed ${GEOLOGICAL_FEEDSTOCKS[site.feedstock].appearance.toLowerCase()}.` : `${agent.label} observed ${site.kind}.`,
         outcome: "The location entered this agent's private observations.",
         position: site.position,
         facts: { siteId: site.id, resourceKind: site.kind },
@@ -1585,14 +1592,16 @@ function moveToward(state: SurvivalRunState, agent: SurvivalAgent, step: Surviva
 }
 
 function consumeMaterial(agent: SurvivalAgent, kind: SurvivalResourceKind, amount: number): void {
-  agent.inventory[kind] = rounded(agent.inventory[kind] - amount, 2);
+  agent.inventory[kind] = rounded(agent.inventory[kind] - amount, kind === "stone" && agent.rawFeedstocks ? 6 : 2);
   if (agent.inventory[kind] <= 0 && agent.materialSamples) delete agent.materialSamples[kind];
 }
 
 function receiveMaterial(agent: SurvivalAgent, kind: SurvivalResourceKind, amount: number, sample?: NonNullable<SurvivalAgent["materialSamples"]>[SurvivalResourceKind]): void {
   const existing = agent.materialSamples?.[kind];
   const unmixed = agent.inventory[kind] === 0 || (sample && existing && existing.sourceId === sample.sourceId && existing.contamination === sample.contamination && existing.activity === sample.activity);
-  agent.inventory[kind] = rounded(agent.inventory[kind] + amount, 2);
+  // Physical shaping retains fractional rock; subsequent collection must not
+  // truncate that mass or diverge from embedded feedstock provenance.
+  agent.inventory[kind] = rounded(agent.inventory[kind] + amount, kind === "stone" && agent.rawFeedstocks ? 6 : 2);
   agent.materialSamples ??= {};
   // Aggregate stores cannot establish which mixed batch was used in a test.
   if (sample && unmixed) agent.materialSamples[kind] = { ...sample };
@@ -1623,6 +1632,7 @@ function gatherFromSite(
   site.quantity = rounded(Math.max(0, site.quantity - amount), 3);
   const boiled = site.contaminated && site.kind === "freshwater" && agent.technologies.includes("water_boiling") && agent.inventory.wood >= 0.25;
   receiveMaterial(agent, site.kind, amount, { sourceId: site.id, sampledAt: state.tick, contamination: site.kind === "freshwater" ? site.contaminated && !boiled ? 0.8 : 0 : null, activity: site.kind === "herbs" ? 0.8 : null });
+  if (site.feedstock && agent.rawFeedstocks) agent.rawFeedstocks[site.feedstock] = rounded((agent.rawFeedstocks[site.feedstock] ?? 0) + amount, 6);
   if (site.contaminated && site.kind === "freshwater") {
     if (agent.technologies.includes("water_boiling") && agent.inventory.wood >= 0.25) {
       consumeMaterial(agent, "wood", 0.25);
@@ -2175,7 +2185,7 @@ function livingAgents(state: SurvivalRunState): SurvivalAgent[] {
 
 function enableSuccession(state: SurvivalRunState): void {
   if((state.policyVersion===3||state.policyVersion===4)&&!state.config.continuity)return;
-  state.schemaVersion = state.schemaVersion===5 ? 5 : state.survivalRevision ? SURVIVAL_SCHEMA_VERSION : state.policyVersion === 3 ? 3 : 2;
+  state.schemaVersion = state.schemaVersion>=5 ? state.schemaVersion : state.survivalRevision ? SURVIVAL_SCHEMA_VERSION : state.policyVersion === 3 ? 3 : 2;
   if (state.succession) return;
   state.succession = { version: 1, enabledAt: state.tick, plans: [] };
   makeEvent(state, {
@@ -2298,7 +2308,7 @@ function advanceOneStep(state: SurvivalRunState): void {
   state.timeOfDay = state.elapsedMinutes % (24 * 60);
   updateEnvironment(state);
   if (!state.survivalRevision) {
-    state.survivalRevision=1;if(state.schemaVersion!==5)state.schemaVersion=SURVIVAL_SCHEMA_VERSION;
+    state.survivalRevision=1;if(state.schemaVersion<5)state.schemaVersion=SURVIVAL_SCHEMA_VERSION;
     for(const agent of state.agents.filter(a=>a.alive)){agent.navigation=freshNavigation();agent.survivalRecord=freshSurvivalRecord(state.tick);}
     makeEvent(state,{type:"action_outcome",category:"run",agentIds:[],summary:"Survival planning and route recovery were updated.",outcome:"New decisions use complete need-restoration plans, private routes and refusal-aware forecasts. Earlier records and deaths are unchanged.",facts:{survivalRevision:1}});
   }
@@ -2516,11 +2526,11 @@ function isNeedSet(value: unknown): value is SurvivalNeeds {
 export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
   if (!isRecord(value) || !isJsonSafe(value)) return false;
   if (value.policyVersion !== undefined && value.policyVersion !== 1 && value.policyVersion !== 2 && value.policyVersion !== 3 && value.policyVersion !== 4) return false;
-  if (value.schemaVersion!==1&&value.schemaVersion!==2&&value.schemaVersion!==3&&value.schemaVersion!==4&&value.schemaVersion!==5) return false;
+  if (value.schemaVersion!==1&&value.schemaVersion!==2&&value.schemaVersion!==3&&value.schemaVersion!==4&&value.schemaVersion!==5&&value.schemaVersion!==6) return false;
   // A fenced pre-update backup uses format 4 without claiming the rules have
   // already been adopted. Its next advancing tick performs the audited adoption.
-  if(value.policyVersion===4){if(value.schemaVersion!==5||value.survivalRevision!==1)return false;}
-  else if(value.schemaVersion===5){if(![2,3].includes(Number(value.policyVersion))||(value.survivalRevision!==undefined&&value.survivalRevision!==1))return false;}
+  if(value.policyVersion===4){if((value.schemaVersion!==5&&value.schemaVersion!==6)||value.survivalRevision!==1)return false;}
+  else if(value.schemaVersion===5||value.schemaVersion===6){if(![2,3].includes(Number(value.policyVersion))||(value.survivalRevision!==undefined&&value.survivalRevision!==1))return false;}
   else if(value.schemaVersion===4){if((value.survivalRevision!==undefined&&value.survivalRevision!==1)||(value.policyVersion!==2&&value.policyVersion!==3))return false;}
   else if(value.survivalRevision!==undefined || (value.policyVersion === 3 ? value.schemaVersion !== 3 : value.schemaVersion === 3 || (value.schemaVersion === 2 && value.policyVersion !== 2))) return false;
   if (!isRecord(value.config) || !isRecord(value.environment) || !isRecord(value.stats) || !isRecord(value.nextIds) || !isRecord(value.soleSurvivor) || !isRecord(value.eventWindow)) return false;
@@ -2778,6 +2788,7 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
   if (!validateSuccessionState(value as unknown as SurvivalRunState)) return false;
   if (!validatePhysicalState(value as unknown as SurvivalRunState)) return false;
   if (!validateDiscoveryState(value as unknown as SurvivalRunState)) return false;
+  if (!validateGeology(value as unknown as SurvivalRunState)) return false;
   if (!validateSurvivalExperience(value as unknown as SurvivalRunState)) return false;
 
   const eventIds = new Set<string>();

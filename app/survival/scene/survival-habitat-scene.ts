@@ -525,6 +525,8 @@ export function createSurvivalHabitatScene(
   let activityTimeSeconds = 0;
   let previewFrames = 0;
   let measureStart=performance.now(),measureFrames=0,qualitySamples=0;
+  let overlayReadAt=-Infinity;
+  let labelExclusions: Array<{left:number;right:number;top:number;bottom:number}>=[];
   function animate(timeMilliseconds: number) {
     if (disposed || contextLost || !snapshot) return;
     if (document.visibilityState === "hidden") {
@@ -542,7 +544,14 @@ export function createSurvivalHabitatScene(
     updateCamera();
     controls.update();
     if (scene.fog instanceof THREE.FogExp2) scene.fog.density = baseFogDensity * Math.min(1, 65 / Math.max(1, camera.position.distanceTo(controls.target)));
-    agents.placeLabels(camera, host.clientWidth, host.clientHeight, selectedId);
+    if(timeMilliseconds-overlayReadAt>250) {
+      const bounds=host.getBoundingClientRect();
+      labelExclusions=Array.from(host.closest('[aria-label="Live survival world"]')?.querySelectorAll<HTMLElement>('[data-world-overlay]')??[])
+        .filter(element=>element.getClientRects().length>0)
+        .map(element=>{const r=element.getBoundingClientRect();return {left:r.left-bounds.left-4,right:r.right-bounds.left+4,top:r.top-bounds.top-4,bottom:r.bottom-bounds.top+4};});
+      overlayReadAt=timeMilliseconds;
+    }
+    agents.placeLabels(camera, host.clientWidth, host.clientHeight, selectedId,labelExclusions);
     renderer.render(scene, camera);
     // Actual render-loop diagnostics, sampled at most once per two seconds.
     measureFrames++;

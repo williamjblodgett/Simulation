@@ -2,6 +2,7 @@ import type { Manipulation, MaterialKind, MaterialProperties, PhysicalMind, Phys
 import type { SurvivalAgent, SurvivalEnvironment, SurvivalPosition } from "./types";
 import { inFreshwater } from "./physical-navigation";
 import { validManipulation } from "./physical-validation";
+import { mergeFeedstocks, splitFeedstocks } from "./geology";
 
 /** Deliberately simplified SI-like laws, not a real-world engineering model. Never imported by the policy. */
 export const MATERIALS: Record<MaterialKind, MaterialProperties> = {
@@ -148,6 +149,7 @@ export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, 
     if (MATERIALS[op.material].hardness>0.8&&agent.inventory.stone<op.mass+0.5) return fail("A separate hard striking stone is needed to shape this piece.");
     part={id:`part-${world.nextId}`,makerId:agent.id,createdAt:tick,sources:agent.materialSamples?.[op.material]?[agent.materialSamples[op.material]!.sourceId]:[],composition:{[op.material]:op.mass},size:{...op.size},position:{x:agent.position.x,y:op.size.y/2,z:agent.position.z},rotation:0,condition:1,temperature:env.temperatureC,peakTemperature:env.temperatureC,hollow,water:0,supported:true,revision:1};
     const pose=availableGroundPose(world,part,agent,env,occupants);if(!pose)return fail("There is no unoccupied ground within reach for this piece.");
+    if (op.material === "stone" && agent.rawFeedstocks) part.rawFeedstocks = splitFeedstocks(agent.rawFeedstocks, op.mass / agent.inventory.stone);
     part.position=pose;spend(op.material,op.mass);world.nextId++;
     world.parts.push(part);
   } else if (op.kind==="place"&&p) {
@@ -159,6 +161,7 @@ export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, 
     if(world.parts.length>=PHYSICAL_LIMITS.parts||op.fraction<0.1||op.fraction>0.9||p.size.x*Math.min(op.fraction,1-op.fraction)<0.06||p.water>0) return fail("This split is too small, or a filled part cannot be split safely.");
     const other:PhysicalPart=structuredClone(p);other.id=`part-${world.nextId}`;other.createdAt=tick;other.size.x*=1-op.fraction;
     const splitPose=availableGroundPose(world,other,agent,env,occupants);if(!splitPose)return fail("No unoccupied space is available for the separated piece.");
+    if (p.rawFeedstocks) other.rawFeedstocks = splitFeedstocks(p.rawFeedstocks, 1 - op.fraction);
     for(const k of Object.keys(p.composition) as MaterialKind[]){other.composition[k]=p.composition[k]!*(1-op.fraction);p.composition[k]!*=op.fraction;}
     p.size.x*=op.fraction;other.position=splitPose;p.revision++;world.nextId++;world.parts.push(other);
   } else if(op.kind==="join"||op.kind==="mix") {
@@ -175,6 +178,7 @@ export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, 
       if(edge>4||!fits(world,next,env,[b.id],occupants))return fail("The combined material cannot fit at this location.");
       for(const k of Object.keys(b.composition) as MaterialKind[])a.composition[k]=(a.composition[k]??0)+b.composition[k]!;
       a.sources=[...new Set([...(a.sources??[]),...(b.sources??[])])];
+      if (a.rawFeedstocks || b.rawFeedstocks) a.rawFeedstocks = mergeFeedstocks(a.rawFeedstocks, b.rawFeedstocks);
       a.size=next.size;a.hollow=0;a.position=next.position;a.revision++;world.parts=world.parts.filter(q=>q.id!==b.id);
     }
   } else if(op.kind==="detach") {
@@ -189,6 +193,7 @@ export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, 
     if(p.temperature>250)p.condition=round(clip(p.condition-properties(p).flammability*0.25));p.revision++;
   } else if(op.kind==="reclaim"&&p) {
     if(world.joints.some(j=>j.a===p.id||j.b===p.id))return fail("Detach bindings before reclaiming the material.");
+    if (p.rawFeedstocks) agent.rawFeedstocks = mergeFeedstocks(agent.rawFeedstocks, p.rawFeedstocks);
     for(const [k,n]of Object.entries(p.composition))agent.inventory[k as MaterialKind]=round(agent.inventory[k as MaterialKind]+n);
     agent.inventory.freshwater=round(agent.inventory.freshwater+p.water);world.parts=world.parts.filter(q=>q.id!==p.id);
   } else if(op.kind==="test"&&p) {

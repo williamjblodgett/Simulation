@@ -9,6 +9,7 @@ import { SavedStudies } from "./saved-studies";
 import { useSurvivalRuntime, type PlaybackSpeed } from "./use-survival-runtime";
 import { getHabitatPreview, getServerHabitatPreview, subscribeHabitatPreview } from "./portraits";
 import { AgentAdmission } from "./agent-admission";
+import { MaterialWorldRecord } from "./material-record";
 
 interface RunViewProps {
   methodHref?: string;
@@ -52,6 +53,7 @@ export function RunView({ world, storageStatus, onStart, methodHref = "/about", 
     try {
       await onStart({
         policyVersion: 4,
+        materialFoundation: "geology-v1",
         continuity,
         agentCount,
         agentCap: 5,
@@ -77,6 +79,7 @@ export function RunView({ world, storageStatus, onStart, methodHref = "/about", 
       <dl><div><dt>Goal</dt><dd>{world.config.objective.statement}</dd></div><div><dt>Elapsed</dt><dd>{Math.floor(world.elapsedMinutes / 60)}h {world.elapsedMinutes % 60}m modeled time</dd></div><div><dt>Survivors</dt><dd>{living} of {world.agents.length} admitted lives</dd></div><div><dt>Environment</dt><dd>{humanize(world.config.resourceAbundance)} resources · {humanize(world.config.climateVolatility)} climate</dd></div><div><dt>Record</dt><dd>{storageStatus === "saved-on-device" ? "Saved on this device" : "Save unavailable · advancement stopped"}</dd></div><div><dt>Remaining</dt><dd>{remainingMinutes === null ? "Open-ended" : `${Math.floor(remainingMinutes / 60)}h ${remainingMinutes % 60}m modeled time`}</dd></div></dl>
       <details><summary>Study model &amp; seed</summary><p>Policy {world.policyVersion ?? 1} · {world.physical ? "Physical materials, private learning and self-proposed projects" : "Preserved original decision model"}. Seed: {world.seedLabel}. Runs while this browser is active, including while you read About.</p>{!world.physical?<p>This study keeps its original rules. Configure a new run to observe physical construction and self-proposed experiments; the current study will remain archived.</p>:<p>{world.physical?.parts.length??0} physical parts · {world.physical?.joints.length??0} connections · {world.physical?.tests??0} material tests. Material and search limits keep this a bounded model, not unrestricted general intelligence.</p>}</details>
       <AgentAdmission world={world}/>
+      <MaterialWorldRecord world={world}/>
       <section className={styles.successionSummary}><h2>Next generations</h2><p>{Boolean(world.physical)&&!world.config.continuity?"Survival-only study. Autonomous succession is disabled; you can still introduce an agent as a recorded intervention.":world.policyVersion === 2 || Boolean(world.physical) ? "Optional continuity objective enabled. Agents can reserve supplies for a successor before their own death, or sponsor one after observing another death. They may decline or wait." : "This preserved early policy only considers a companion when one survivor remains."}</p><p>{world.succession?.plans.filter(p => p.status === "pending").length ?? 0} planned · {world.succession?.plans.filter(p => p.status === "fulfilled").length ?? 0} entered</p><small>These are modeled new-agent admissions, not biological reproduction or resurrection.</small></section>
       {addMessage ? <p className={styles.inlineNotice} role="status">{addMessage}</p> : null}
       {world.status === "completed" || world.status === "extinct" ? <div className={styles.outcomeSummary}><strong>Run outcome</strong><p>{world.status === "completed" ? `${living} agent${living === 1 ? "" : "s"} survived the configured observation period.` : "No agents remain alive. Agents shows the latest record for each habitat slot, and recent deaths remain in the bounded Timeline."}</p><small>{world.stats.decisions} decisions · {world.physical?.tests??world.stats.experiments} experiments · {world.physical?`${world.agents.reduce((n,a)=>n+(a.discovery?.procedures.length??a.physicalMind?.procedures.length??0),0)} retained prototype procedures`:`${world.stats.discoveries} discoveries`} · {world.stats.deaths} deaths</small></div> : null}
@@ -92,6 +95,7 @@ export function RunView({ world, storageStatus, onStart, methodHref = "/about", 
         <figcaption><strong>Wooded basin</strong><span>Fresh water · Layout varies with seed</span><small>{habitatPreview ? "Current habitat capture · not a preview of the next seed" : "A shared environment with water, vegetation and stone"}</small></figcaption>
       </figure>
       <fieldset className={styles.agentSelector}><legend>Starting agents</legend><div>{([1,2,3,4,5] as AgentLimit[]).map((count) => <button type="button" key={count} data-selected={agentCount === count} aria-pressed={agentCount === count} onClick={() => setAgentCount(count)}><span>{count}</span><small>{count === 1 ? "agent" : "agents"}</small></button>)}</div></fieldset>
+      <p className={styles.inlineNotice}>Raw-material foundation: 28 finite mineral families. Collection and construction preserve raw rock; refining, machines and electronics are not implemented yet.</p>
       <div className={styles.setupGrid}>
         <label><span>Survival duration</span><select value={duration} onChange={(event) => setDuration(event.target.value)}><option value="24">24 modeled hours</option><option value="72">72 modeled hours</option><option value="168">7 modeled days</option><option value="open">Open-ended</option></select></label>
         <label><span>Resources</span><select value={abundance} onChange={(event) => setAbundance(event.target.value as ResourceAbundance)}><option value="scarce">Scarce</option><option value="balanced">Balanced</option><option value="plentiful">Plentiful</option></select></label>

@@ -11,9 +11,19 @@ The earlier large-scale planetary civilization and Three.js civilization studies
 The bounded autonomous-discovery release was published and publicly verified on
 September 10, 2026. [Release evidence and screenshots](docs/DISCOVERY_RELEASE.md).
 
+The woodland presentation update adds branching foliage, detailed shores and
+stone, consistent adult-proportioned characters, and a restrained field-study
+interface. [Current changes, screenshots and publication status](docs/WOODLAND_RELEASE.md).
+It also includes the [raw-material foundation](docs/MATERIAL_FOUNDATION.md):
+28 finite geological feedstock families for explicitly new UI studies, using
+policy 4 / schema 6. Existing studies retain their original resource endowment.
+This is material accounting, not implemented refining, electronics or modern
+manufacturing. No observer-selected invention or automatic technological
+progression was added.
+
 The survival study keeps revisioned checkpoints and a per-study event ledger in IndexedDB on this device. Previous studies can be listed and exported from Run. Each archive retains at most 100,000 events; Timeline pages a bounded window. Earlier records lost before this upgrade cannot be reconstructed. Browser storage is not a remote backup—export important studies.
 
-The discovery release introduces **policy 4 / schema 5** for new UI studies: private protection goals, support dependencies, contextual predictions, decision-directed physical tests and reusable executed procedures. Existing policy-1/2/3 studies keep their policy family; refresh loads the interface but does not convert an existing study. The public constructor still defaults to policy 2 for integrations. A worker runs calculations while the browser can execute; it does not continue after every tab is closed. The static build makes no model/API calls. Preserved planetary studies keep separate records. See the [current release, verification and evaluation report](docs/DISCOVERY_RELEASE.md), including retained negative results and publication receipts.
+The discovery release introduced **policy 4 / schema 5**: private protection goals, support dependencies, contextual predictions, decision-directed physical tests and reusable executed procedures. Existing policy-1/2/3 studies keep their policy family; refresh loads the interface but does not convert an existing study. The public constructor still defaults to policy 2 for integrations. A worker runs calculations while the browser can execute; it does not continue after every tab is closed. The static build makes no model/API calls. Preserved planetary studies keep separate records. See the [discovery release, verification and evaluation report](docs/DISCOVERY_RELEASE.md), including retained negative results and publication receipts.
 
 This is bounded simulation autonomy, not general intelligence. Designers supply physiology, the action language, initial estimates and simplified material laws. Policy 3 removes the named shelter/research recipes from its planner; proposed shapes, edits and tests can fail. Its project generator currently specializes in exposure reduction, not arbitrary machinery, electricity or full chemistry. See [physical model and explicit limits](docs/PHYSICAL_MODEL.md). New runs default to individual survival only; optional continuity can be enabled separately in setup.
 

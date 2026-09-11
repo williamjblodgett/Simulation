@@ -1,0 +1,870 @@
+{
+  "started": "2026-09-11T02:19:19.670Z",
+  "sourceBaseline": "42f14274a7c0d4bbfb7ed9c195f780ff8ca277e7",
+  "sourceFingerprint": "e830002912812baed427100bad526c26d7d89a8d347b2a2f9aababc90d584630",
+  "protocol": "MATERIAL_EVALUATION.md",
+  "environment": "Node on shared Windows desktop, not browser FPS. One run is one trial.",
+  "results": [
+    {
+      "seed": "materials-holdout-estuary-582",
+      "agentCount": 1,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "variable",
+      "durationHours": 72,
+      "arm": "basic",
+      "status": "completed",
+      "tick": 432,
+      "survivors": 1,
+      "deaths": [],
+      "failedActions": 0,
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "physicalTests": 2,
+      "physicalWork": 5.6,
+      "parts": 2,
+      "rawInParts": 0,
+      "minerals": null,
+      "expansions": 532276,
+      "valid": true,
+      "wallMs": 13486,
+      "stepP50": 32.00889999999981,
+      "stepP95": 61.60009999999966,
+      "maxStep": 86.21460000000025,
+      "maxCheckpointBytes": 1050059,
+      "residentBytes": 332828672,
+      "heapBytes": 84363712,
+      "notes": "Failed actions are confirmed negative action outcomes; repeatedBlocked counts repeated failure signatures per agent, not proven preventable deaths. Mineral extraction is net finite-deposit depletion, not refined product.",
+      "failure": null
+    },
+    {
+      "seed": "materials-holdout-estuary-582",
+      "agentCount": 1,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "variable",
+      "durationHours": 72,
+      "arm": "geology-v1",
+      "status": "completed",
+      "tick": 432,
+      "survivors": 1,
+      "deaths": [],
+      "failedActions": 0,
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "physicalTests": 3,
+      "physicalWork": 4,
+      "parts": 1,
+      "rawInParts": 0,
+      "minerals": [
+        {
+          "kind": "iron_ore",
+          "initial": 800,
+          "remaining": 800,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "copper_ore",
+          "initial": 500,
+          "remaining": 500,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "tin_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "bauxite",
+          "initial": 600,
+          "remaining": 600,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "zinc_ore",
+          "initial": 250,
+          "remaining": 250,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "nickel_ore",
+          "initial": 250,
+          "remaining": 250,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "chromium_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "manganese_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "cobalt_ore",
+          "initial": 120,
+          "remaining": 120,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "lithium_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "graphite",
+          "initial": 250,
+          "remaining": 250,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "silica",
+          "initial": 800,
+          "remaining": 800,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "borate",
+          "initial": 120,
+          "remaining": 120,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "rare_earth_ore",
+          "initial": 160,
+          "remaining": 160,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "polymetallic_ore",
+          "initial": 220,
+          "remaining": 220,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "silver_ore",
+          "initial": 100,
+          "remaining": 100,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "gold_ore",
+          "initial": 80,
+          "remaining": 80,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "platinum_ore",
+          "initial": 80,
+          "remaining": 80,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "titanium_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "tungsten_ore",
+          "initial": 100,
+          "remaining": 100,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "limestone",
+          "initial": 600,
+          "remaining": 600,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "gypsum",
+          "initial": 300,
+          "remaining": 300,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "salt",
+          "initial": 300,
+          "remaining": 300,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "sulfur",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "phosphate",
+          "initial": 300,
+          "remaining": 300,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "potash",
+          "initial": 300,
+          "remaining": 300,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "coal",
+          "initial": 800,
+          "remaining": 800,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "oil_shale",
+          "initial": 800,
+          "remaining": 800,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        }
+      ],
+      "expansions": 428582,
+      "valid": true,
+      "wallMs": 23960,
+      "stepP50": 71.14769999999771,
+      "stepP95": 118.6710000000021,
+      "maxStep": 176.44090000000142,
+      "maxCheckpointBytes": 902032,
+      "residentBytes": 369270784,
+      "heapBytes": 160233496,
+      "notes": "Failed actions are confirmed negative action outcomes; repeatedBlocked counts repeated failure signatures per agent, not proven preventable deaths. Mineral extraction is net finite-deposit depletion, not refined product.",
+      "failure": null
+    },
+    {
+      "seed": "materials-holdout-ridge-961",
+      "agentCount": 3,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "harsh",
+      "durationHours": 72,
+      "arm": "basic",
+      "status": "completed",
+      "tick": 432,
+      "survivors": 3,
+      "deaths": [],
+      "failedActions": 8,
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "physicalTests": 2,
+      "physicalWork": 5.6,
+      "parts": 2,
+      "rawInParts": 0,
+      "minerals": null,
+      "expansions": 1344411,
+      "valid": true,
+      "wallMs": 55301,
+      "stepP50": 136.33759999999893,
+      "stepP95": 248.61579999999958,
+      "maxStep": 310.23820000000705,
+      "maxCheckpointBytes": 1724358,
+      "residentBytes": 376004608,
+      "heapBytes": 135175832,
+      "notes": "Failed actions are confirmed negative action outcomes; repeatedBlocked counts repeated failure signatures per agent, not proven preventable deaths. Mineral extraction is net finite-deposit depletion, not refined product.",
+      "failure": null
+    },
+    {
+      "seed": "materials-holdout-ridge-961",
+      "agentCount": 3,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "harsh",
+      "durationHours": 72,
+      "arm": "geology-v1",
+      "status": "completed",
+      "tick": 432,
+      "survivors": 3,
+      "deaths": [],
+      "failedActions": 11,
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "physicalTests": 6,
+      "physicalWork": 14.6,
+      "parts": 5,
+      "rawInParts": 0,
+      "minerals": [
+        {
+          "kind": "iron_ore",
+          "initial": 800,
+          "remaining": 800,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "copper_ore",
+          "initial": 500,
+          "remaining": 500,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "tin_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "bauxite",
+          "initial": 600,
+          "remaining": 600,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "zinc_ore",
+          "initial": 250,
+          "remaining": 250,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "nickel_ore",
+          "initial": 250,
+          "remaining": 250,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "chromium_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "manganese_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "cobalt_ore",
+          "initial": 120,
+          "remaining": 120,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "lithium_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "graphite",
+          "initial": 250,
+          "remaining": 250,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "silica",
+          "initial": 800,
+          "remaining": 800,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "borate",
+          "initial": 120,
+          "remaining": 120,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "rare_earth_ore",
+          "initial": 160,
+          "remaining": 160,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "polymetallic_ore",
+          "initial": 220,
+          "remaining": 220,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "silver_ore",
+          "initial": 100,
+          "remaining": 100,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "gold_ore",
+          "initial": 80,
+          "remaining": 80,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "platinum_ore",
+          "initial": 80,
+          "remaining": 80,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "titanium_ore",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "tungsten_ore",
+          "initial": 100,
+          "remaining": 100,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "limestone",
+          "initial": 600,
+          "remaining": 600,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "gypsum",
+          "initial": 300,
+          "remaining": 300,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "salt",
+          "initial": 300,
+          "remaining": 300,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "sulfur",
+          "initial": 180,
+          "remaining": 180,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "phosphate",
+          "initial": 300,
+          "remaining": 300,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "potash",
+          "initial": 300,
+          "remaining": 300,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "coal",
+          "initial": 800,
+          "remaining": 800,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "oil_shale",
+          "initial": 800,
+          "remaining": 800,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        }
+      ],
+      "expansions": 1377434,
+      "valid": true,
+      "wallMs": 101968,
+      "stepP50": 225.81669999999576,
+      "stepP95": 602.0132999999914,
+      "maxStep": 804.3530000000028,
+      "maxCheckpointBytes": 1740451,
+      "residentBytes": 376778752,
+      "heapBytes": 95620504,
+      "notes": "Failed actions are confirmed negative action outcomes; repeatedBlocked counts repeated failure signatures per agent, not proven preventable deaths. Mineral extraction is net finite-deposit depletion, not refined product.",
+      "failure": null
+    },
+    {
+      "seed": "materials-holdout-cove-407",
+      "agentCount": 5,
+      "resourceAbundance": "scarce",
+      "climateVolatility": "variable",
+      "durationHours": 72,
+      "arm": "basic",
+      "status": "completed",
+      "tick": 432,
+      "survivors": 5,
+      "deaths": [],
+      "failedActions": 21,
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "physicalTests": 11,
+      "physicalWork": 14.8,
+      "parts": 4,
+      "rawInParts": 0,
+      "minerals": null,
+      "expansions": 1440835,
+      "valid": true,
+      "wallMs": 81739,
+      "stepP50": 145.84679999999935,
+      "stepP95": 506.6622000000207,
+      "maxStep": 956.6521000000066,
+      "maxCheckpointBytes": 1547459,
+      "residentBytes": 375902208,
+      "heapBytes": 102209088,
+      "notes": "Failed actions are confirmed negative action outcomes; repeatedBlocked counts repeated failure signatures per agent, not proven preventable deaths. Mineral extraction is net finite-deposit depletion, not refined product.",
+      "failure": null
+    },
+    {
+      "seed": "materials-holdout-cove-407",
+      "agentCount": 5,
+      "resourceAbundance": "scarce",
+      "climateVolatility": "variable",
+      "durationHours": 72,
+      "arm": "geology-v1",
+      "status": "completed",
+      "tick": 432,
+      "survivors": 5,
+      "deaths": [],
+      "failedActions": 19,
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "physicalTests": 20,
+      "physicalWork": 23,
+      "parts": 5,
+      "rawInParts": 7.541058,
+      "minerals": [
+        {
+          "kind": "iron_ore",
+          "initial": 496,
+          "remaining": 496,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "copper_ore",
+          "initial": 310,
+          "remaining": 305.5,
+          "extracted": 4.5,
+          "carried": 0.722293,
+          "embodied": 3.777707
+        },
+        {
+          "kind": "tin_ore",
+          "initial": 112,
+          "remaining": 112,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "bauxite",
+          "initial": 372,
+          "remaining": 372,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "zinc_ore",
+          "initial": 155,
+          "remaining": 155,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "nickel_ore",
+          "initial": 155,
+          "remaining": 155,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "chromium_ore",
+          "initial": 112,
+          "remaining": 112,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "manganese_ore",
+          "initial": 112,
+          "remaining": 112,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "cobalt_ore",
+          "initial": 74,
+          "remaining": 74,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "lithium_ore",
+          "initial": 112,
+          "remaining": 112,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "graphite",
+          "initial": 155,
+          "remaining": 155,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "silica",
+          "initial": 496,
+          "remaining": 496,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "borate",
+          "initial": 74,
+          "remaining": 74,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "rare_earth_ore",
+          "initial": 99,
+          "remaining": 99,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "polymetallic_ore",
+          "initial": 136,
+          "remaining": 136,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "silver_ore",
+          "initial": 62,
+          "remaining": 62,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "gold_ore",
+          "initial": 50,
+          "remaining": 50,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "platinum_ore",
+          "initial": 50,
+          "remaining": 50,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "titanium_ore",
+          "initial": 112,
+          "remaining": 112,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "tungsten_ore",
+          "initial": 62,
+          "remaining": 62,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "limestone",
+          "initial": 372,
+          "remaining": 372,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "gypsum",
+          "initial": 186,
+          "remaining": 186,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "salt",
+          "initial": 186,
+          "remaining": 186,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "sulfur",
+          "initial": 112,
+          "remaining": 112,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "phosphate",
+          "initial": 186,
+          "remaining": 180,
+          "extracted": 6,
+          "carried": 2.236649,
+          "embodied": 3.763351
+        },
+        {
+          "kind": "potash",
+          "initial": 186,
+          "remaining": 186,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "coal",
+          "initial": 496,
+          "remaining": 496,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        },
+        {
+          "kind": "oil_shale",
+          "initial": 496,
+          "remaining": 496,
+          "extracted": 0,
+          "carried": 0,
+          "embodied": 0
+        }
+      ],
+      "expansions": 1647013,
+      "valid": true,
+      "wallMs": 73012,
+      "stepP50": 145.68880000000354,
+      "stepP95": 476.0320000000065,
+      "maxStep": 931.0139999999665,
+      "maxCheckpointBytes": 1877866,
+      "residentBytes": 384348160,
+      "heapBytes": 76753888,
+      "notes": "Failed actions are confirmed negative action outcomes; repeatedBlocked counts repeated failure signatures per agent, not proven preventable deaths. Mineral extraction is net finite-deposit depletion, not refined product.",
+      "failure": null
+    }
+  ]
+}

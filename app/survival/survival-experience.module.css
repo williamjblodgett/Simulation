@@ -134,6 +134,14 @@
 .recordSection > header span { display: block; font-size: 13px; font-weight: 700; }
 .recordSection > header small { color: var(--muted); font-size: 11px; }
 .rowList { margin: 0; }
+.materialRecord { margin: 16px 0; }
+.materialRecord summary { cursor: pointer; padding: 12px 0; }
+.materialRecord p { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.materialRecord .rowList { display: block; margin: 0; border: 0; }
+.materialRecord .rowList > div { align-items: flex-start; gap: 16px; padding: 10px 0; }
+.materialRecord .rowList dt { flex: 1; min-width: 0; font-size: 14px; }
+.materialRecord .rowList dd { flex: 1; min-width: 0; text-align: right; margin: 0; }
+.materialRecord small { display: block; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .discoveryRecord .rowList > div { align-items: flex-start; gap: 12px; padding: 8px 0; }
 .discoveryRecord .rowList dt { flex: 0 0 34%; }
 .discoveryRecord .rowList dd { min-width: 0; text-align: right; }
@@ -610,9 +618,9 @@
 /* Observatory: one set of geometry tokens owns the canvas and its inspector. */
 .shell { --header-base: 72px; --nav-base: 68px; --peek-height: max(148px,9.25rem); --inspector-width: 360px; --inspector-gap: 16px; --scene-right: 0px; font-size: 16px; }
 .shell [hidden] { display: none !important; }
-.appHeader { background: #0c141c; padding-inline: max(16px,var(--safe-left)); border-bottom-color: #ffffff0c; gap: 10px; }
+.appHeader { background: #0d1519; padding-inline: max(16px,var(--safe-left)); border-bottom-color: #ffffff0c; gap: 10px; }
 .brand > svg { color: #86c6f7; width: 27px; }
-.appTitle strong { font-size: 21px; letter-spacing: -.045em; }
+.appTitle strong { font-family: Georgia,"Times New Roman",serif; font-size: 28px; font-weight: 400; letter-spacing: -.045em; line-height: 1; }
 .appTitle span { font-size: 12px; }
 .appTitle span b { display: none; font-weight: 400; }
 .clock span { font-size: 12px; }
@@ -620,18 +628,19 @@
 .playback > button,.playback label { border-color: #ffffff10; border-radius: 9px; background: #17232d; }
 .playback label { padding: 0 6px; }
 .playback select { min-width: 49px; font-size: 14px; }
-.bottomNav { background: #0c141c; }
+.bottomNav { background: #0d1519; }
 .bottomNav button { color: #90a0ae; gap: 5px; border-radius: 12px; }
 .bottomNav button span { font-size: 12px; font-weight: 500; }
-.bottomNav button[data-active="true"] { color: #9ed0ff; background: #429fff12; }
+.bottomNav button[data-active="true"] { color: #d2e6f5; background: #b1d4ef0b; }
 .bottomNav button[data-active="true"]::before { display: none; }
 .worldView::after { display: none; }
 .worldCanvas > [data-survival-viewport][data-inspector-level] { inset: 0 0 var(--peek-height); }
 .worldCanvas > [data-survival-viewport][data-inspector-level="half"] { bottom: max(var(--peek-height),min(320px,70%),54%); }
 .worldCanvas > [data-survival-viewport][data-inspector-level="expanded"] { bottom: calc(100% - 100px); }
-.weatherChip { top: 16px; left: 16px; gap: 8px; border: 1px solid #ffffff12; border-radius: 10px; background: #101c25e8; padding: 8px 11px; box-shadow: none; }
-.weatherChip strong { font-size: 17px; font-weight: 550; }
-.weatherChip small { font-size: 12px; }
+.weatherChip { top: 16px; left: 16px; gap: 8px; border: 1px solid #ffffff16; border-radius: 8px; background: #101a1ed9; padding: 7px 10px; min-height: 36px; box-shadow: none; }
+.weatherChip > span { flex-direction: row; align-items: center; gap: 8px; }
+.weatherChip strong { font-size: 13px; font-weight: 600; }
+.weatherChip small { font-size: 12px; color: #c4cec9; }
 .cameraControls { top: 16px; right: 16px; display: grid; padding: 3px; gap: 0; border: 1px solid #ffffff14; border-radius: 12px; background: #101c25e8; }
 .cameraControls button { width: 44px; height: 44px; border-radius: 8px; }
 .cameraControls button span { display: none; }
@@ -640,7 +649,7 @@
 .returnFollow { top: auto; bottom: calc(var(--peek-height) + 18px); right: 16px; font-size: 13px; background: #101c25ed; }
 .habitatCaption { left: 18px; bottom: calc(var(--peek-height) + 22px); gap: 5px; }
 .habitatCaption span { font-size: 10px; letter-spacing: .14em; font-weight: 600; }
-.habitatCaption strong { font-size: 22px; font-weight: 550; letter-spacing: -.035em; }
+.habitatCaption strong { font-family: Georgia,"Times New Roman",serif; font-size: 27px; font-weight: 400; letter-spacing: -.035em; }
 .habitatCaption small { font-size: 12px; color: #e0e8e6; }
 .gestureHint { display: none; }
 .miniMap { top: 16px; right: 76px; width: 238px; max-width: calc(100% - 92px); background: #101c25f5; }
@@ -650,19 +659,19 @@
 .miniMap .mapAgentButtons button { position: static; width: 100%; height: 44px; translate: none; border: 0; border-radius: 6px; background: #ffffff07; font-size: 12px; }
 .miniMap .mapAgentButtons button[data-selected="true"] { box-shadow: none; background: #429fff2b; }
 .miniMap .landscapeButton { position: static; width: 100%; height: 44px; translate: none; display: flex; gap: 8px; justify-content: center; border: 0; border-radius: 0; background: transparent; font-size: 13px; }
-.agentSheet { height: var(--peek-height); border-radius: 24px 24px 0 0; background: #111b24; border-color: #ffffff17; box-shadow: none; }
+.agentSheet { height: var(--peek-height); border-radius: 24px 24px 0 0; background: #121c22; border-color: #ffffff17; box-shadow: none; }
 .agentSheet[data-level="half"] { height: max(var(--peek-height),min(320px,70%),54%); }
 .agentSheet[data-level="expanded"] { height: calc(100% - 8px); }
 .sheetDragZone { height: 12px; top: 0; }
 .sheetDragZone::after { content: ""; position: absolute; width: 32px; height: 3px; background: #52606a; border-radius: 2px; top: 5px; left: 20px; }
 .agentRail { top: 14px; height: 48px; left: 16px; right: 16px; gap: 4px; grid-template-columns: repeat(5,minmax(0,1fr)); }
 .agentRail button { height: 44px; gap: 4px; border-radius: 12px; padding: 2px; }
-.agentRail button[data-selected="true"] { border-color: #81bbf43b; background: #429fff14; }
+.agentRail button[data-selected="true"] { border-color: #afc7d433; background: #dae9ef09; }
 .agentRail button > span { font-size: 12px; }
 .agentRail button > i { display: none; }
 .agentRail button[data-alive="false"] { opacity: .5; }
 .portrait { border: 1px solid color-mix(in srgb,var(--agent-color) 55%,transparent); border-radius: 12px; background: #16232c; width: 44px; height: 48px; }
-.portrait[data-size="small"] { width: 32px; height: 36px; border-radius: 9px; }
+.portrait[data-size="small"] { width: 34px; height: 38px; border-radius: 50% 50% 8px 8px; }
 .portrait[data-size="large"] { width: 74px; height: 90px; border-radius: 12px; }
 .portrait[data-size="hero"] { width: 152px; height: 172px; border: 0; border-radius: 0; background: transparent; }
 .portrait[data-size="hero"] img { mix-blend-mode: lighten; object-fit: contain; }
@@ -677,7 +686,7 @@
 .inspectorIdentity .portrait,.agentInspector[data-level="expanded"] .inspectorIdentity .portrait { position: absolute; right: -8px; top: 0; width: 152px; height: 172px; grid-row: auto; }
 .inspectorIdentity > div { grid-column: 1; align-self: center; z-index: 1; }
 .inspectorIdentity > div > span { font-size: 11px; color: #98adba; letter-spacing: .08em; }
-.inspectorIdentity h2 { margin: 8px 0; font-size: 29px; line-height: 1.1; font-weight: 550; letter-spacing: -.05em; white-space: normal; overflow-wrap: anywhere; }
+.inspectorIdentity h2 { margin: 8px 0; font-family: Georgia,"Times New Roman",serif; font-size: 32px; line-height: 1.1; font-weight: 400; letter-spacing: -.04em; white-space: normal; overflow-wrap: anywhere; }
 .inspectorIdentity p { font-size: 14px; line-height: 1.4; margin: 0 0 5px; color: #e0e8ef; }
 .inspectorIdentity small { font-size: 12px; color: var(--muted); }
 .inspectorIdentity > .conditionLine { grid-column: 1; font-size: 12px; margin-top: 10px; justify-self: start; }
@@ -701,14 +710,14 @@
 .conditionLine { font-size: 12px; max-width: none; }
 .screenView { padding: 28px 16px 32px; background: #0b1219; }
 .screenHeading { align-items: center; gap: 12px; margin-bottom: 24px; }
-.screenHeading h1 { font-size: 28px; font-weight: 550; letter-spacing: -.04em; }
+.screenHeading h1 { font-family: Georgia,"Times New Roman",serif; font-size: 32px; font-weight: 400; letter-spacing: -.04em; }
 .screenHeading p { font-size: 14px; line-height: 1.65; }
 .screenHeading > div:first-child > span { font-size: 11px; color: #8fa4b4; }
 .agentDirectory { gap: 12px; }
-.agentDirectory > article { border-radius: 16px; background: #131e28; }
+.agentDirectory > article { border-radius: 16px; background: #141e23; }
 .agentDirectory > article[data-selected="true"] { border-color: #5481a352; }
 .agentDirectoryMain { padding: 18px; gap: 14px; }
-.agentDirectoryIdentity h2 { margin: 6px 0; font-size: 22px; font-weight: 550; letter-spacing: -.035em; }
+.agentDirectoryIdentity h2 { margin: 6px 0; font-family: Georgia,"Times New Roman",serif; font-size: 26px; font-weight: 400; letter-spacing: -.035em; }
 .agentDirectoryIdentity > span { font-size: 11px; letter-spacing: .06em; color: #8fa4b4; }
 .agentDirectoryIdentity p { font-size: 14px; }
 .compactNeeds { gap: 14px; padding-top: 6px; }
@@ -926,6 +935,18 @@
 .timelineDisplayOptions { position: relative; flex: 0 0 auto; }
 .timelineDisplayOptions > summary { min-height: 44px; align-content: center; cursor: pointer; font-size: .8125rem; color: #a6b4c3; }
 .timelineDisplayOptions > div { position: absolute; top: 44px; right: 0; z-index: 4; width: min(290px, calc(100vw - 32px)); padding: 8px 16px; border: 1px solid #ffffff14; border-radius: 12px; background: #111a23; display: flex; flex-direction: column; }
+
+/* Essential camera alternatives remain visible on short portrait phones. */
+@media (max-width: 767px) and (orientation: portrait) {
+  .cameraControls { grid-template-columns: repeat(2,44px); }
+  .zoomControls { display: flex; flex-direction: row; top: 120px; right: 16px; width: 94px; padding: 2px; }
+  .zoomControls button { width: 44px; min-width: 44px; height: 44px; }
+  .worldView[data-level="expanded"] .zoomControls { display: none; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .zoomControls { display: flex; flex-direction: row; top: 112px; right: calc(var(--scene-right) + 16px); width: 94px; padding: 2px; }
+  .zoomControls button { width: 44px; min-width: 44px; height: 44px; }
+}
 .timelineView .scopeButtons { width: auto; margin: 0; border: 0; }
 .timelineView .scopeButtons button { padding-inline: 4px; }
 @media (max-width: 767px) {

@@ -25,6 +25,7 @@ export interface SurvivalObjective {
 }
 
 export interface SurvivalRunOptions {
+  materialFoundation?: "geology-v1";
   policyVersion?: 2 | 3 | 4;
   continuity?: boolean;
   agentCount?: AgentLimit;
@@ -36,6 +37,7 @@ export interface SurvivalRunOptions {
 }
 
 export interface SurvivalRunConfig {
+  materialFoundation?: "geology-v1";
   continuity?: boolean;
   initialAgentCount: AgentLimit;
   agentCap: AgentLimit;
@@ -59,6 +61,8 @@ export type SurvivalResourceKind =
 export type SurvivalInventory = Record<SurvivalResourceKind, number>;
 
 export interface SurvivalResourceSite {
+  /** Observer-only raw-rock identity. Not a refined material or agent assay. */
+  feedstock?: import("./geology").GeologicalFeedstock;
   id: string;
   kind: SurvivalResourceKind;
   position: SurvivalPosition;
@@ -311,6 +315,8 @@ export interface AgentResearchProject {
 }
 
 export interface SurvivalAgent {
+  /** Embedded in inventory.stone; observer provenance, not extra inventory. */
+  rawFeedstocks?: import("./geology").FeedstockMass;
   /** Policy 4 only: private goals, contextual expectations and executed evidence. */
   discovery?: import("./discovery-types").DiscoveryMind;
   /** Private route experience; never populated from the observer's global map. */
@@ -455,12 +461,13 @@ export interface SurvivalEventWindow {
 }
 
 export interface SurvivalRunState {
+  geology?: import("./geology").GeologyState;
   survivalRevision?: 1;
   physical?: import("./physical-types").PhysicalWorld;
   succession?: SuccessionState;
   /** Missing means the preserved original policy; new runs use version 2. */
   policyVersion?: 1 | 2 | 3 | 4;
-  schemaVersion: 1 | 2 | 3 | 4 | 5;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
   id: string;
   seed: number;
   seedLabel: string;

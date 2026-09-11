@@ -9,6 +9,7 @@ import { AgentKnowledge } from "./agent-knowledge";
 import { SuccessionRecord } from "./succession-record";
 import { PhysicalRecord, ProjectSummary } from "./physical-record";
 import { DeathReview } from "./death-review";
+import { RawFeedstockRecord } from "./material-record";
 
 export type InspectorLevel = "peek" | "half" | "expanded";
 const WIDE_INSPECTOR = "(min-width: 768px), (orientation: landscape) and (max-height: 540px)";
@@ -98,6 +99,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
       <section className={styles.recordSection} hidden={panel !== "overview"}>
         <header><PackageOpen size={17} /><div><span>Possessions</span><small>Personal inventory reported by the simulation</small></div></header>
         {inventory.length ? <dl className={styles.rowList}>{inventory.map(([kind, amount]) => <div key={kind}><dt>{humanize(kind)}</dt><dd>{amount.toFixed(1)}</dd></div>)}</dl> : <p className={styles.emptyCopy}>Nothing is currently carried.</p>}
+        <RawFeedstockRecord agent={agent}/>
       </section>
 
       <section className={styles.recordSection} hidden={panel !== "knowledge"}>

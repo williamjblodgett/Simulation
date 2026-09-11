@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { basinMaterial, meadowMaterial } from "./landscape-materials";
+import { fernGeometry, foliageAlphaTexture, fracturedRockGeometry, visualRandom, woodlandTree } from "./woodland-geometry";
 import { waterDepth } from "../../simulation/survival/water";
 import type { HabitatPoint, HabitatTerrainVisual, HabitatWaterFeature } from "./types";
 
@@ -16,17 +17,6 @@ const smoothstep = (from: number, to: number, value: number) => {
   const t = clamp01((value - from) / (to - from));
   return t * t * (3 - 2 * t);
 };
-
-function seededRandom(seed: number) {
-  let value = seed >>> 0;
-  return () => {
-    value += 0x6d2b79f5;
-    let mixed = value;
-    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
-    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
-    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4_294_967_296;
-  };
-}
 
 function terrainNoise(x: number, z: number, seed: number) {
   const offsetA = (seed % 997) * 0.017;
@@ -109,10 +99,10 @@ function buildGround(terrain: HabitatTerrainVisual) {
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
-  const lowColor = new THREE.Color("#486c54");
-  const grassColor = new THREE.Color("#849665");
-  const highColor = new THREE.Color("#8e886a");
-  const sandColor = new THREE.Color("#c0b08b");
+  const lowColor = new THREE.Color("#535b40");
+  const grassColor = new THREE.Color("#90906b");
+  const highColor = new THREE.Color("#969183");
+  const sandColor = new THREE.Color("#b2a58a");
 
   for (let row = 0; row <= segments; row += 1) {
     const z = -halfSize + (row / segments) * halfSize * 2;
@@ -164,34 +154,19 @@ function buildScenery(terrain: HabitatTerrainVisual) {
   group.name = "decorative-scenery";
   const halfSize = Math.max(12, terrain.halfSize);
   const radius = Math.max(8, terrain.islandRadius ?? halfSize * 0.82);
-  const random = seededRandom(terrain.seed ^ 0x8af35c1);
-  const vegetationCount = Math.round(THREE.MathUtils.lerp(400, 1050, clamp01(terrain.vegetationDensity ?? 0.62)));
+  const random = visualRandom(terrain.seed ^ 0x8af35c1);
+  const vegetationCount = Math.round(THREE.MathUtils.lerp(240, 450, clamp01(terrain.vegetationDensity ?? 0.62)));
   const rockCount = Math.round(THREE.MathUtils.lerp(12, 72, clamp01(terrain.rockDensity ?? 0.38)));
 
-  const trunkPieces = [new THREE.CylinderGeometry(.11,.24,2.8,7), ...Array.from({length:3},(_,i)=>{
-    const branch = new THREE.CylinderGeometry(.045,.105,1.65,6);
-    branch.rotateZ(.55+i*.2);branch.rotateY(i*2.4);branch.translate(Math.cos(i*2.4)*.2,.7,Math.sin(i*2.4)*.2);return branch;
-  })];
-  const trunkGeometry=mergeGeometries(trunkPieces)!;trunkPieces.forEach(g=>g.dispose());
-  const lobes = Array.from({length: 17}, (_, i) => {
-    const geometry = new THREE.IcosahedronGeometry(1, 0);
-    const size=.45+(i%4)*.075;
-    geometry.scale(size*1.15, size*.76, size);
-    geometry.translate(Math.sin(i*2.4)*(.28+(i%3)*.36), (i%4)*.30-.12, Math.cos(i*2.4)*(.28+(i%3)*.34));
-    return geometry;
-  });
-  const crownGeometry = mergeGeometries(lobes)!;
-  lobes.forEach(g => g.dispose());
-  const trunkMaterial = new THREE.MeshStandardMaterial({ color: "#65503d", roughness: 1 });
-  const crownMaterial = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.96 });
-  const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, vegetationCount);
-  const crowns = new THREE.InstancedMesh(crownGeometry, crownMaterial, vegetationCount);
-  const coniferPieces = Array.from({length:5},(_,i)=>{
-    const g = new THREE.ConeGeometry(1.32-i*.21,1.6-i*.12,9);
-    g.translate(Math.sin(i*2.4)*.09,-.95+i*.62,Math.cos(i*2.4)*.08);return g;
-  });
-  const coniferGeometry=mergeGeometries(coniferPieces)!;coniferPieces.forEach(g=>g.dispose());
-  const upperCrowns = new THREE.InstancedMesh(coniferGeometry, crownMaterial, vegetationCount);
+  const broadleaf = woodlandTree(), pine = woodlandTree(true);
+  const trunkMaterial = new THREE.MeshStandardMaterial({ color: "#615347", roughness: 1 });
+  const crownMaterial = new THREE.MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: .92, side: THREE.DoubleSide, alphaMap:foliageAlphaTexture(),alphaTest:.14,alphaToCoverage:true });
+  const trunks = new THREE.InstancedMesh(broadleaf.trunk, trunkMaterial, vegetationCount);
+  const pineTrunks = new THREE.InstancedMesh(pine.trunk, trunkMaterial, vegetationCount);
+  pineTrunks.name = "instanced-pine-trunks";
+  pineTrunks.castShadow = true;
+  const crowns = new THREE.InstancedMesh(broadleaf.crown, crownMaterial, vegetationCount);
+  const upperCrowns = new THREE.InstancedMesh(pine.crown, crownMaterial, vegetationCount);
   trunks.name = "instanced-tree-trunks";
   crowns.name = "instanced-tree-crowns";
   upperCrowns.name = "instanced-upper-tree-crowns";
@@ -202,6 +177,7 @@ function buildScenery(terrain: HabitatTerrainVisual) {
 
   const dummy = new THREE.Object3D();
   let placedTrees = 0;
+  let broadleafCount = 0, pineCount = 0;
   let attempts = 0;
   while (placedTrees < vegetationCount && attempts < vegetationCount * 20) {
     attempts += 1;
@@ -214,38 +190,34 @@ function buildScenery(terrain: HabitatTerrainVisual) {
     if (terrainNoise(x * 1.9, z * 1.9, terrain.seed + 9) < -0.10 && random() < 0.92) continue;
     const y = terrainHeightAt(terrain, { x, z });
     if (y < 0.35) continue;
-    const scale = .78 + random() * .96;
-    dummy.position.set(x, y + 1.4 * scale, z);
-    dummy.rotation.set(0, random() * Math.PI * 2, 0);
-    dummy.scale.set(scale, scale, scale);
+    const scale = .75 + random() * .65;
+    dummy.position.set(x, y, z);
+    dummy.rotation.set((random()-.5)*.08, random() * Math.PI * 2, (random()-.5)*.08);
+    dummy.scale.set(scale, scale * (.92 + random()*.2), scale);
     dummy.updateMatrix();
-    trunks.setMatrixAt(placedTrees, dummy.matrix);
-    dummy.position.y = y + 3.0 * scale;
-    dummy.rotation.y += random() * 0.25;
-    dummy.updateMatrix();
-    crowns.setMatrixAt(placedTrees, dummy.matrix);
-    const leafColor = new THREE.Color().setHSL(.27 + random() * .08, .35 + random() * .21, .18 + random() * .09);
-    crowns.setColorAt(placedTrees, leafColor);
-    dummy.position.y = y + 3.0 * scale;
-    // Mix tall conifers and broadleaf clusters rather than stacked identical cones.
     const conifer = placedTrees % 3 === 0;
-    if (conifer) { const hidden = new THREE.Matrix4().makeScale(0,0,0); crowns.setMatrixAt(placedTrees, hidden); }
-    dummy.scale.setScalar(conifer ? scale : 0);
-    dummy.updateMatrix();
-    upperCrowns.setMatrixAt(placedTrees, dummy.matrix);
-    upperCrowns.setColorAt(placedTrees, leafColor.clone().offsetHSL(0, -.02, .04));
+    const leafColor = new THREE.Color().setHSL(.20 + random() * .06, .06 + random() * .12, .70 + random() * .16);
+    if(conifer) {
+      pineTrunks.setMatrixAt(pineCount,dummy.matrix);upperCrowns.setMatrixAt(pineCount,dummy.matrix);
+      upperCrowns.setColorAt(pineCount++,leafColor.clone().offsetHSL(.04,.04,-.07));
+    } else {
+      trunks.setMatrixAt(broadleafCount,dummy.matrix);crowns.setMatrixAt(broadleafCount,dummy.matrix);
+      crowns.setColorAt(broadleafCount++,leafColor);
+    }
     placedTrees += 1;
   }
-  trunks.count = placedTrees;
-  crowns.count = placedTrees;
-  upperCrowns.count = placedTrees;
+  trunks.count = broadleafCount;
+  pineTrunks.count = pineCount;
+  crowns.count = broadleafCount;
+  upperCrowns.count = pineCount;
   trunks.instanceMatrix.needsUpdate = true;
+  pineTrunks.instanceMatrix.needsUpdate = true;
   crowns.instanceMatrix.needsUpdate = true;
   upperCrowns.instanceMatrix.needsUpdate = true;
-  group.add(trunks, crowns, upperCrowns);
+  group.add(trunks, pineTrunks, crowns, upperCrowns);
 
-  const rockGeometry = new THREE.DodecahedronGeometry(0.55, 0);
-  const rockMaterial = new THREE.MeshStandardMaterial({ color: "#69716d", roughness: 0.9 });
+  const rockGeometry = fracturedRockGeometry();
+  const rockMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .96 });
   const rocks = new THREE.InstancedMesh(rockGeometry, rockMaterial, rockCount);
   rocks.name = "instanced-landscape-rocks";
   rocks.castShadow = true;
@@ -262,9 +234,9 @@ function buildScenery(terrain: HabitatTerrainVisual) {
     const y = terrainHeightAt(terrain, { x, z });
     if (y < 0.25) continue;
     const scale = 0.45 + random() * 1.15;
-    dummy.position.set(x, y + 0.34 * scale, z);
+    dummy.position.set(x, y, z);
     dummy.rotation.set(random() * 0.4, random() * Math.PI * 2, random() * 0.28);
-    dummy.scale.set(scale * (0.8 + random() * 0.5), scale, scale * (0.75 + random() * 0.4));
+    dummy.scale.set(scale * (0.8 + random() * 0.5), scale * .28, scale * (0.75 + random() * 0.4));
     dummy.updateMatrix();
     rocks.setMatrixAt(placedRocks, dummy.matrix);
     placedRocks += 1;
@@ -278,7 +250,7 @@ function buildScenery(terrain: HabitatTerrainVisual) {
     g.rotateZ((i-2)*.21); g.translate(Math.sin(i*2.4)*.10,.13,Math.cos(i*2.4)*.10); return g;
   });
   const bladesGeometry = mergeGeometries(bladeParts)!; bladeParts.forEach(g=>g.dispose());
-  const meadow = new THREE.InstancedMesh(bladesGeometry, new THREE.MeshStandardMaterial({color:"#8b9b67",roughness:1}), 3200);
+  const meadow = new THREE.InstancedMesh(bladesGeometry, new THREE.MeshStandardMaterial({color:"#929565",roughness:1}), 3200);
   meadow.name = "instanced-meadow"; meadow.receiveShadow = true;
   let bladeCount = 0;
   for(let i=0;i<8000&&bladeCount<3200;i++) {
@@ -290,6 +262,33 @@ function buildScenery(terrain: HabitatTerrainVisual) {
     meadow.setMatrixAt(bladeCount,dummy.matrix);bladeCount++;
   }
   meadow.count=bladeCount;meadow.instanceMatrix.needsUpdate=true;group.add(meadow);
+  const ferns = new THREE.InstancedMesh(fernGeometry(), new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide}), 720);
+  ferns.name="instanced-understory";ferns.receiveShadow=true;
+  let fernCount=0;
+  for(let attempt=0;attempt<2400&&fernCount<720;attempt++) {
+    const x=(random()*2-1)*halfSize*.92,z=(random()*2-1)*halfSize*.92;
+    const y=terrainHeightAt(terrain,{x,z});
+    if(y<.4||isInsideOpenArea(terrain,x,z)||terrainNoise(x*1.9,z*1.9,terrain.seed+9)<.05)continue;
+    dummy.position.set(x,y,z);dummy.rotation.set(0,random()*6.28,0);dummy.scale.setScalar(.7+random()*.65);dummy.updateMatrix();
+    ferns.setMatrixAt(fernCount++,dummy.matrix);
+  }
+  ferns.count=fernCount;group.add(ferns);
+  // Small shoreline stones interrupt the perfect rings without moving the water
+  // or claiming navigational obstacles. The basin bottom shares actual depth.
+  const shore = new THREE.InstancedMesh(rockGeometry,rockMaterial,terrain.freshwater.length*100);
+  shore.name="instanced-bank-stones";shore.receiveShadow=true;
+  let shoreCount=0;
+  for(const pond of terrain.freshwater) for(let n=0;n<100;n++) {
+    const angle=random()*Math.PI*2,factor=.93+random()*.22;
+    const lx=Math.cos(angle)*pond.radiusX*factor,lz=Math.sin(angle)*pond.radiusZ*factor;
+    const rotation=pond.rotation??0;
+    const x=pond.position.x+Math.cos(rotation)*lx+Math.sin(rotation)*lz,z=pond.position.z-Math.sin(rotation)*lx+Math.cos(rotation)*lz;
+    dummy.position.set(x,terrainHeightAt(terrain,{x,z})+.015,z);
+    dummy.rotation.set(0,random()*6.28,0);
+    const scale=.10+random()*.29;
+    dummy.scale.set(scale,scale*.4,scale);dummy.updateMatrix();shore.setMatrixAt(shoreCount++,dummy.matrix);
+  }
+  shore.count=shoreCount;group.add(shore);
   return group;
 }
 
@@ -348,19 +347,21 @@ export function createTerrainWorld(terrain: HabitatTerrainVisual): TerrainWorld 
 
     // Visual bank follows the same basin; it is not an extra resource or obstacle.
     const positions: number[] = [], colors: number[] = [], indices: number[] = [];
-    const bankColors = [new THREE.Color("#707e67"), new THREE.Color("#b1a27f")];
+    const bankColors = [new THREE.Color("#787c6c"), new THREE.Color("#999074"), new THREE.Color("#7c805a")];
     const rotation = feature.rotation ?? 0, cos = Math.cos(rotation), sin = Math.sin(rotation);
-    const bankSegments=96, bankRings=6;
+    const bankSegments=96, bankRings=12;
     for (let i = 0; i <= bankSegments; i++) {
       const angle = i / bankSegments * Math.PI * 2;
       for (let edge=0;edge<bankRings;edge++) {
-        const factor = .77 + edge / (bankRings-1)*.41;
+        const factor = edge / (bankRings-1)*1.19;
         const localX = Math.cos(angle) * feature.radiusX * factor;
         const localZ = Math.sin(angle) * feature.radiusZ * factor;
         const x = feature.position.x + cos * localX + sin * localZ;
         const z = feature.position.z - sin * localX + cos * localZ;
         positions.push(x, terrainHeightAt(terrain, { x, z }) + 0.025, z);
-        const bankColor=bankColors[0].clone().lerp(bankColors[1],edge/(bankRings-1));
+        const mottling=terrainNoise(x*6,z*6,terrain.seed)*.1;
+        const bankColor=bankColors[0].clone().lerp(bankColors[1],smoothstep(.5,1,factor));
+        bankColor.lerp(bankColors[2],smoothstep(1.01+ mottling,1.19,factor));
         colors.push(bankColor.r, bankColor.g, bankColor.b);
       }
       if (i < bankSegments) for(let edge=0;edge<bankRings-1;edge++){ const a=i*bankRings+edge;indices.push(a,a+bankRings,a+1,a+1,a+bankRings,a+bankRings+1); }
@@ -370,7 +371,8 @@ export function createTerrainWorld(terrain: HabitatTerrainVisual): TerrainWorld 
     bankGeometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
     bankGeometry.setIndex(indices);
     bankGeometry.computeVertexNormals();
-    const bank = new THREE.Mesh(bankGeometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }));
+    const bank = new THREE.Mesh(bankGeometry, meadowMaterial());
+    bank.material.side=THREE.DoubleSide;
     bank.name = `decorative-shoreline-${feature.id}`;
     bank.receiveShadow = true;
     group.add(bank);
