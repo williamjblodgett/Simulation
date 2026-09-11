@@ -126,7 +126,7 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
     simulationRunning: world.status === "running",
     simulationTimeSeconds: world.elapsedMinutes * 60,
     terrain: {
-      flatStudy: world.policyVersion === 3,
+      flatStudy: Boolean(world.physical),
       seed: world.seed,
       halfSize: world.environment.size / 2,
       islandRadius: world.environment.size,

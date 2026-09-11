@@ -216,6 +216,7 @@ test("ships the focused survival observer and preserves the prior planet and civ
   assert.match(survivalTimeline, /newEventCount|Historical state replay is unavailable/);
   assert.match(survivalRunView, /\[1,2,3,4,5\][\s\S]*Start simulation/);
   assert.match(survivalRunView, /Survive as long as possible|prior planetary study/i);
+  assert.match(survivalRunView, /Survivors<\/dt><dd>\{living\} of \{world\.agents\.length\} admitted lives/);
   assert.match(survivalStyles, /safe-area-inset-bottom|prefers-reduced-motion|orientation:\s*landscape|min-width:\s*1024px/);
   assert.match(survivalEngine, /replacement_not_available|sole_survivor_decides|requiredSuccessfulTrials/);
   assert.match(survivalScene, /WebGLRenderer|webglcontextlost|pointerdown|setActive|focusAt/);

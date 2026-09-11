@@ -1,7 +1,7 @@
 "use client";
 
 import { Filter, LocateFixed, Radio, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SurvivalEvent, SurvivalEventCategory, SurvivalRunState } from "../simulation/survival";
 import { agentColor, humanize } from "./presentation";
 import styles from "./survival-experience.module.css";
@@ -9,8 +9,10 @@ import { eventSequence } from "./survival-persistence";
 import { projectEpisodes } from "./construction-record";
 import { repeatedEventEpisodes } from "./repeated-events";
 import { DeathReview } from "./death-review";
+import { DiscoveryEventRecord } from "./discovery-event-record";
 
 interface TimelineViewProps {
+  initialRecordId?: string;
   events?: SurvivalEvent[];
   archiveStatus?: "saved" | "partial" | "unavailable";
   hasOlderEvents?: boolean;
@@ -25,18 +27,34 @@ interface TimelineViewProps {
 
 const CATEGORIES: Array<"all" | SurvivalEventCategory> = ["all", "survival", "social", "research", "environment", "agent", "run"];
 
-export function TimelineView({ world, onLocate, events: archivedEvents, archiveStatus, hasOlderEvents, historyFrozen, onFreezeHistory, onReturnLive, onLoadOlder, onExport }: TimelineViewProps) {
+export function TimelineView({ world, onLocate, events: archivedEvents, archiveStatus, hasOlderEvents, historyFrozen, onFreezeHistory, onReturnLive, onLoadOlder, onExport, initialRecordId }: TimelineViewProps) {
   const sourceEvents = archivedEvents ?? world.events;
+  const linkedEvent = initialRecordId ? sourceEvents.find(e => e.facts.discoveryDecisionId === initialRecordId || e.facts.experimentId === initialRecordId) : undefined;
   const [milestonesOnly, setMilestonesOnly] = useState(true);
-  const [groupProjects,setGroupProjects]=useState(true);
+  const [groupProjects,setGroupProjects]=useState(!initialRecordId);
   const [groupRepeats,setGroupRepeats]=useState(true);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState("");
   async function historyAction(action?: () => Promise<void>) { if (!action || historyBusy) return; setHistoryBusy(true); try { await action(); setHistoryError(""); } catch { setHistoryError("History could not be read. Please retry."); } finally { setHistoryBusy(false); } }
-  const [agentFilter, setAgentFilter] = useState<string>("all");
+  const [agentFilter, setAgentFilter] = useState<string>(linkedEvent?.agentIds[0] ?? "all");
   const [categoryFilter, setCategoryFilter] = useState<"all" | SurvivalEventCategory>("all");
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(linkedEvent?.id ?? null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const linkedRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    const scroller = scrollerRef.current, entry = linkedRef.current;
+    if (!scroller || !entry) return;
+    // Align the record's beginning, not the center of a potentially long
+    // expanded article. Scroll only the feed; preserve the header/navigation.
+    // A roster dialog closes in the parent's effect. Focusing its still-inert
+    // background here would be ignored; wait one frame for modal cleanup.
+    const frame = window.requestAnimationFrame(() => {
+      if (!entry.isConnected || entry.closest("[hidden]")) return;
+      scroller.scrollTo({ top: scroller.scrollTop + entry.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 48 });
+      entry.querySelector("button")?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [initialRecordId, linkedEvent?.id]);
   const totalEventCount = Math.max(world.events.length, world.eventWindow.totalEvents);
   const newEventCount = historyFrozen ? Math.max(0, totalEventCount - Math.max(0, ...sourceEvents.map(eventSequence))) : 0;
 
@@ -100,9 +118,10 @@ export function TimelineView({ world, onLocate, events: archivedEvents, archiveS
       </div></details>
     </div>
     {historyError ? <p role="alert">{historyError}</p> : null}
+    {initialRecordId && !linkedEvent ? <p className={styles.historyScope}>The referenced record is outside the loaded window. Load older events or export the retained archive; missing evidence is not reconstructed.</p> : null}
     {historyFrozen ? <button className={styles.newEventsButton} type="button" onClick={revealNewest}>{newEventCount ? `${newEventCount} new events · ` : "History held · "}Return live</button> : null}
     <div className={styles.timelineScroller} ref={scrollerRef} onScroll={(event) => { if (event.currentTarget.scrollTop > 40 && !historyFrozen) onFreezeHistory?.(); }}>
-      {groups.length ? groups.map(([day, events]) => <section className={styles.dayGroup} key={day}><header><span>Day</span><strong>{day}</strong></header><ol>{events.map((event) => <li key={event.id}>
+      {groups.length ? groups.map(([day, events]) => <section className={styles.dayGroup} key={day}><header><span>Day</span><strong>{day}</strong></header><ol>{events.map((event) => <li key={event.id} ref={event.id===linkedEvent?.id?linkedRef:undefined}>
         <button type="button" onClick={() => { onFreezeHistory?.(); setSelectedEventId((current) => current === event.id ? null : event.id); }} aria-expanded={selectedEventId === event.id}>
           <time>{String(Math.floor((event.tick * world.config.stepMinutes) % 1440 / 60)).padStart(2, "0")}:{String((event.tick * world.config.stepMinutes) % 60).padStart(2, "0")}</time>
           <span className={styles.eventAgents}>{event.agentIds.map((id) => {
@@ -115,7 +134,7 @@ export function TimelineView({ world, onLocate, events: archivedEvents, archiveS
         {selectedEvent?.id===event.id&&groupProjects&&typeof event.facts.projectId==="string"?<ol className={styles.projectStory}>{episodes.find(p=>p.id===event.facts.projectId)?.records.map(e=><li key={e.id}><time>Day {e.day} · {String(Math.floor(e.tick*world.config.stepMinutes%1440/60)).padStart(2,"0")}:{String(e.tick*world.config.stepMinutes%60).padStart(2,"0")}</time><strong>{e.summary}</strong><p>{e.outcome}</p></li>)}</ol>:null}
         {groupRepeats&&repeatedById.has(event.id)?<details className={styles.failureEpisode}><summary>{repeatedById.get(event.id)!.attempts} unsuccessful attempts · view exact records</summary><ol>{repeatedById.get(event.id)!.records.map(r=><li key={r.id}><time>Step {r.tick}</time><p>{r.summary}</p><small>{r.outcome}</small></li>)}</ol></details>:null}
         {selectedEvent?.id===event.id&&event.type==="agent_died"?world.agents.filter(a=>event.agentIds.includes(a.id)).map(a=><DeathReview key={a.id} agent={a} world={world}/>):null}
-        {selectedEvent?.id === event.id ? <div className={styles.eventDetail}><button type="button" aria-label="Close event details" onClick={() => setSelectedEventId(null)}><X size={16} /></button><h3>{event.summary}</h3><p>{event.outcome}</p><dl><div><dt>Record</dt><dd>{event.type.replaceAll("_", " ")}</dd></div><div><dt>Provenance</dt><dd>{event.intervention ? "Observer intervention" : "Simulation outcome"}</dd></div>{Object.entries(event.facts).map(([key,value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{String(value)}</dd></div>)}</dl>{event.facts.decisionId ? <details><summary>Records linked to {String(event.facts.decisionId)}</summary><ol>{sourceEvents.filter(e => e.id !== event.id && e.facts.decisionId === event.facts.decisionId).map(e => <li key={e.id}>{e.summary}</li>)}</ol></details> : null}{event.position ? <button type="button" onClick={() => onLocate(event)}><LocateFixed size={15} /> Locate current site</button> : null}</div> : null}
+        {selectedEvent?.id === event.id ? <div className={styles.eventDetail}><button type="button" aria-label="Close event details" onClick={() => setSelectedEventId(null)}><X size={16} /></button><h3>{event.summary}</h3><p>{event.outcome}</p><dl><div><dt>Record</dt><dd>{event.type.replaceAll("_", " ")}</dd></div><div><dt>Provenance</dt><dd>{event.intervention ? "Observer intervention" : "Simulation outcome"}</dd></div>{Object.entries(event.facts).filter(([key])=>!["candidateSummary","preActionPrediction","measurement"].includes(key)).map(([key,value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{String(value)}</dd></div>)}</dl><DiscoveryEventRecord event={event}/>{event.facts.decisionId ? <details><summary>Records linked to {String(event.facts.decisionId)}</summary><ol>{sourceEvents.filter(e => e.id !== event.id && e.facts.decisionId === event.facts.decisionId).map(e => <li key={e.id}>{e.summary}</li>)}</ol></details> : null}{event.position ? <button type="button" onClick={() => onLocate(event)}><LocateFixed size={15} /> Locate current site</button> : null}</div> : null}
       </li>)}</ol></section>) : <div className={styles.emptyTimeline}><Radio size={24} /><h2>No matching events</h2><p>Change the filters or continue the run until an outcome is recorded.</p></div>}
     </div>
     <footer className={styles.timelineNote}><details><summary>Event history, not replay · About this record</summary><p>Locations show the current world, not a historical scene. This view loads up to 4,096 older events; the device archive retains up to 100,000 per study. Export to keep the retained record. Browsing holds the page while the run continues; Return live shows new events.</p></details></footer>

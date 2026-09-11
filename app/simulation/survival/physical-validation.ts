@@ -10,7 +10,7 @@ const material=(v:unknown)=>typeof v==="string"&&Object.hasOwn(MATERIALS,v);
 const id=(v:unknown)=>typeof v==="string"&&/^part-[1-9]\d*$/.test(v);
 export function validManipulation(v:unknown,placeholder=false):v is Manipulation {
   if(!record(v))return false;
-  const part=(n:unknown)=>id(n)||(placeholder&&n==="$new");
+  const part=(n:unknown)=>id(n)||(placeholder&&typeof n==="string"&&(n==="$new"||/^\$(?:input)?[0-9]$/.test(n)));
   switch(v.kind){
     case "shape":return material(v.material)&&finite(v.mass,0.001,12)&&vector(v.size,0.06,4)&&(v.hollow===undefined||finite(v.hollow,0,0.7));
     case "place":return part(v.partId)&&vector(v.position)&&finite(v.rotation);
@@ -27,7 +27,7 @@ export function validManipulation(v:unknown,placeholder=false):v is Manipulation
 
 /** Fail closed before a saved instruction can enter the executor. No old study is migrated here. */
 export function validatePhysicalState(state:SurvivalRunState):boolean {
-  if(state.policyVersion!==3)return state.physical===undefined&&state.agents.every(a=>a.physicalMind===undefined&&a.currentPlan?.steps.every(s=>s.manipulation===undefined)!==false);
+  if(state.policyVersion!==3&&state.policyVersion!==4)return state.physical===undefined&&state.agents.every(a=>a.physicalMind===undefined&&a.currentPlan?.steps.every(s=>s.manipulation===undefined)!==false);
   const w=state.physical;
   if(!record(w)||w.version!==1||!integer(w.nextId,1)||!finite(w.workEnergy,0)||!integer(w.tests)||!Array.isArray(w.parts)||w.parts.length>160||!Array.isArray(w.joints)||w.joints.length>240||!record(w.spent))return false;
   if(typeof state.config.continuity!=="boolean"||(!state.config.continuity&&state.succession!==undefined))return false;

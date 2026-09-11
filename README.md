@@ -10,13 +10,13 @@ The earlier large-scale planetary civilization and Three.js civilization studies
 
 The survival study keeps revisioned checkpoints and a per-study event ledger in IndexedDB on this device. Previous studies can be listed and exported from Run. Each archive retains at most 100,000 events; Timeline pages a bounded window. Earlier records lost before this upgrade cannot be reconstructed. Browser storage is not a remote backup—export important studies.
 
-New studies configured in the UI use policy 3: private survival planning, self-proposed exposure projects, physical parts and connections, material tests, fallible learned estimates and reusable procedures. Existing policy-1/2 studies keep their original engine; the public constructor still defaults to policy 2 for existing integrations. A worker runs calculations while the browser can execute; it does not continue after every tab is closed. The static build makes no model/API calls. Preserved planetary studies keep separate records.
+The discovery release introduces **policy 4 / schema 5** for new UI studies: private protection goals, support dependencies, contextual predictions, decision-directed physical tests and reusable executed procedures. Existing policy-1/2/3 studies keep their policy family; refresh loads the interface but does not convert an existing study. The public constructor still defaults to policy 2 for integrations. A worker runs calculations while the browser can execute; it does not continue after every tab is closed. The static build makes no model/API calls. Preserved planetary studies keep separate records. See the [current release, verification and evaluation report](docs/DISCOVERY_RELEASE.md), including retained negative results and publication receipts.
 
 This is bounded simulation autonomy, not general intelligence. Designers supply physiology, the action language, initial estimates and simplified material laws. Policy 3 removes the named shelter/research recipes from its planner; proposed shapes, edits and tests can fail. Its project generator currently specializes in exposure reduction, not arbitrary machinery, electricity or full chemistry. See [physical model and explicit limits](docs/PHYSICAL_MODEL.md). New runs default to individual survival only; optional continuity can be enabled separately in setup.
 
 ### Adding agents and next generations
 
-In policy 3, the succession behavior below runs only when optional continuity was enabled at setup. Survival-only studies never fund an autonomous successor. This distinction does not change saved policy-2 studies.
+In policies 3 and 4, the succession behavior below runs only when optional continuity was enabled at setup. Survival-only studies never fund an autonomous successor. This distinction does not change saved policy-2 studies.
 
 Use **Add agent** in Agents or Run to fill unused slots without restarting, even before a death or after extinction. The limit is five **living** agents, not five lives over the entire study. Observer additions are logged and preserve pause. A completed observation period cannot be extended by admitting another agent.
 

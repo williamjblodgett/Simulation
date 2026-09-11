@@ -1,6 +1,7 @@
 import type { Manipulation, MaterialKind, MaterialProperties, PhysicalMind, PhysicalPart, PhysicalReading, PhysicalWorld, Vec3 } from "./physical-types";
 import type { SurvivalAgent, SurvivalEnvironment, SurvivalPosition } from "./types";
 import { inFreshwater } from "./physical-navigation";
+import { validManipulation } from "./physical-validation";
 
 /** Deliberately simplified SI-like laws, not a real-world engineering model. Never imported by the policy. */
 export const MATERIALS: Record<MaterialKind, MaterialProperties> = {
@@ -126,7 +127,9 @@ export function agePhysicalWorld(world: PhysicalWorld, env: SurvivalEnvironment)
 export interface ManipulationResult { ok: boolean; summary: string; partId: string|null; reading?: PhysicalReading; effort: number }
 
 /** The only mutation entry point. All attempted operations pay effort; failed operations create no matter. */
-export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, op: Manipulation, env: SurvivalEnvironment, tick: number, occupants: readonly SurvivalPosition[] = [agent.position]): ManipulationResult {
+export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, op: Manipulation, env: SurvivalEnvironment, tick: number, occupants: readonly SurvivalPosition[] = [agent.position], localMeasurements = false): ManipulationResult {
+  if(localMeasurements && (!agent.alive || agent.needs.health<=0))return {ok:false,summary:"A dead agent cannot execute an operation.",partId:null,effort:0};
+  if(localMeasurements && !validManipulation(op))return {ok:false,summary:"Invalid typed operation; no resource or physical mutation occurred.",partId:null,effort:0};
   const effort=op.kind==="shape"?1.6:op.kind==="heat"?2:0.6;
   agent.needs.energy=round(clip(agent.needs.energy-effort,0,100)); world.workEnergy=round(world.workEnergy+effort);
   const fail=(summary:string):ManipulationResult=>({ok:false,summary,partId:null,effort});
@@ -193,8 +196,9 @@ export function executeManipulation(world: PhysicalWorld, agent: SurvivalAgent, 
     let before=0,after=0;
     if(op.measure==="load") {before=p.condition;if(op.dose>loadCapacity(p))p.condition=round(clip(p.condition-(op.dose-loadCapacity(p))*0.06));settleAssemblies(world);after=p.condition;}
     if(op.measure==="retention") {if(agent.inventory.freshwater<op.dose)return fail("A retention test requires carried water.");agent.inventory.freshwater=round(agent.inventory.freshwater-op.dose);before=op.dose;const retained=Math.min(Math.max(0,waterCapacity(p)-p.water),op.dose)*(1-properties(p).permeability);p.water=round(p.water+retained);world.spent.freshwater=round((world.spent.freshwater??0)+op.dose-retained);after=retained;}
-    if(op.measure==="protection") {const control=structuredClone(world);control.parts=control.parts.filter(q=>q.id!==p.id);settleAssemblies(control);before=protectionAt(control,agent.position,env.weather);after=protectionAt(world,agent.position,env.weather);}
+    if(op.measure==="protection") {after=protectionAt(world,agent.position,env.weather);if(localMeasurements){before=after;}else{const control=structuredClone(world);control.parts=control.parts.filter(q=>q.id!==p.id);settleAssemblies(control);before=protectionAt(control,agent.position,env.weather);}}
     const reading:PhysicalReading={id:`physical-reading-${agent.id}-${tick}-${world.nextId++}`,tick,observerId:agent.id,revision:p.revision,source:"test",partId:p.id,material:dominantMaterial(p),position:{...agent.position},size:{...p.size},rotation:p.rotation,mass:partMass(p),condition:p.condition,metric:op.measure,before:round(before),after:round(after),dose:op.dose,temperature:env.temperatureC,weather:env.weather,confidence:0.85,summary:`${op.measure}: ${op.measure==="protection"?"modeled counterfactual":"before"} ${round(before)}, measured ${round(after)} at dose ${op.dose}.`};
+    if(localMeasurements){reading.measurementKind="local";reading.originalEvidenceId=reading.id;reading.summary=op.measure==="protection"?`Local protection ${round(after)} at the occupied position. Supplied exposure sensing; no part-removal counterfactual.`:op.measure==="load"?`Condition ${round(before)} → ${round(after)} under ${op.dose} applied load units; survival of this dose is not exact strength.`:reading.summary;}
     world.tests++;return {ok:true,summary:reading.summary,partId:p.id,reading,effort};
   }
   settleAssemblies(world);

@@ -134,6 +134,10 @@
 .recordSection > header span { display: block; font-size: 13px; font-weight: 700; }
 .recordSection > header small { color: var(--muted); font-size: 11px; }
 .rowList { margin: 0; }
+.discoveryRecord .rowList > div { align-items: flex-start; gap: 12px; padding: 8px 0; }
+.discoveryRecord .rowList dt { flex: 0 0 34%; }
+.discoveryRecord .rowList dd { min-width: 0; text-align: right; }
+.eventDetail pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .rowList > div { display: flex; justify-content: space-between; min-height: 36px; align-items: center; border-bottom: 1px solid rgba(255,255,255,.05); }
 .rowList dt { color: var(--muted); font-size: 12px; }
 .rowList dd { margin: 0; font: 600 12px var(--font-geist-mono),monospace; }

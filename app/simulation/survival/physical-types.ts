@@ -34,6 +34,9 @@ export type Manipulation =
   | { kind: "test"; partId: string; measure: "load" | "retention" | "protection"; dose: number }
   | { kind: "reclaim"; partId: string };
 export interface PhysicalReading {
+  /** Policy-4 readings are local, never simulator-supplied part-removal controls. */
+  measurementKind?: "local" | "counterfactual";
+  originalEvidenceId?: string;
   revision?: number;
   originalObserverId?: string;
   receivedAt?: number;

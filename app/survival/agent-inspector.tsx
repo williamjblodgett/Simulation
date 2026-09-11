@@ -23,6 +23,7 @@ interface AgentInspectorProps {
   onLevelChange(level: InspectorLevel): void;
   onSelectAgent(id: string): void;
   onInspectPart?(id:string):void;
+  onViewRecord?(id:string):void;
   onHandlePointerDown?: PointerEventHandler<HTMLSpanElement>;
   onHandlePointerUp?: PointerEventHandler<HTMLSpanElement>;
 }
@@ -31,7 +32,7 @@ function inventoryRows(agent: SurvivalAgent) {
   return Object.entries(agent.inventory).filter(([, amount]) => amount > 0.01).sort((left, right) => right[1] - left[1]);
 }
 
-export function AgentInspector({ world, agent, level, onLevelChange, onSelectAgent, onInspectPart, onHandlePointerDown, onHandlePointerUp }: AgentInspectorProps) {
+export function AgentInspector({ world, agent, level, onLevelChange, onSelectAgent, onInspectPart, onViewRecord, onHandlePointerDown, onHandlePointerUp }: AgentInspectorProps) {
   const [panelState, setPanelState] = useState({ id: agent.id, panel: "overview" });
   const wideInspector=useSyncExternalStore(subscribeLayout,wideSnapshot,narrowServerSnapshot);
   const panel = level === "half" && !wideInspector ? "overview" : panelState.id === agent.id ? panelState.panel : "overview";
@@ -82,8 +83,8 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
     </div>
 
     <div className={styles.inspectorExpanded}>
-      <div hidden={panel !== "activity"}><PhysicalRecord agent={agent} onInspect={onInspectPart}/></div>
-      <div hidden={panel !== "lineage"}><section className={styles.recordSection}><header><Users size={17}/><div><span>A life in this world</span><small>Identity persists in the record after death</small></div></header><dl className={styles.rowList}><div><dt>Stable identity</dt><dd>{agent.label} · entry {agent.slotGeneration}</dd></div><div><dt>Time alive</dt><dd>{Math.floor(((agent.diedAt ?? world.tick) - agent.spawnedAt) * world.config.stepMinutes / 60)} modeled hours</dd></div></dl></section><SuccessionRecord world={world} agent={agent} onSelectAgent={onSelectAgent}/>{world.policyVersion === 3 && !world.config.continuity ? <p className={styles.emptyCopy}>This survival-only study does not give agents a next-generation objective. You can introduce a new life from Agents.</p> : null}</div>
+      <div hidden={panel !== "activity"}><PhysicalRecord agent={agent} onInspect={onInspectPart} onViewRecord={onViewRecord}/></div>
+      <div hidden={panel !== "lineage"}><section className={styles.recordSection}><header><Users size={17}/><div><span>A life in this world</span><small>Identity persists in the record after death</small></div></header><dl className={styles.rowList}><div><dt>Stable identity</dt><dd>{agent.label} · entry {agent.slotGeneration}</dd></div><div><dt>Time alive</dt><dd>{Math.floor(((agent.diedAt ?? world.tick) - agent.spawnedAt) * world.config.stepMinutes / 60)} modeled hours</dd></div></dl></section><SuccessionRecord world={world} agent={agent} onSelectAgent={onSelectAgent}/>{Boolean(world.physical) && !world.config.continuity ? <p className={styles.emptyCopy}>This survival-only study does not give agents a next-generation objective. You can introduce a new life from Agents.</p> : null}</div>
       {decision ? <section className={styles.recordSection} hidden={panel !== "activity"}>
         <header><Route size={17} /><div><span>Decision evidence</span><small>{decision.id} · {(world.tick - decision.decidedAt) * world.config.stepMinutes} modeled minutes ago</small></div></header>
         <p>{choice?.planActions?.map(humanize).join(" → ") ?? decision.recordedIntent}</p>

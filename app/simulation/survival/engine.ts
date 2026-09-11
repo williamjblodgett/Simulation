@@ -2,6 +2,11 @@ import { RESEARCH_CATALOG } from "./catalog";
 import { agePhysicalWorld, executeManipulation, freshPhysicalMind, freshPhysicalWorld, MATERIALS, protectionAt } from "./physical-world";
 import { completePhysicalOperation, learnPhysicalReading, planPhysicalKnowledge, preparePhysicalProjects } from "./physical-policy";
 import { validatePhysicalState } from "./physical-validation";
+import { freshDiscoveryMind } from "./discovery-types";
+import { discoveryInput } from "./discovery-boundary";
+import { prepareDiscovery } from "./discovery-policy";
+import { beginDiscoveryOperation, finishDiscoveryOperation, receiveDiscoveryTestimony } from "./discovery-outcomes";
+import { validateDiscoveryState } from "./discovery-validation";
 import { physicalNextPosition } from "./physical-navigation";
 import { findPrivateRoute, freshNavigation, privateSegmentClear } from "./private-navigation";
 import { MOVEMENT_ARRIVAL_RADIUS } from "./navigation-geometry";
@@ -270,7 +275,7 @@ function normalizeOptions(options: SurvivalRunOptions): SurvivalRunState["config
     throw new RangeError("Unknown climate volatility.");
   }
   return {
-    ...(options.policyVersion === 3 ? { continuity: options.continuity ?? false } : {}),
+    ...(options.policyVersion === 3 || options.policyVersion === 4 ? { continuity: options.continuity ?? false } : {}),
     initialAgentCount: requestedCount,
     agentCap: requestedCap,
     durationHours,
@@ -394,7 +399,8 @@ function makeAgent(
   const serial = state.nextIds.agent;
   const id = nextId(state, "agent");
   return {
-    ...(state.policyVersion === 3 ? { physicalMind: freshPhysicalMind() } : {}),
+    ...(state.policyVersion === 3 || state.policyVersion === 4 ? { physicalMind: freshPhysicalMind() } : {}),
+    ...(state.policyVersion === 4 ? { discovery: freshDiscoveryMind() } : {}),
     ...(state.survivalRevision ? { navigation: freshNavigation(), survivalRecord: freshSurvivalRecord(state.tick) } : {}),
     id,
     label: `A${slot}`,
@@ -456,10 +462,10 @@ export function createSurvivalRun(seedInput: SurvivalSeed, options: SurvivalRunO
   const config = normalizeOptions(options);
   const seed = survivalSeedToUint32(seedInput);
   const state: SurvivalRunState = {
-    ...(options.policyVersion === 3 ? { physical: freshPhysicalWorld() } : {}),
-    ...(options.policyVersion !== 3 || config.continuity ? { succession: { version: 1 as const, enabledAt: 0, plans: [] } } : {}),
+    ...(options.policyVersion === 3 || options.policyVersion === 4 ? { physical: freshPhysicalWorld() } : {}),
+    ...((options.policyVersion !== 3 && options.policyVersion !== 4) || config.continuity ? { succession: { version: 1 as const, enabledAt: 0, plans: [] } } : {}),
     policyVersion: options.policyVersion ?? 2,
-    schemaVersion: SURVIVAL_SCHEMA_VERSION,
+    schemaVersion: options.policyVersion === 4 ? 5 : SURVIVAL_SCHEMA_VERSION,
     survivalRevision: 1,
     id: `survival-${survivalHash(seed, "run").toString(36)}`,
     seed,
@@ -768,7 +774,7 @@ function perceive(state: SurvivalRunState, agent: SurvivalAgent): void {
           waterRadiusX: freshwaterVisualFootprint(site).radiusX, waterRadiusZ: freshwaterVisualFootprint(site).radiusZ,
           waterRotation: freshwaterVisualFootprint(site).rotation,
         } : {}),
-        ...(state.policyVersion === 3 && site.kind in MATERIALS ? { bulkDensity: MATERIALS[site.kind as keyof typeof MATERIALS].density, measurement: "Visible batch mass per bulk volume; strength and performance remain untested." } : {}),
+        ...((state.policyVersion === 3 || state.policyVersion === 4) && site.kind in MATERIALS ? { bulkDensity: MATERIALS[site.kind as keyof typeof MATERIALS].density, measurement: "Visible batch mass per bulk volume; strength and performance remain untested." } : {}),
       },
     });
     if (isNew) {
@@ -1365,13 +1371,24 @@ function planForDecision(
 }
 
 function deliberate(state: SurvivalRunState, agent: SurvivalAgent): void {
-  if (state.policyVersion === 2 || state.policyVersion === 3) {
+  if (state.policyVersion === 2 || state.policyVersion === 3 || state.policyVersion === 4) {
     // Observer-only telemetry is deliberately absent from all policy inputs.
     const policyAgent = { ...agent }; delete policyAgent.survivalRecord;
-    const input = { agent: policyAgent, tick: state.tick, seed: state.seed, bounds: state.environment.bounds };
+    const input = state.policyVersion === 4 ? discoveryInput(agent, state.tick, state.environment.bounds) : { agent: policyAgent, tick: state.tick, seed: state.seed, bounds: state.environment.bounds };
+    const previousDiscoveryDecision = agent.discovery?.decisions.at(-1)?.id;
     const priorNotes=new Set(agent.physicalMind?.projects.flatMap(p=>(p.history??[]).map(h=>`${p.id}:${h.tick}:${h.summary}`))??[]);
     if (state.policyVersion === 3) preparePhysicalProjects(input);
-    const choices = state.policyVersion === 3 ? planPhysicalKnowledge(input) : planFromPrivateKnowledge(input);
+    const choices = state.policyVersion === 4 ? prepareDiscovery(input) : state.policyVersion === 3 ? planPhysicalKnowledge(input) : planFromPrivateKnowledge(input);
+    if (state.policyVersion === 4) {
+      // Only explicit private planner outputs are committed. No mutable reference
+      // to the world, inventories, other minds or observer records entered policy.
+      agent.discovery = input.agent.discovery; agent.physicalMind = input.agent.physicalMind;
+      const observations=new Set(agent.observations.map(o=>o.id));for(const choice of choices)choice.candidate.knownObservationIds=choice.candidate.knownObservationIds.filter(id=>observations.has(id));
+      const record = agent.discovery?.decisions.at(-1);
+      if (record && record.id !== previousDiscoveryDecision) makeEvent(state, { type: "decision_recorded", category: "research", agentIds: [agent.id], summary: `${agent.label} compared protection alternatives.`, outcome: record.reason, position: agent.position,
+        facts: { operation: "discovery_comparison", discoveryDecisionId: record.id, goalId: record.goalId, projectId: agent.discovery?.active?.projectId ?? null,
+          selectedAlternative: record.selectedId, candidateSummary: JSON.stringify(record), truncatedCandidates: record.omitted, scoreMeaning: "Estimated survival value; uncertainty is not a probability." } });
+    }
     for(const project of agent.physicalMind?.projects??[])for(const note of project.history??[]){
       if(priorNotes.has(`${project.id}:${note.tick}:${note.summary}`))continue;
       makeEvent(state,{type:"action_outcome",category:"environment",agentIds:[agent.id],summary:`${agent.label}'s project was ${note.kind}.`,outcome:note.summary,position:project.position,facts:{operation:"project_update",projectId:project.id,projectStatus:project.status}});
@@ -1381,12 +1398,13 @@ function deliberate(state: SurvivalRunState, agent: SurvivalAgent): void {
       const decisionId = nextId(state, "decision");
       const evidence = agent.observations.filter(o => chosen.candidate.knownObservationIds.includes(o.id)).map(o => structuredClone(o));
       agent.currentDeliberation = {
-        ...(state.policyVersion===3?{physicalEvidenceSnapshot:structuredClone(agent.physicalMind?.readings.slice(-8)??[])}:{}),
+        ...(state.physical?{physicalEvidenceSnapshot:structuredClone(agent.physicalMind?.readings.slice(-8)??[])}:{}),
         id: decisionId, decidedAt: state.tick, selectedGoal: chosen.candidate.goal,
         policyVersion: state.policyVersion, candidates: choices.map(c => c.candidate), knownObservationIds: chosen.candidate.knownObservationIds,
         uncertainty: chosen.uncertainty, recordedIntent: chosen.candidate.summary, evidenceSnapshot: evidence,
       };
       agent.currentPlan = {
+        ...(state.policyVersion === 4 && chosen.projectId ? { discoveryProjectId: chosen.projectId } : {}),
         id: nextId(state, "plan"), decisionId, initialNeeds: { ...agent.needs }, initialInventory: { ...agent.inventory }, formedAt: state.tick,
         goal: chosen.candidate.goal, targetId: chosen.candidate.targetId,
         targetPosition: destinationForTarget(agent, chosen.candidate.targetId), status: "active", rationale: chosen.candidate.summary,
@@ -1395,6 +1413,7 @@ function deliberate(state: SurvivalRunState, agent: SurvivalAgent): void {
           if (action.resource) { step.resource = action.resource; step.amount = action.amount ?? 1; }
           if (action.experimentDose !== undefined) step.experimentDose = action.experimentDose;
           if (action.manipulation) step.manipulation = structuredClone(action.manipulation);
+          if (state.policyVersion===4 && action.arrivalRadius!==undefined) step.arrivalRadius=action.arrivalRadius;
           return step;
         }),
       };
@@ -1535,10 +1554,11 @@ function moveToward(state: SurvivalRunState, agent: SurvivalAgent, step: Surviva
   }
   step.destination = { ...destination };
   const remaining = distance(agent.position, destination);
+  const arrivalRadius=state.policyVersion===4 ? step.arrivalRadius??MOVEMENT_ARRIVAL_RADIUS : MOVEMENT_ARRIVAL_RADIUS;
   const water = freshwaterFeatures(state.environment);
-  const arrived = () => distance(agent.position, destination) <= MOVEMENT_ARRIVAL_RADIUS
+  const arrived = () => distance(agent.position, destination) <= arrivalRadius
     && (depthAt(water, destination) > 0 || depthAt(water, agent.position) === 0);
-  if (remaining <= MOVEMENT_ARRIVAL_RADIUS && arrived()) {
+  if (remaining <= arrivalRadius && arrived()) {
     finishStep(state, agent, step, true);
     return;
   }
@@ -1900,12 +1920,13 @@ function consentScore(
   resource?: "freshwater" | "food",
   amount = 1,
 ): number {
+  if (state.policyVersion === 4) responder = discoveryInput(responder, state.tick, state.environment.bounds).agent;
   if (action === "request" && resource) return evaluateDonation(responder, resource, amount).accepted ? Math.max(0.5, evaluateDonation(responder, resource, amount).score) : Math.min(0.49, evaluateDonation(responder, resource, amount).score);
   const relationship = relationshipFor(responder, proposer.id);
   const stableNeeds = (responder.needs.health + responder.needs.hydration + responder.needs.nutrition + responder.needs.safety) / 400;
   const surplus = Math.min(1, (responder.inventory.freshwater + responder.inventory.food) / 4);
   const actionBase = action === "share" ? 0.63 : action === "request" ? 0.28 + surplus * 0.35 : 0.36 + stableNeeds * 0.23;
-  const noise = survivalBetween(state.seed, -0.18, 0.18, "consent", state.tick, proposer.id, responder.id, action);
+  const noise = survivalBetween(state.policyVersion === 4 ? 0x4d31504f : state.seed, -0.18, 0.18, "consent", state.tick, proposer.id, responder.id, action);
   return rounded(clamp(actionBase + (relationship.trust - 50) / 180 + noise, 0, 1), 3);
 }
 
@@ -1961,7 +1982,7 @@ function performSocialAction(state: SurvivalRunState, agent: SurvivalAgent, step
   let aidDirection: "left_gave" | "right_gave" | "none" = "none";
   let outcomeSummary = `${other.label} refused the proposal.`;
   if (accepted && action === "share") {
-    const resource = evaluateDonation(agent, desiredResource, amount).accepted ? desiredResource : null;
+    const resource = evaluateDonation(state.policyVersion === 4 ? discoveryInput(agent, state.tick, state.environment.bounds).agent : agent, desiredResource, amount).accepted ? desiredResource : null;
     if (!resource) accepted = false;
     else {
       consumeMaterial(agent, resource, amount);
@@ -1970,7 +1991,7 @@ function performSocialAction(state: SurvivalRunState, agent: SurvivalAgent, step
       outcomeSummary = `${other.label} consented to receive one ${resource}.`;
     }
   } else if (accepted && action === "request") {
-    const resource = evaluateDonation(other, desiredResource, amount).accepted ? desiredResource : null;
+    const resource = evaluateDonation(state.policyVersion === 4 ? discoveryInput(other, state.tick, state.environment.bounds).agent : other, desiredResource, amount).accepted ? desiredResource : null;
     if (!resource) accepted = false;
     else {
       consumeMaterial(other, resource, amount);
@@ -1999,7 +2020,10 @@ function performSocialAction(state: SurvivalRunState, agent: SurvivalAgent, step
     }
   }
   if (!accepted) outcomeSummary = `${other.label} independently refused the proposal.`;
-  if(accepted&&action==="cooperate"&&state.physical){
+  if(accepted&&action==="cooperate"&&state.policyVersion===4){
+    const shared=other.discovery?.evidence.filter(e=>e.source==="personal").at(-1);
+    if(shared&&receiveDiscoveryTestimony(agent,shared,state.tick))outcomeSummary+=` ${other.label} reported one local measurement with its original evidence identity; it is not a new personal trial.`;
+  } else if(accepted&&action==="cooperate"&&state.physical){
     const demonstration=other.physicalMind?.readings.filter(r=>r.source==="test"&&!agent.physicalMind?.readings.some(own=>own.partId===r.partId&&own.tick===r.tick)).at(-1);
     if(demonstration){learnPhysicalReading(agent,{...structuredClone(demonstration),id:`physical-demo-${agent.id}-${state.tick}-${other.id}`,observerId:agent.id,originalObserverId:other.id,receivedAt:state.tick,source:"demonstration",confidence:0.55,summary:`${other.label} reported: ${demonstration.summary} This is testimony, not a personally repeated test.`});outcomeSummary+=` ${other.label} also shared one measured result; the recipient retains its own model.`;}
   }
@@ -2040,9 +2064,14 @@ function executePlanStep(state: SurvivalRunState, agent: SurvivalAgent): void {
   }
   if (state.physical && step.manipulation) {
     const project=agent.physicalMind?.projects.find(p=>p.status==="active");
-    const result = executeManipulation(state.physical,agent,step.manipulation,state.environment,state.tick,state.agents.filter(a=>a.alive).map(a=>a.position));
-    completePhysicalOperation(agent,step.manipulation,result.ok,result.partId,state.tick,result.effort,result.summary);
-    if(result.reading) learnPhysicalReading(agent,result.reading);
+    if(state.policyVersion===4){const input=discoveryInput(agent,state.tick,state.environment.bounds);beginDiscoveryOperation(input,step.manipulation);agent.discovery=input.agent.discovery;}
+    const prediction = state.policyVersion===4&&step.manipulation.kind==="test" ? agent.discovery?.experiments.find(e=>e.projectId===project?.id&&e.status==="running"&&e.metric===(step.manipulation!.kind==="test"&&step.manipulation!.measure==="load"?"support":"protection")) : null;
+    const preActionPrediction=prediction?structuredClone(prediction):null;
+    const result = executeManipulation(state.physical,agent,step.manipulation,state.environment,state.tick,state.agents.filter(a=>a.alive).map(a=>a.position),state.policyVersion===4);
+    const discoveryEvidence=state.policyVersion===4?finishDiscoveryOperation(agent,step.manipulation,result,state.tick):null;
+    if(state.policyVersion!==4){completePhysicalOperation(agent,step.manipulation,result.ok,result.partId,state.tick,result.effort,result.summary);if(result.reading)learnPhysicalReading(agent,result.reading);}
+    if(discoveryEvidence)makeEvent(state,{type:"experiment",category:"research",agentIds:[agent.id],summary:`${agent.label} measured ${discoveryEvidence.metric}.`,outcome:agent.discovery?.experiments.find(e=>e.id===discoveryEvidence.experimentId)?.result??discoveryEvidence.interpretation,position:agent.position,
+      facts:{operation:"discovery_measurement",projectId:project?.id??null,goalId:preActionPrediction?.goalId??null,evidenceId:discoveryEvidence.id,originalEvidenceId:discoveryEvidence.originalId,experimentId:discoveryEvidence.experimentId,preActionPrediction:JSON.stringify(preActionPrediction),measurement:JSON.stringify(discoveryEvidence),success:result.ok}});
     recordOutcome(state,agent,step.action,result.partId,result.ok,-result.effort,result.summary);
     makeEvent(state,{type:result.reading?"experiment":"action_outcome",category:result.reading?"research":"environment",agentIds:[agent.id],summary:`${agent.label} attempted ${step.manipulation.kind}.`,outcome:result.summary,position:agent.position,facts:{operation:step.manipulation.kind,partId:result.partId??("partId"in step.manipulation?step.manipulation.partId:null),decisionId:agent.currentDeliberation?.id??null,projectId:project?.id??null,projectStatus:project?.status??null,success:result.ok,effort:result.effort,control:result.reading?.before??null,measured:result.reading?.after??null}});
     finishStep(state,agent,step,result.ok);
@@ -2145,8 +2174,8 @@ function livingAgents(state: SurvivalRunState): SurvivalAgent[] {
 }
 
 function enableSuccession(state: SurvivalRunState): void {
-  if(state.policyVersion===3&&!state.config.continuity)return;
-  state.schemaVersion = state.survivalRevision ? SURVIVAL_SCHEMA_VERSION : state.policyVersion === 3 ? 3 : 2;
+  if((state.policyVersion===3||state.policyVersion===4)&&!state.config.continuity)return;
+  state.schemaVersion = state.schemaVersion===5 ? 5 : state.survivalRevision ? SURVIVAL_SCHEMA_VERSION : state.policyVersion === 3 ? 3 : 2;
   if (state.succession) return;
   state.succession = { version: 1, enabledAt: state.tick, plans: [] };
   makeEvent(state, {
@@ -2168,7 +2197,7 @@ function reviewSuccession(state: SurvivalRunState, agent: SurvivalAgent): void {
   if (!predecessorId) return;
   const predecessor = state.agents.find(other => other.id === predecessorId);
   if (!predecessor || (predecessorId !== agent.id && predecessor.alive)) return;
-  const review = evaluateSuccession(agent, state.tick, predecessorId);
+  const review = evaluateSuccession(state.policyVersion===4?discoveryInput(agent,state.tick,state.environment.bounds).agent:agent, state.tick, predecessorId);
   const requestedChoice = review.choice;
   // Admission is an execution result, not secret knowledge fed into preference.
   if (review.choice === "planned") {
@@ -2269,7 +2298,7 @@ function advanceOneStep(state: SurvivalRunState): void {
   state.timeOfDay = state.elapsedMinutes % (24 * 60);
   updateEnvironment(state);
   if (!state.survivalRevision) {
-    state.survivalRevision=1;state.schemaVersion=SURVIVAL_SCHEMA_VERSION;
+    state.survivalRevision=1;if(state.schemaVersion!==5)state.schemaVersion=SURVIVAL_SCHEMA_VERSION;
     for(const agent of state.agents.filter(a=>a.alive)){agent.navigation=freshNavigation();agent.survivalRecord=freshSurvivalRecord(state.tick);}
     makeEvent(state,{type:"action_outcome",category:"run",agentIds:[],summary:"Survival planning and route recovery were updated.",outcome:"New decisions use complete need-restoration plans, private routes and refusal-aware forecasts. Earlier records and deaths are unchanged.",facts:{survivalRevision:1}});
   }
@@ -2296,7 +2325,7 @@ function advanceOneStep(state: SurvivalRunState): void {
     if(agent.physicalMind && agent.physicalMind.namedAt===null && state.tick-agent.spawnedAt>=6 && Math.min(agent.needs.hydration,agent.needs.nutrition,agent.needs.energy)>55){
       const seen=agent.observations.filter(o=>o.kind==="resource").sort((a,b)=>a.id.localeCompare(b.id));
       if(seen.length){const syllables=["Ara","Bel","Cai","Dara","Eli","Fen","Ira","Kai","Luma","Mira","Neri","Ori","Ren","Sola","Tavi","Una"];
-        const personal=survivalHash(state.seed,agent.id,...seen.map(o=>o.subjectId));agent.name=syllables[personal%syllables.length]+["n","ra","el","i","on","a"][Math.floor(personal/16)%6];
+        const personal=survivalHash(state.policyVersion===4?0x4d31504f:state.seed,agent.id,...seen.map(o=>o.subjectId));agent.name=syllables[personal%syllables.length]+["n","ra","el","i","on","a"][Math.floor(personal/16)%6];
         agent.physicalMind.namedAt=state.tick;agent.physicalMind.nameEvidence=seen.slice(0,4).map(o=>o.id);
         makeEvent(state,{type:"action_outcome",category:"agent",agentIds:[agent.id],summary:`${agent.label} adopted the name ${agent.name}.`,outcome:"A local naming decision derived from this life’s observed environment; the stable ID is unchanged.",position:agent.position,facts:{name:agent.name,mechanism:"bounded local name generation, not language-model reasoning"}});
       }
@@ -2308,14 +2337,16 @@ function advanceOneStep(state: SurvivalRunState): void {
     // The replacement destination still comes from the private planner, not the observer.
     if (depth > 0 && agent.currentPlan?.status === "active" && (pending?.action !== "move"
       || ((agent.needs.energy < 18 || agent.needs.warmth < 18) && agent.currentPlan.goal !== "seek_safety"))) agent.currentPlan.status = "abandoned";
-    if (agent.currentPlan?.status === "active" && shouldAbandonForUrgency(agent,state.tick,state.environment.bounds)) {
+    if (agent.currentPlan?.status === "active" && shouldAbandonForUrgency(state.policyVersion===4?discoveryInput(agent,state.tick,state.environment.bounds).agent:agent,state.tick,state.environment.bounds)) {
       agent.currentPlan.status = "abandoned";
     }
+    if (agent.discovery?.active && agent.currentPlan?.discoveryProjectId === agent.discovery.active.projectId && (agent.discovery.active.spentTicks >= 36 || agent.discovery.active.spentEffort >= 10)) agent.currentPlan.status = "abandoned";
     if (!agent.currentPlan || agent.currentPlan.status !== "active") {
       deliberate(state, agent);
     }
     const beforeMove = { ...agent.position };
     const experiencedAction=agent.currentPlan?.steps[agent.currentPlan.activeStepIndex]?.action;
+    if (agent.discovery?.active && agent.currentPlan?.discoveryProjectId === agent.discovery.active.projectId) agent.discovery.active.spentTicks++;
     executePlanStep(state, agent);
     if(state.physical&&agent.physicalMind&&experiencedAction&&["rest","shelter","warm"].includes(experiencedAction)&&depthAt(water,agent.position)===0){
       const protection=protectionAt(state.physical,agent.position,state.environment.weather);
@@ -2353,7 +2384,7 @@ function advanceOneStep(state: SurvivalRunState): void {
  * object is never mutated, which makes checkpoint/replay comparisons simple.
  */
 export function advanceSurvivalRun(stateInput: SurvivalRunState, steps = 1): SurvivalAdvanceResult {
-  if (stateInput.policyVersion !== 2 && stateInput.policyVersion !== 3) return advanceBaseline(stateInput, steps);
+  if (stateInput.policyVersion !== 2 && stateInput.policyVersion !== 3 && stateInput.policyVersion !== 4) return advanceBaseline(stateInput, steps);
   if (!Number.isInteger(steps) || steps < 0) throw new RangeError("steps must be a non-negative integer.");
   const state = cloneState(stateInput);
   const generatedEvents: SurvivalEvent[] = [];
@@ -2394,7 +2425,7 @@ export function addObserverAgent(stateInput: SurvivalRunState): AddObserverAgent
     state.soleSurvivor = {
       epoch: state.soleSurvivor.epoch,
       previousLivingCount: 1,
-      agentId: state.policyVersion !== 2 && state.policyVersion !== 3 && state.config.agentCap > 1 ? agent.id : null,
+      agentId: state.policyVersion !== 2 && state.policyVersion !== 3 && state.policyVersion !== 4 && state.config.agentCap > 1 ? agent.id : null,
       decidedAt: null,
       decision: null,
       rationale: null,
@@ -2484,11 +2515,13 @@ function isNeedSet(value: unknown): value is SurvivalNeeds {
 
 export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
   if (!isRecord(value) || !isJsonSafe(value)) return false;
-  if (value.policyVersion !== undefined && value.policyVersion !== 1 && value.policyVersion !== 2 && value.policyVersion !== 3) return false;
-  if (value.schemaVersion!==1&&value.schemaVersion!==2&&value.schemaVersion!==3&&value.schemaVersion!==4) return false;
+  if (value.policyVersion !== undefined && value.policyVersion !== 1 && value.policyVersion !== 2 && value.policyVersion !== 3 && value.policyVersion !== 4) return false;
+  if (value.schemaVersion!==1&&value.schemaVersion!==2&&value.schemaVersion!==3&&value.schemaVersion!==4&&value.schemaVersion!==5) return false;
   // A fenced pre-update backup uses format 4 without claiming the rules have
   // already been adopted. Its next advancing tick performs the audited adoption.
-  if(value.schemaVersion===4){if((value.survivalRevision!==undefined&&value.survivalRevision!==1)||(value.policyVersion!==2&&value.policyVersion!==3))return false;}
+  if(value.policyVersion===4){if(value.schemaVersion!==5||value.survivalRevision!==1)return false;}
+  else if(value.schemaVersion===5){if(![2,3].includes(Number(value.policyVersion))||(value.survivalRevision!==undefined&&value.survivalRevision!==1))return false;}
+  else if(value.schemaVersion===4){if((value.survivalRevision!==undefined&&value.survivalRevision!==1)||(value.policyVersion!==2&&value.policyVersion!==3))return false;}
   else if(value.survivalRevision!==undefined || (value.policyVersion === 3 ? value.schemaVersion !== 3 : value.schemaVersion === 3 || (value.schemaVersion === 2 && value.policyVersion !== 2))) return false;
   if (!isRecord(value.config) || !isRecord(value.environment) || !isRecord(value.stats) || !isRecord(value.nextIds) || !isRecord(value.soleSurvivor) || !isRecord(value.eventWindow)) return false;
   if (!Array.isArray(value.agents) || !Array.isArray(value.events)) return false;
@@ -2713,6 +2746,7 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
       if (!Array.isArray(rawAgent.currentPlan.steps) || !(rawAgent.currentPlan.targetPosition === null || isPosition(rawAgent.currentPlan.targetPosition, bounds))) return false;
       if (!Number.isInteger(rawAgent.currentPlan.activeStepIndex) || Number(rawAgent.currentPlan.activeStepIndex) < 0 || Number(rawAgent.currentPlan.activeStepIndex) > rawAgent.currentPlan.steps.length) return false;
       for (const rawStep of rawAgent.currentPlan.steps) {
+        if (isRecord(rawStep) && rawStep.arrivalRadius!==undefined && (value.policyVersion!==4 || rawStep.action!=="move" || !isFiniteNumber(rawStep.arrivalRadius,.1,MOVEMENT_ARRIVAL_RADIUS)))return false;
         if (isRecord(rawStep) && rawStep.experimentDose !== undefined && !isFiniteNumber(rawStep.experimentDose, 0, 1)) return false;
         if (isRecord(rawStep) && rawStep.resource !== undefined && rawStep.resource !== "freshwater" && rawStep.resource !== "food") return false;
         if (isRecord(rawStep) && rawStep.amount !== undefined && !isFiniteNumber(rawStep.amount, Number.EPSILON, 5)) return false;
@@ -2743,6 +2777,7 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
   if (livingSlots.size > Number(config.agentCap)) return false;
   if (!validateSuccessionState(value as unknown as SurvivalRunState)) return false;
   if (!validatePhysicalState(value as unknown as SurvivalRunState)) return false;
+  if (!validateDiscoveryState(value as unknown as SurvivalRunState)) return false;
   if (!validateSurvivalExperience(value as unknown as SurvivalRunState)) return false;
 
   const eventIds = new Set<string>();
@@ -2830,7 +2865,7 @@ export function validateSurvivalRun(value: unknown): value is SurvivalRunState {
 function validateSuccessionState(state: SurvivalRunState): boolean {
   const { succession, agents, tick } = state;
   if (succession === undefined) return agents.every(a => a.lineage === undefined && a.successionReview === undefined && a.knownSuccessionPredecessors === undefined && a.spawnSource !== "autonomous_successor");
-  if ((state.policyVersion !== 2 && state.policyVersion !== 3) || !isRecord(succession) || succession.version !== 1 || !isNonNegativeInteger(succession.enabledAt) || succession.enabledAt > tick || !Array.isArray(succession.plans) || succession.plans.length > agents.length) return false;
+  if ((state.policyVersion !== 2 && state.policyVersion !== 3 && state.policyVersion !== 4) || !isRecord(succession) || succession.version !== 1 || !isNonNegativeInteger(succession.enabledAt) || succession.enabledAt > tick || !Array.isArray(succession.plans) || succession.plans.length > agents.length) return false;
   const byId = new Map(agents.map(a => [a.id, a]));
   const evidenceValid = (value: unknown, owner: SurvivalAgent, when: number) => Array.isArray(value) && value.length <= 5 && new Set(value.map(o => o?.id)).size === value.length && value.every(o =>
     isRecord(o) && typeof o.id === "string" && o.observerId === owner.id && typeof o.subjectId === "string" && ["agent","resource","weather","structure"].includes(String(o.kind))

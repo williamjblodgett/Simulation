@@ -1,0 +1,60 @@
+{
+  "started": "2026-09-11T01:08:41.263Z",
+  "sourceBaseline": "b1473b10596b2e7f252c40f0af94e95b473b06a2",
+  "sourceFingerprint": "1263f524125117acaa60b6653a1fefd9a4bd0a2f4c2e9e79b2af95a40edcf1a4",
+  "environment": "Node on Windows desktop; shared-host wall time, not browser FPS or isolated CPU performance. A run, not each agent, is a trial.",
+  "protocol": "DISCOVERY_EVALUATION.md",
+  "results": [
+    {
+      "seed": "discovery-dev-long-4",
+      "agentCount": 1,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "harsh",
+      "durationHours": 168,
+      "mode": "directed",
+      "pressure": false,
+      "status": "completed",
+      "tick": 1008,
+      "survivors": 1,
+      "deaths": [],
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "failedOperations": 0,
+      "parts": 2,
+      "materialInParts": 1.4554799644422824,
+      "spent": {
+        "freshwater": 0
+      },
+      "damagedMaterial": 0,
+      "measuredTests": 3,
+      "testEffort": 1.7999999999999998,
+      "adaptations": 1,
+      "transferredProcedures": 0,
+      "procedures": 2,
+      "actualPhysicalTests": 3,
+      "physicalWorkEnergy": 6.2,
+      "gathered": null,
+      "consumedWater": 32,
+      "consumedFood": 11,
+      "unconfirmedParts": 0,
+      "preventability": "Not assigned from cause labels; only paired outcomes and recorded feasible alternatives support a preventability review.",
+      "supportMeasurements": 0,
+      "predictionRMSE": 0.06767396101050419,
+      "expansions": 1255886,
+      "valid": true,
+      "wallMs": 102760,
+      "stepP50": 110.44139999999607,
+      "stepP95": 218.34440000000177,
+      "maxStep": 417.2046,
+      "startBytes": 7675,
+      "maxCheckpointBytes": 1381510,
+      "residentBytes": 358588416,
+      "heapBytes": 50204456,
+      "failure": null,
+      "instrumentationNotes": [
+        "Collected quantity is unavailable: the action event contract does not include amount. Drink/meal values count confirmed actions, not mass.",
+        "Adaptations counts reconsiderations after evidence; it does not prove the change was useful. RepeatedBlocked counts repeated failure signatures, not a causal diagnosis."
+      ]
+    }
+  ]
+}

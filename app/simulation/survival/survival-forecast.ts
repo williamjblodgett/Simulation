@@ -55,6 +55,7 @@ export function planNeedsRepair(agent: SurvivalAgent, tick: number, bounds?: Sur
   const conditions = rememberedConditions(agent, tick), deadline = timeToHarm(agent.needs, conditions);
   if (deadline === null) return false;
   const needs = { ...agent.needs }, inventory = { ...agent.inventory };
+  const waiting = { ...agent.needs };
   let position = { ...agent.position }, elapsed = 0;
   const water = observedWater(agent.observations);
   for (const step of plan.steps.slice(plan.activeStepIndex)) {
@@ -69,8 +70,14 @@ export function planNeedsRepair(agent: SurvivalAgent, tick: number, bounds?: Sur
     }
     for (let i = 0; i < duration; i++) {
       // The current tick's physiological drift has already occurred before deliberation.
-      if (elapsed > 0) driftNeeds(needs, rememberedConditions(agent, tick, position));
-      if (needs.health < agent.needs.health) return true;
+      if (elapsed > 0) {
+        driftNeeds(needs, rememberedConditions(agent, tick, position));
+        if (agent.discovery) driftNeeds(waiting, conditions);
+      }
+      // Legacy studies retain their original interruption rule. Policy 4 must
+      // not cancel every recovery journey merely because injury already exists.
+      // Compare the complete remaining plan with staying exposed, below.
+      if (needs.health <= 0 || (!agent.discovery && needs.health < agent.needs.health)) return true;
       elapsed++;
       if (elapsed > 40) return deadline < elapsed;
     }
@@ -86,8 +93,20 @@ export function planNeedsRepair(agent: SurvivalAgent, tick: number, bounds?: Sur
     if (step.action === "eat" && inventory.food >= 1) { inventory.food--; needs.nutrition = clip(needs.nutrition + (agent.technologies.includes("food_smoking") ? 32 : 27)); }
     if (step.action === "rest") { needs.energy = clip(needs.energy + 13 * duration); needs.health = clip(needs.health + 0.35 * duration); }
     if (step.action === "warm") needs.warmth = clip(needs.warmth + (conditions.daylight > 0.35 ? 9 : 3));
-    if (step.action === "shelter") { needs.warmth = clip(needs.warmth + 2 + (conditions.protection ?? 0) * 3); needs.safety = clip(needs.safety + (conditions.protection ?? 0) * 2); }
+    if (step.action === "shelter") {
+      const local = agent.discovery ? rememberedConditions(agent, tick, position) : conditions;
+      needs.warmth = clip(needs.warmth + 2 + (local.protection ?? 0) * 3); needs.safety = clip(needs.safety + (local.protection ?? 0) * 2);
+    }
     // A refusal branch has no transfer. A request alone cannot certify survival.
+  }
+  if (agent.discovery) {
+    // Equal, bounded private forecast; no future weather or hypothetical world
+    // evaluation. Retain a viable recovery chain that reduces the injury, even
+    // when it cannot undo existing damage before the next tick.
+    const local = rememberedConditions(agent, tick, position);
+    for (let i = elapsed; i < 36; i++) { driftNeeds(needs, local); driftNeeds(waiting, conditions); }
+    if (needs.health <= 0) return true;
+    if (needs.health > 0 && needs.health > waiting.health + .1) return false;
   }
   const afterDeadline = timeToHarm(needs, rememberedConditions(agent, tick, position));
   return deadline <= Math.max(6, elapsed + 2) && (afterDeadline ?? Infinity) <= Math.max(2, deadline - elapsed + 1);

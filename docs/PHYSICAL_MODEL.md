@@ -1,8 +1,13 @@
 # Physical survival model (policy 3)
 
+This document describes the **preserved policy-3 behavior**. New UI studies in
+the current working tree use policy 4/schema 5; its runtime sensing boundary,
+local measurements and learning rules are documented in
+[Milestone 1](DISCOVERY_MILESTONE_1.md). No existing study is converted to policy 4.
+
 ## Version and observation boundary
 
-The new-run UI explicitly selects policy 3/format 4. The public engine constructor
+The preceding release's new-run UI selected policy 3/format 4. The public engine constructor
 continues to default to policy 2 for existing integrations. Existing policies 1/2
 are never converted into the new decision model on load. The same IndexedDB,
 single-writer lease, revision checks, worker and event archive remain authoritative.

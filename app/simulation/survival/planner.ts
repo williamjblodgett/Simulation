@@ -17,6 +17,7 @@ export interface PrivatePolicyInput {
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 }
 export interface PlannedAction {
+  arrivalRadius?: number;
   manipulation?: import("./physical-types").Manipulation;
   experimentDose?: number;
   action: SurvivalActionKind;
@@ -27,6 +28,8 @@ export interface PlannedAction {
   amount?: number;
 }
 export interface LocalPlanChoice {
+  searchExpansions?: number;
+  discoveryId?: string;
   projectId?: string;
   candidate: AgentDecisionCandidate;
   actions: PlannedAction[];
@@ -186,7 +189,7 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
           if(!observed||tick-place.tick>288||depthAt(water,place.position)>0)continue;
           const estimate=rememberedProtection(agent,place.position,tick,conditions.weather);
           const distance=dist(parent.position,place.position);
-          if(distance>1.1)add(`use-${place.partId}`,{action:"move",targetId:place.partId,destination:place.position,duration:Math.max(1,Math.ceil(distance/7.5))},"seek_safety","Return to a personally tested or experienced protective place; weather and condition may have changed.",n=>{n.position={...place.position};n.protection=estimate;n.needs.energy=clip(n.needs.energy-distance/7.5*.34);},observed);
+          if(distance>(agent.discovery ? .2 : 1.1))add(`use-${place.partId}`,{action:"move",targetId:place.partId,destination:place.position,duration:Math.max(1,Math.ceil(distance/7.5)),...(agent.discovery?{arrivalRadius:.2}:{})},"seek_safety","Return to a personally tested or experienced protective place; weather and condition may have changed.",n=>{n.position={...place.position};n.protection=estimate;n.needs.energy=clip(n.needs.energy-distance/7.5*.34);},observed);
           else if(estimate>(parent.protection??0))add(`use-rest-${place.partId}`,simple("rest",2),"recover","Rest at the remembered protective arrangement and observe how it performs.",n=>{n.protection=estimate;n.needs.energy=clip(n.needs.energy+26);n.needs.health=clip(n.needs.health+.7);},observed);
         }
       }
@@ -300,6 +303,7 @@ export function planFromPrivateKnowledge(input: PrivatePolicyInput): LocalPlanCh
     if (!unique.has(key)) unique.set(key, node);
   }
   return [...unique.values()].slice(0, 8).map(node => ({
+    searchExpansions: expansions,
     candidate: { goal: node.goal, targetId: node.targetId, score: round(rank(node)), expectedBenefit: round(survivalPotential(node.needs, node.inventory) - initialValue), risk: round(node.risk), knownObservationIds: [...new Set(node.evidence)], summary: node.summary, predictedSteps: node.elapsed, predictedSurvival: round(rank(node) - node.informationValue), planActions: node.actions.map(a => a.action) },
     actions: node.actions,
     uncertainty: round(clip(node.risk / 12 + node.informationValue / 25, 0.05, 0.95)),

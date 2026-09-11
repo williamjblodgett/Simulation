@@ -1,0 +1,66 @@
+{
+  "started": "2026-09-11T00:57:18.443Z",
+  "sourceBaseline": "b1473b10596b2e7f252c40f0af94e95b473b06a2",
+  "sourceFingerprint": "1206641ae01a1c27b66ccc89b10452694a637182b08fdb84a932bf479ba59474",
+  "environment": "Node on Windows desktop; shared-host wall time, not browser FPS or isolated CPU performance. A run, not each agent, is a trial.",
+  "protocol": "DISCOVERY_EVALUATION.md",
+  "results": [
+    {
+      "seed": "discovery-dev-long-4",
+      "agentCount": 1,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "harsh",
+      "durationHours": 168,
+      "mode": "directed",
+      "pressure": false,
+      "status": "extinct",
+      "tick": 726,
+      "survivors": 0,
+      "deaths": [
+        {
+          "id": "agent-1",
+          "cause": "environmental injury",
+          "hour": 121
+        }
+      ],
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "failedOperations": 0,
+      "parts": 1,
+      "materialInParts": 0.9231156318552074,
+      "spent": {
+        "freshwater": 0
+      },
+      "damagedMaterial": 0,
+      "measuredTests": 1,
+      "testEffort": 0.6,
+      "adaptations": 0,
+      "transferredProcedures": 0,
+      "procedures": 1,
+      "actualPhysicalTests": 1,
+      "physicalWorkEnergy": 2.8,
+      "gathered": null,
+      "consumedWater": 22,
+      "consumedFood": 8,
+      "unconfirmedParts": 0,
+      "preventability": "Not assigned from cause labels; only paired outcomes and recorded feasible alternatives support a preventability review.",
+      "supportMeasurements": 0,
+      "predictionRMSE": 0.0870752389945133,
+      "expansions": 679123,
+      "valid": true,
+      "wallMs": 24094,
+      "stepP50": 28.23349999999982,
+      "stepP95": 87.55340000000069,
+      "maxStep": 115.68479999999909,
+      "startBytes": 7675,
+      "maxCheckpointBytes": 1163013,
+      "residentBytes": 340168704,
+      "heapBytes": 81408808,
+      "failure": null,
+      "instrumentationNotes": [
+        "Collected quantity is unavailable: the action event contract does not include amount. Drink/meal values count confirmed actions, not mass.",
+        "Adaptations counts reconsiderations after evidence; it does not prove the change was useful. RepeatedBlocked counts repeated failure signatures, not a causal diagnosis."
+      ]
+    }
+  ]
+}

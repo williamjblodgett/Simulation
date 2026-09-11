@@ -1,0 +1,54 @@
+{
+  "started": "2026-09-10T21:40:58.024Z",
+  "sourceBaseline": "b1473b10596b2e7f252c40f0af94e95b473b06a2",
+  "environment": "Node on Windows desktop, not browser FPS. A run, not each agent, is a trial.",
+  "protocol": "DISCOVERY_EVALUATION.md",
+  "results": [
+    {
+      "seed": "discovery-dev-cold-2",
+      "agentCount": 1,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "harsh",
+      "durationHours": 72,
+      "mode": "directed",
+      "pressure": true,
+      "status": "extinct",
+      "tick": 324,
+      "survivors": 0,
+      "deaths": [
+        {
+          "id": "agent-1",
+          "cause": "environmental injury",
+          "hour": 54
+        }
+      ],
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "failedOperations": 0,
+      "parts": 1,
+      "materialInParts": 0.30252487607687606,
+      "spent": {
+        "freshwater": 0
+      },
+      "damagedMaterial": 0,
+      "measuredTests": 2,
+      "testEffort": 1.2,
+      "adaptations": 2,
+      "transferredProcedures": 0,
+      "procedures": 0,
+      "supportMeasurements": 0,
+      "predictionRMSE": 0.05166163498905289,
+      "expansions": 332647,
+      "valid": true,
+      "wallMs": 13187,
+      "stepP50": 38.8849999999984,
+      "stepP95": 75.27570000000014,
+      "maxStep": 146.32580000000053,
+      "startBytes": 7686,
+      "maxCheckpointBytes": 1066189,
+      "residentBytes": 325525504,
+      "heapBytes": 85348840,
+      "failure": null
+    }
+  ]
+}

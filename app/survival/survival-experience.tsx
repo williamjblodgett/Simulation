@@ -66,6 +66,7 @@ function BottomNavigation({ view, onChange }: { view: AppView; onChange(view: Ap
 function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }: { methodHref?: string; planetHref?: string }) {
   const runtime = useSurvivalRuntime();
   const [view, setView] = useState<AppView>("world");
+  const [linkedRecord, setLinkedRecord] = useState<{id:string;sequence:number}|null>(null);
   const { selectedId, setSelectedId } = useObserverSelection(runtime.runInstanceId);
   const [sheetLevel, setSheetLevel] = useState<InspectorLevel>("peek");
   const [cameraMode, setCameraMode] = useState<HabitatCameraMode>("overview");
@@ -163,6 +164,12 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
     setSheetLevel("peek");
   }
 
+  function viewRecord(id:string) {
+    runtime.freezeHistory();
+    setLinkedRecord(current => ({id,sequence:(current?.sequence??0)+1}));
+    navigate("timeline");
+  }
+
   function locateEvent(event: SurvivalEvent) {
     setSelectedPartId(null);
     setSheetLevel("peek");
@@ -225,17 +232,17 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
         </div>
         {manualCamera && selectedAgent?.alive ? <button type="button" className={styles.returnFollow} onClick={() => { setFocusPosition(null); setCameraMode("follow"); setManualCamera(false); }}><Eye size={16} /> Return to {selectedAgent.label}</button> : null}
         {miniMapOpen ? <MiniMap world={world} selectedId={effectiveSelectedId} onSelect={(id) => { selectAgent(id, true); setMiniMapOpen(false); }} onLandscape={() => { setFocusPosition(null); setCameraMode("habitat"); setManualCamera(false); setMiniMapOpen(false); }}/> : null}
-        {partsOpen?<section className={`${styles.miniMap} ${styles.constructionShelf}`} aria-label="Constructions"><header><h2>Constructions</h2><button aria-label="Close constructions" onClick={()=>setPartsOpen(false)}><X size={18}/></button></header><p>Solid forms are built. Blue dashed outlines are proposals, not completed work.</p>{world.physical?.parts.length?<div>{world.physical.parts.map(p=>{const r=constructionRecord(world,p.id)!;return <button key={p.id} onClick={()=>inspectPart(p.id)}><strong>{humanize(r.title)}</strong><span>{r.maker?.label} · {r.status} · part {p.id.replace("part-","")}</span></button>;})}</div>:<p>{world.policyVersion===3?"No parts have been constructed yet. Agents choose whether a project is worth pursuing.":"This saved study uses the earlier building model. New runs use physical construction; your current study will stay archived."}</p>}</section>:null}
+        {partsOpen?<section className={`${styles.miniMap} ${styles.constructionShelf}`} aria-label="Constructions"><header><h2>Constructions</h2><button aria-label="Close constructions" onClick={()=>setPartsOpen(false)}><X size={18}/></button></header><p>Solid forms are built. Blue dashed outlines are proposals, not completed work.</p>{world.physical?.parts.length?<div>{world.physical.parts.map(p=>{const r=constructionRecord(world,p.id)!;return <button key={p.id} onClick={()=>inspectPart(p.id)}><strong>{humanize(r.title)}</strong><span>{r.maker?.label} · {r.status} · part {p.id.replace("part-","")}</span></button>;})}</div>:<p>{world.physical?"No parts have been constructed yet. Agents choose whether a project is worth pursuing.":"This saved study uses the earlier building model. New runs use physical construction; your current study will stay archived."}</p>}</section>:null}
 
         {selectedAgent ? <div className={styles.agentSheet} data-level={sheetLevel}>
           <div className={styles.sheetDragZone} onPointerDown={sheetPointerDown} onPointerUp={sheetPointerUp} onPointerCancel={() => { sheetDragRef.current = null; }} />
           <AgentRail world={world} selectedId={effectiveSelectedId} onSelect={selectFromRail} />
-          {selectedPartId?<ConstructionInspector world={world} id={selectedPartId} level={sheetLevel} onLevelChange={setSheetLevel} onBack={()=>selectAgent(selectedAgent.id,selectedAgent.alive)}/>:<AgentInspector world={world} agent={selectedAgent} level={sheetLevel} onLevelChange={setSheetLevel} onInspectPart={inspectPart} onSelectAgent={(id) => { const nextAgent = world.agents.find((agent) => agent.id === id); selectAgent(id, Boolean(nextAgent?.alive)); }} onHandlePointerDown={sheetPointerDown} onHandlePointerUp={sheetPointerUp} />}
+          {selectedPartId?<ConstructionInspector world={world} id={selectedPartId} level={sheetLevel} onLevelChange={setSheetLevel} onBack={()=>selectAgent(selectedAgent.id,selectedAgent.alive)}/>:<AgentInspector world={world} agent={selectedAgent} level={sheetLevel} onLevelChange={setSheetLevel} onInspectPart={inspectPart} onViewRecord={viewRecord} onSelectAgent={(id) => { const nextAgent = world.agents.find((agent) => agent.id === id); selectAgent(id, Boolean(nextAgent?.alive)); }} onHandlePointerDown={sheetPointerDown} onHandlePointerUp={sheetPointerUp} />}
         </div> : null}
       </section>
 
       <div className={styles.viewLayer} hidden={view !== "agents"}><AgentsView world={world} selectedId={effectiveSelectedId} onInspect={(agent) => { setSelectedId(agent.id); setDirectoryInspectorOpen(true); }} onViewInWorld={(agent) => { selectAgent(agent.id, true); setSheetLevel("half"); navigate("world"); }} /></div>
-      <div className={styles.viewLayer} hidden={view !== "timeline"}><TimelineView key={runtime.runInstanceId} world={world} onLocate={locateEvent} events={runtime.historyEvents} archiveStatus={runtime.archiveStatus} hasOlderEvents={runtime.hasOlderEvents} historyFrozen={runtime.historyFrozen} onFreezeHistory={runtime.freezeHistory} onReturnLive={runtime.returnLiveHistory} onLoadOlder={runtime.loadOlderEvents} onExport={runtime.exportHistory} /></div>
+      <div className={styles.viewLayer} hidden={view !== "timeline"}><TimelineView key={`${runtime.runInstanceId}-${linkedRecord?.sequence??0}`} initialRecordId={linkedRecord?.id} world={world} onLocate={locateEvent} events={runtime.historyEvents} archiveStatus={runtime.archiveStatus} hasOlderEvents={runtime.hasOlderEvents} historyFrozen={runtime.historyFrozen} onFreezeHistory={runtime.freezeHistory} onReturnLive={runtime.returnLiveHistory} onLoadOlder={runtime.loadOlderEvents} onExport={runtime.exportHistory} /></div>
       <div className={styles.viewLayer} hidden={view !== "run"}><RunView methodHref={methodHref} planetHref={planetHref} world={world} storageStatus={runtime.storageStatus} onStart={async (options, seed) => { await runtime.start(options, seed); setSelectedId(null); setFocusPosition(null); setSheetLevel("peek"); setCameraMode("overview"); setManualCamera(false); navigate("world"); }} /></div>
     </div>
 
@@ -243,7 +250,7 @@ function ObservedRunExperience({ methodHref = "/about", planetHref = "/planet" }
 
     <dialog ref={directoryDialogRef} className={styles.directoryDialog} aria-labelledby="agent-record-dialog-title" onCancel={() => setDirectoryInspectorOpen(false)}>
       <header><span id="agent-record-dialog-title">Agent record</span><button type="button" onClick={() => setDirectoryInspectorOpen(false)} aria-label="Close agent record"><X size={20} /></button></header>
-      {directoryInspectorOpen && selectedAgent ? <AgentInspector key={selectedAgent.id} world={world} agent={selectedAgent} level="expanded" onLevelChange={() => setDirectoryInspectorOpen(false)} onSelectAgent={(id) => setSelectedId(id)} onInspectPart={inspectPart}/> : null}
+      {directoryInspectorOpen && selectedAgent ? <AgentInspector key={selectedAgent.id} world={world} agent={selectedAgent} level="expanded" onLevelChange={() => setDirectoryInspectorOpen(false)} onSelectAgent={(id) => setSelectedId(id)} onInspectPart={inspectPart} onViewRecord={viewRecord}/> : null}
       {selectedAgent?.alive ? <button className={styles.dialogWorldButton} type="button" onClick={() => { selectAgent(selectedAgent.id, true); setDirectoryInspectorOpen(false); setSheetLevel("half"); navigate("world"); }}><Eye size={17} /> View {selectedAgent.label} in world</button> : null}
     </dialog>
 

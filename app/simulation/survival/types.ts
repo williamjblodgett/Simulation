@@ -25,7 +25,7 @@ export interface SurvivalObjective {
 }
 
 export interface SurvivalRunOptions {
-  policyVersion?: 2 | 3;
+  policyVersion?: 2 | 3 | 4;
   continuity?: boolean;
   agentCount?: AgentLimit;
   agentCap?: AgentLimit;
@@ -211,6 +211,8 @@ export interface AgentDeliberation {
 export type PlanStepStatus = "pending" | "active" | "complete" | "failed";
 
 export interface SurvivalPlanStep {
+  /** Policy-4 work approaches can request a precise position, not movement orders from the observer. */
+  arrivalRadius?: number;
   manipulation?: import("./physical-types").Manipulation;
   experimentDose?: number;
   resource?: "freshwater" | "food";
@@ -224,6 +226,7 @@ export interface SurvivalPlanStep {
 }
 
 export interface SurvivalPlan {
+  discoveryProjectId?: string;
   initialInventory?: SurvivalInventory;
   decisionId?: string;
   initialNeeds?: SurvivalNeeds;
@@ -308,6 +311,8 @@ export interface AgentResearchProject {
 }
 
 export interface SurvivalAgent {
+  /** Policy 4 only: private goals, contextual expectations and executed evidence. */
+  discovery?: import("./discovery-types").DiscoveryMind;
   /** Private route experience; never populated from the observer's global map. */
   navigation?: AgentNavigation;
   /** Observer-only measurements. The policy input explicitly excludes this record. */
@@ -454,8 +459,8 @@ export interface SurvivalRunState {
   physical?: import("./physical-types").PhysicalWorld;
   succession?: SuccessionState;
   /** Missing means the preserved original policy; new runs use version 2. */
-  policyVersion?: 1 | 2 | 3;
-  schemaVersion: 1 | 2 | 3 | 4;
+  policyVersion?: 1 | 2 | 3 | 4;
+  schemaVersion: 1 | 2 | 3 | 4 | 5;
   id: string;
   seed: number;
   seedLabel: string;
