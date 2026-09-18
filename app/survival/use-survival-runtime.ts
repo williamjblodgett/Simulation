@@ -8,6 +8,7 @@ import { SurvivalWorkerBridge, SURVIVAL_WORKER_STEP_LIMIT } from "./survival-wor
 import {
   addObserverAgent,
   createSurvivalRun,
+  enableDevelopment,
   restoreSurvivalRun,
   validateSurvivalRun,
   setSurvivalRunOpenEnded,
@@ -56,6 +57,7 @@ export interface SurvivalRuntime {
   setSpeed(speed: PlaybackSpeed): void;
   setPaused(paused: boolean): Promise<void>;
   continueIndefinitely(): Promise<void>;
+  enableExpandedWorld(): Promise<void>;
   start(options: SurvivalRunOptions, seed?: string | number): Promise<void>;
   addAgent(): Promise<AddObserverAgentResult | null>;
   dismissRecoveryNotice(): void;
@@ -208,7 +210,7 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
           }
           const legacy = loadStoredRun();
           if (legacy.recoveryNotice) throw new Error(legacy.recoveryNotice);
-          const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { policyVersion: 4, materialFoundation: "geology-v1", knowledgeFoundation: "materials-v1", affectModel: "adaptive-v1", agentCount: 3, agentCap: 5, durationHours: null });
+          const world = legacy.world ?? createSurvivalRun(DEFAULT_SEED, { policyVersion: 4, materialFoundation: "geology-v1", knowledgeFoundation: "materials-v1", affectModel: "adaptive-v1", developmentModel: "open-workshop-v1", agentCount: 3, agentCap: 5, durationHours: null });
           if (world.policyVersion === 2 && world.schemaVersion === 1) world.schemaVersion = 2;
           await save({ runInstanceId: crypto.randomUUID(), revision: 1, savedAt: Date.now(), speed: 1, world, missingBefore: world.eventWindow.droppedEvents }, world.events, null);
         });
@@ -288,6 +290,9 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
   const continueIndefinitely = useCallback(async () => {
     await command(source => ({ next: { ...source, world: setSurvivalRunOpenEnded(source.world) }, events: [], value: null }));
   }, [command]);
+  const enableExpandedWorld = useCallback(async () => {
+    await command(source => { const result = enableDevelopment(source.world); return { next: { ...source, world: result.state }, events: result.events, value: null }; });
+  }, [command]);
   const start = useCallback(async (options: SurvivalRunOptions, seed?: string | number) => {
     await command(source => {
       const world = createSurvivalRun(seed ?? `survival-${Date.now()}`, options);
@@ -356,7 +361,7 @@ export function useSurvivalRuntimeController(): SurvivalRuntime {
     archiveStatus: storageStatus === "save-unavailable" ? "unavailable" : checkpoint?.missingBefore ? "partial" : "saved",
     hasOlderEvents: Boolean(checkpoint && historyEvents.length < 4608 && historyEvents.length && eventSequence(historyEvents[0]) > checkpoint.missingBefore + 1),
     historyFrozen, freezeHistory, returnLiveHistory,
-    loadOlderEvents, exportHistory, retry, recoverBackup, setPaused, continueIndefinitely, start, addAgent, setSpeed,
+    loadOlderEvents, exportHistory, retry, recoverBackup, setPaused, continueIndefinitely, enableExpandedWorld, start, addAgent, setSpeed,
     dismissRecoveryNotice: () => setRecoveryNotice(null),
   };
 }

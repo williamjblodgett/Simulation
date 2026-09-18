@@ -11,6 +11,7 @@ import { PhysicalRecord, ProjectSummary } from "./physical-record";
 import { DeathReview } from "./death-review";
 import { AgentMaterialRecord, RawFeedstockRecord } from "./material-record";
 import { AffectRecord } from "./affect-record";
+import { DevelopmentRecord } from "./development-record";
 
 export type InspectorLevel = "peek" | "half" | "expanded";
 const WIDE_INSPECTOR = "(min-width: 768px), (orientation: landscape) and (max-height: 540px)";
@@ -97,7 +98,7 @@ export function AgentInspector({ world, agent, level, onLevelChange, onSelectAge
         <details className={styles.decisionAlternatives}><summary>{decision.evidenceSnapshot ? "Evidence when chosen" : "Retained referenced evidence"} · {evidence.length}</summary><ul>{evidence.map(o => <li key={o.id}><strong>{o.subjectId}</strong><span>Observed at step {o.observedAt} · {Math.round(o.confidence * 100)}% confidence</span><p>{Object.entries(o.facts).slice(0, 5).map(([key,value]) => `${humanize(key)}: ${String(value)}`).join(" · ")}</p></li>)}</ul></details>
         {agent.lastOutcome ? <p><strong>{agent.lastOutcome.decisionId === decision.id ? "Result linked to this decision" : "Separate latest result"}:</strong> {agent.lastOutcome.summary}</p> : null}
       </section> : null}
-      <div hidden={panel !== "knowledge"}><AgentKnowledge agent={agent} world={world} /><AffectRecord affect={agent.affect}/><AgentMaterialRecord world={world} agent={agent}/></div>
+      <div hidden={panel !== "knowledge"}><DevelopmentRecord agent={agent} onViewRecord={onViewRecord}/><AgentKnowledge agent={agent} world={world} /><AffectRecord affect={agent.affect}/><AgentMaterialRecord world={world} agent={agent}/></div>
       <section className={styles.recordSection} hidden={panel !== "overview"}>
         <header><PackageOpen size={17} /><div><span>Possessions</span><small>Personal inventory reported by the simulation</small></div></header>
         {inventory.length ? <dl className={styles.rowList}>{inventory.map(([kind, amount]) => <div key={kind}><dt>{humanize(kind)}</dt><dd>{amount.toFixed(1)}</dd></div>)}</dl> : <p className={styles.emptyCopy}>Nothing is currently carried.</p>}

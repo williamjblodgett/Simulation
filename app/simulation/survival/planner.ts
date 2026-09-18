@@ -11,6 +11,8 @@ import type { AgentDecisionCandidate, AgentGoalKind, AgentObservation, SurvivalA
 
 /** This is the entire policy boundary: no resources, other agents or world truth. */
 export interface PrivatePolicyInput {
+  components?: import("./development-types").ObservedComponent[];
+  discoveryObjective?: boolean;
   physical?: boolean;
   materialBatches?: import("./material-types").PrivateMaterialBatch[];
   agent: Omit<SurvivalAgent, "survivalRecord">;
@@ -19,6 +21,7 @@ export interface PrivatePolicyInput {
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 }
 export interface PlannedAction {
+  developmentOperation?: import("./development-types").DevelopmentOperation;
   arrivalRadius?: number;
   manipulation?: import("./physical-types").Manipulation;
   materialOperation?: import("./material-types").MaterialOperation;
@@ -31,6 +34,7 @@ export interface PlannedAction {
   amount?: number;
 }
 export interface LocalPlanChoice {
+  developmentGoalId?: string;
   searchExpansions?: number;
   discoveryId?: string;
   projectId?: string;

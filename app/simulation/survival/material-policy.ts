@@ -24,6 +24,7 @@ function temperatureBand(temperatureC: number): PrivateMaterialBatch["temperatur
 export function attachPrivateMaterialView(input: PrivatePolicyInput, source: SurvivalAgent, world: MaterialWorld): PrivatePolicyInput {
   input.agent.materialMind = source.materialMind ? structuredClone(source.materialMind) : undefined;
   input.materialBatches = world.batches
+    .filter((batch) => !batch.installedIn)
     .filter((batch) => batch.ownerId === source.id && (batch.portable || distance(batch.position, source.position) <= 4))
     .filter((batch) => !["exhaust", "gangue", "slag", "scale"].includes(batch.kind))
     .map((batch) => ({
@@ -162,6 +163,19 @@ function experimentClaim(operation: MaterialOperation): { claim: string; decisio
 export function planMaterialKnowledge(input: PrivatePolicyInput): LocalPlanChoice | null {
   const mind = input.agent.materialMind, batches = input.materialBatches;
   if (!mind || !batches) return null;
+  const development = input.agent.developmentMind;
+  if (development && mind.goal && ["satisfied", "abandoned"].includes(mind.goal.status)
+    && input.tick - mind.goal.updatedAt >= 144
+    && input.agent.memory.some(m => m.recordedAt > mind.goal!.updatedAt && m.action === "gather")) {
+    const usefulTool = batches.some(b => b.kind === "tool" && (b.durabilityEstimate ?? 0) > 30);
+    if (!usefulTool || development.goals.some(g => g.status === "active" && ["mechanical", "electric", "work_effort"].includes(g.metric))) {
+      if(!development.materialGoalHistory.some(g=>g.id===mind.goal!.id))development.materialGoalHistory = [...development.materialGoalHistory, { id: mind.goal.id, status: mind.goal.status, endedAt: mind.goal.updatedAt, reason: mind.goal.reason }].slice(-16);
+      mind.goal = null;
+      // Raw evidence and learned parameters persist. The old attempt IDs remain
+      // in the archive; the bounded current-goal experiment window is retired.
+      mind.experiments = [];
+    }
+  }
   const gatherEvidence = input.agent.memory.filter((memory) => memory.action === "gather").slice(-16);
   const protectionEvidence = input.agent.memory.filter((memory) => ["shelter", "warm", "build"].includes(memory.action)).slice(-16);
   const recurringPressure = Math.min(input.agent.needs.warmth, input.agent.needs.safety) < 78;

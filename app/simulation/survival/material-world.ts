@@ -93,7 +93,7 @@ function addOutputs(world: MaterialWorld, agent: SurvivalAgent, tick: number, pr
 }
 
 function ownedBatch(world: MaterialWorld, agent: SurvivalAgent, id: string, kinds: MaterialBatch["kind"][]): MaterialBatch | null {
-  const batch = world.batches.find((candidate) => candidate.id === id && candidate.ownerId === agent.id && kinds.includes(candidate.kind));
+  const batch = world.batches.find((candidate) => !candidate.installedIn && candidate.id === id && candidate.ownerId === agent.id && kinds.includes(candidate.kind));
   if (!batch || (!batch.portable && Math.hypot(batch.position.x - agent.position.x, batch.position.z - agent.position.z) > 4)) return null;
   return batch;
 }
@@ -310,7 +310,7 @@ export function syncPortableMaterials(world: MaterialWorld, agent: SurvivalAgent
 export function applyMaterialTool(world: MaterialWorld | undefined, agent: SurvivalAgent, resource: SurvivalResourceKind): { multiplier: number; toolId: string | null; broke: boolean } {
   if (!world || resource === "freshwater") return { multiplier: 1, toolId: null, broke: false };
   const desired: ToolForm = resource === "stone" || resource === "clay" ? "hammer_head" : "cutting_edge";
-  const tool = world.batches.filter((batch) => batch.ownerId === agent.id && batch.kind === "tool" && batch.form === desired && (batch.durability ?? 0) > 0)
+  const tool = world.batches.filter((batch) => !batch.installedIn && batch.ownerId === agent.id && batch.kind === "tool" && batch.form === desired && (batch.durability ?? 0) > 0)
     .sort((left, right) => right.quality - left.quality || left.id.localeCompare(right.id))[0];
   if (!tool) return { multiplier: 1, toolId: null, broke: false };
   const multiplier = round(1 + tool.quality * (desired === "cutting_edge" ? 0.3 : 0.22));

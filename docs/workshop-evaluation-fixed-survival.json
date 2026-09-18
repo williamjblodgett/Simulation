@@ -1,0 +1,300 @@
+{
+  "started": "2026-09-18T16:52:29.333Z",
+  "sourceBaseline": "50b0b35473e60a2cdc139cf48a28a998529d0ce3",
+  "fingerprint": "2557016c0fd9ac884895a10f548a82799b01406660faaf1e9b2bd710f02a5e8f",
+  "protocol": "DEVELOPMENT_EVALUATION.md",
+  "environment": "Node on shared Windows desktop; wall time, not browser FPS.",
+  "results": [
+    {
+      "seed": "workshop-holdout-estuary-926",
+      "agentCount": 1,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "variable",
+      "hours": 72,
+      "mode": "fixed",
+      "discovery": false,
+      "status": "running",
+      "tick": 432,
+      "survivors": 1,
+      "deaths": [],
+      "failedActions": 0,
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "development": {
+        "operations": 0,
+        "rejected": 0,
+        "tests": 0,
+        "transfers": 0,
+        "repairs": 0,
+        "runningTicks": 432
+      },
+      "components": [],
+      "physicalTests": 0,
+      "materialTests": 0,
+      "materialOperations": 0,
+      "physicalWork": 2.2,
+      "goals": [
+        {
+          "agentId": "agent-1",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-1",
+          "metric": "water_access",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        }
+      ],
+      "models": 0,
+      "procedures": 0,
+      "measurements": 0,
+      "squaredError": 0,
+      "contradictoryMeasurements": 0,
+      "planningExpansions": 0,
+      "waste": {},
+      "water": {
+        "deposited": 0,
+        "withdrawn": 0,
+        "extracted": 0,
+        "leaked": 0,
+        "irrigated": 0
+      },
+      "energy": {
+        "wind": 0,
+        "heat": 0,
+        "delivered": 0,
+        "lost": 0,
+        "fuelConsumed": 0
+      },
+      "trace": [],
+      "valid": true,
+      "wallMs": 32626,
+      "stepP50": 90.06189999999879,
+      "stepP95": 126.10310000000027,
+      "maxStep": 351.6087000000007,
+      "maxCheckpointBytes": 1139556,
+      "heapBytes": 139313440,
+      "residentBytes": 360017920,
+      "failure": null
+    },
+    {
+      "seed": "workshop-holdout-ridge-713",
+      "agentCount": 3,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "harsh",
+      "hours": 72,
+      "mode": "fixed",
+      "discovery": false,
+      "status": "running",
+      "tick": 432,
+      "survivors": 3,
+      "deaths": [],
+      "failedActions": 2,
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "development": {
+        "operations": 0,
+        "rejected": 0,
+        "tests": 0,
+        "transfers": 0,
+        "repairs": 0,
+        "runningTicks": 432
+      },
+      "components": [],
+      "physicalTests": 0,
+      "materialTests": 0,
+      "materialOperations": 0,
+      "physicalWork": 2.2,
+      "goals": [
+        {
+          "agentId": "agent-1",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-1",
+          "metric": "water_access",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-2",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-2",
+          "metric": "water_access",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "water_access",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        }
+      ],
+      "models": 0,
+      "procedures": 0,
+      "measurements": 0,
+      "squaredError": 0,
+      "contradictoryMeasurements": 0,
+      "planningExpansions": 0,
+      "waste": {},
+      "water": {
+        "deposited": 0,
+        "withdrawn": 0,
+        "extracted": 0,
+        "leaked": 0,
+        "irrigated": 0
+      },
+      "energy": {
+        "wind": 0,
+        "heat": 0,
+        "delivered": 0,
+        "lost": 0,
+        "fuelConsumed": 0
+      },
+      "trace": [],
+      "valid": true,
+      "wallMs": 163709,
+      "stepP50": 407.420100000003,
+      "stepP95": 636.7312999999995,
+      "maxStep": 730.8918999999878,
+      "maxCheckpointBytes": 1464234,
+      "heapBytes": 125421664,
+      "residentBytes": 381116416,
+      "failure": null
+    },
+    {
+      "seed": "workshop-holdout-cove-584",
+      "agentCount": 5,
+      "resourceAbundance": "scarce",
+      "climateVolatility": "variable",
+      "hours": 72,
+      "mode": "fixed",
+      "discovery": false,
+      "status": "running",
+      "tick": 432,
+      "survivors": 5,
+      "deaths": [],
+      "failedActions": 16,
+      "blocked": 0,
+      "repeatedBlocked": 0,
+      "development": {
+        "operations": 0,
+        "rejected": 0,
+        "tests": 0,
+        "transfers": 0,
+        "repairs": 0,
+        "runningTicks": 432
+      },
+      "components": [],
+      "physicalTests": 0,
+      "materialTests": 0,
+      "materialOperations": 0,
+      "physicalWork": 4.4,
+      "goals": [
+        {
+          "agentId": "agent-1",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-2",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "water_access",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-4",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-5",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-5",
+          "metric": "water_access",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        }
+      ],
+      "models": 0,
+      "procedures": 0,
+      "measurements": 0,
+      "squaredError": 0,
+      "contradictoryMeasurements": 0,
+      "planningExpansions": 0,
+      "waste": {},
+      "water": {
+        "deposited": 0,
+        "withdrawn": 0,
+        "extracted": 0,
+        "leaked": 0,
+        "irrigated": 0
+      },
+      "energy": {
+        "wind": 0,
+        "heat": 0,
+        "delivered": 0,
+        "lost": 0,
+        "fuelConsumed": 0
+      },
+      "trace": [],
+      "valid": true,
+      "wallMs": 75957,
+      "stepP50": 151.79759999999078,
+      "stepP95": 381.28630000003614,
+      "maxStep": 641.9933999999776,
+      "maxCheckpointBytes": 1810607,
+      "heapBytes": 86926616,
+      "residentBytes": 390062080,
+      "failure": null
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import { getPortraits, publishPortraits, publishHabitatPreview } from "../portra
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createAgentCollection, createResourceCollection, createShelterCollection, disposeObject } from "./scene-models";
 import { createPhysicalCollection } from "./physical-models";
+import { createDevelopmentCollection } from "./development-models";
 import { createTerrainWorld, type TerrainWorld } from "./terrain-world";
 import {
   type HabitatCameraMode,
@@ -261,8 +262,9 @@ export function createSurvivalHabitatScene(
   const resources = createResourceCollection();
   const shelters = createShelterCollection();
   const physical = createPhysicalCollection();
+  const development = createDevelopmentCollection();
   const agents = createAgentCollection();
-  scene.add(resources.group, shelters.group, physical.group, agents.group);
+  scene.add(resources.group, shelters.group, physical.group, development.group, agents.group);
 
   let terrainWorld: TerrainWorld | null = null;
   let currentTerrainSignature = "";
@@ -476,6 +478,7 @@ export function createSurvivalHabitatScene(
     resources.sync(nextSnapshot.resourceNodes, terrainWorld.heightAt);
     shelters.sync(nextSnapshot.shelters, terrainWorld.heightAt);
     physical.sync(nextSnapshot.physical,nextSnapshot.physicalPresentation);
+    development.sync(nextSnapshot.development,nextSnapshot.simulationTimeSeconds,nextSnapshot.physicalPresentation?.selectedPartId);
     agents.sync(nextSnapshot.agents, nextSelectedId, point => {
       const feature = nextSnapshot.terrain.freshwater.find(f => {
         const angle=f.rotation??0,dx=point.x-f.position.x,dz=point.z-f.position.z;
@@ -637,7 +640,7 @@ export function createSurvivalHabitatScene(
       raycaster.setFromCamera(cursor, camera);
       const id = agents.raycast(raycaster);
       if (id) options.onSelectAgent(id);
-      else {const partId=physical.raycast(raycaster);if(partId)options.onSelectPart?.(partId);}
+      else {const partId=physical.raycast(raycaster)??development.raycast(raycaster);if(partId)options.onSelectPart?.(partId);}
     }
     if (pointers.size === 0) manualGestureReported = false;
   }
@@ -700,6 +703,7 @@ export function createSurvivalHabitatScene(
     resources.dispose();
     shelters.dispose();
     physical.dispose();
+    development.dispose();
     agents.dispose();
     disposeObject(sky.mesh);
     disposeObject(stars);

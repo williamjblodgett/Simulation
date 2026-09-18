@@ -123,6 +123,7 @@ function mapSnapshot(world: SurvivalRunState): HabitatVisualSnapshot {
   });
   return {
     physical: world.physical,
+    development: world.development,
     simulationRunning: world.status === "running",
     simulationTimeSeconds: world.elapsedMinutes * 60,
     terrain: {

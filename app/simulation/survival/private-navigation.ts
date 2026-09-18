@@ -11,7 +11,7 @@ export function privateTraversable(observations: readonly AgentObservation[], bo
   if (point.x < bounds.minX || point.x > bounds.maxX || point.z < bounds.minZ || point.z > bounds.maxZ) return false;
   return !observations.some(o => {
     const f = o.facts;
-    if (f.structureKind !== "physical_part" || !o.position || Number(f.condition) <= 5 || Number(f.elevation) - Number(f.height) / 2 > 2.3) return false;
+    if (!["physical_part", "development_component"].includes(String(f.structureKind)) || !o.position || (f.structureKind !== "development_component" && Number(f.condition) <= 5) || Number(f.elevation) - Number(f.height) / 2 > 2.3) return false;
     const dx = point.x - o.position.x, dz = point.z - o.position.z, angle = Number(f.rotation);
     return Math.abs(dx * Math.cos(angle) + dz * Math.sin(angle)) < Number(f.width) / 2 + 0.4
       && Math.abs(-dx * Math.sin(angle) + dz * Math.cos(angle)) < Number(f.depth) / 2 + 0.4;
@@ -19,7 +19,7 @@ export function privateTraversable(observations: readonly AgentObservation[], bo
 }
 
 export function privateSegmentClear(observations: readonly AgentObservation[], bounds: Bounds, from: SurvivalPosition, to: SurvivalPosition, blocked: AgentNavigation["blocked"] = []): boolean {
-  const obstacles=observations.filter(o=>o.facts.structureKind==="physical_part"&&o.position&&Number(o.facts.condition)>5&&Number(o.facts.elevation)-Number(o.facts.height)/2<=2.3);
+  const obstacles=observations.filter(o=>["physical_part", "development_component"].includes(String(o.facts.structureKind))&&o.position&&(o.facts.structureKind==="development_component"||Number(o.facts.condition)>5)&&Number(o.facts.elevation)-Number(o.facts.height)/2<=2.3);
   if (!obstacles.length && !blocked.length) return to.x>=bounds.minX&&to.x<=bounds.maxX&&to.z>=bounds.minZ&&to.z<=bounds.maxZ;
   const overlaps=(p:SurvivalPosition)=>obstacles.map(o=>bodyOverlap(p,o.position!,Number(o.facts.width),Number(o.facts.depth),Number(o.facts.rotation),.4));
   let previous=overlaps(from);
@@ -51,7 +51,7 @@ export function findPrivateRoute(observations: readonly AgentObservation[], boun
   if (privateSegmentClear(observations, bounds, start, target, blocked)) return [{ ...target }];
   const weather = observations.find(o => o.kind === "weather");
   const temperature = Number(weather?.facts.temperatureC ?? 13), storm = weather?.facts.weather === "storm";
-  observations=observations.filter(o=>o.facts.structureKind==="physical_part"&&o.position&&Number(o.facts.condition)>5);
+  observations=observations.filter(o=>["physical_part", "development_component"].includes(String(o.facts.structureKind))&&o.position&&(o.facts.structureKind==="development_component"||Number(o.facts.condition)>5));
   const cell = 1.25;
   type Node = { x: number; z: number; g: number; f: number; parent: string | null };
   const key = (x: number, z: number) => `${x}:${z}`;

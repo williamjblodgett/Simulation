@@ -25,6 +25,8 @@ export interface SurvivalObjective {
 }
 
 export interface SurvivalRunOptions {
+  developmentModel?: "open-workshop-v1";
+  discoveryObjective?: boolean;
   materialFoundation?: "geology-v1";
   /** Explicit opt-in for executable thermal/material transformations. */
   knowledgeFoundation?: "materials-v1";
@@ -42,6 +44,8 @@ export interface SurvivalRunOptions {
 }
 
 export interface SurvivalRunConfig {
+  developmentModel?: "open-workshop-v1";
+  discoveryObjective?: boolean;
   materialFoundation?: "geology-v1";
   knowledgeFoundation?: "materials-v1";
   affectModel?: "adaptive-v1";
@@ -225,6 +229,7 @@ export interface AgentDeliberation {
 export type PlanStepStatus = "pending" | "active" | "complete" | "failed";
 
 export interface SurvivalPlanStep {
+  developmentOperation?: import("./development-types").DevelopmentOperation;
   /** Policy-4 work approaches can request a precise position, not movement orders from the observer. */
   arrivalRadius?: number;
   manipulation?: import("./physical-types").Manipulation;
@@ -241,6 +246,7 @@ export interface SurvivalPlanStep {
 }
 
 export interface SurvivalPlan {
+  developmentGoalId?: string;
   discoveryProjectId?: string;
   materialGoalId?: string;
   initialInventory?: SurvivalInventory;
@@ -327,6 +333,7 @@ export interface AgentResearchProject {
 }
 
 export interface SurvivalAgent {
+  developmentMind?: import("./development-types").DevelopmentMind;
   /** Embedded in inventory.stone; observer provenance, not extra inventory. */
   rawFeedstocks?: import("./geology").FeedstockMass;
   /** New studies only: private, fallible material expectations and evidence. */
@@ -477,6 +484,7 @@ export interface SurvivalEventWindow {
 }
 
 export interface SurvivalRunState {
+  development?: import("./development-types").DevelopmentWorld;
   materials?: import("./material-types").MaterialWorld;
   geology?: import("./geology").GeologyState;
   survivalRevision?: 1;
@@ -484,7 +492,7 @@ export interface SurvivalRunState {
   succession?: SuccessionState;
   /** Missing means the preserved original policy; new runs use version 2. */
   policyVersion?: 1 | 2 | 3 | 4;
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   id: string;
   seed: number;
   seedLabel: string;

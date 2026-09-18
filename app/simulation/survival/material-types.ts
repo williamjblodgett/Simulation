@@ -28,6 +28,8 @@ export interface MaterialProvenance {
 
 /** Authoritative batch. Exact composition is deliberately excluded from policy views. */
 export interface MaterialBatch {
+  /** Installed matter stays in this ledger and cannot also be used as a portable input. */
+  installedIn?: string;
   id: string;
   ownerId: string | null;
   createdAt: number;

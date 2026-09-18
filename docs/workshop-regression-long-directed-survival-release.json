@@ -1,0 +1,359 @@
+{
+  "started": "2026-09-18T17:08:42.983Z",
+  "sourceBaseline": "50b0b35473e60a2cdc139cf48a28a998529d0ce3",
+  "fingerprint": "b05469025208553e7af0d354ec750bafbf1e77674541554f7c04dc5de97b1d2f",
+  "protocol": "DEVELOPMENT_EVALUATION.md",
+  "environment": "Node on shared Windows desktop; wall time, not browser FPS.",
+  "results": [
+    {
+      "seed": "workshop-endurance-168",
+      "agentCount": 3,
+      "resourceAbundance": "balanced",
+      "climateVolatility": "variable",
+      "hours": 168,
+      "mode": "directed",
+      "discovery": false,
+      "status": "running",
+      "tick": 1008,
+      "survivors": 3,
+      "deaths": [],
+      "failedActions": 18,
+      "blocked": 4,
+      "repeatedBlocked": 2,
+      "development": {
+        "operations": 21,
+        "rejected": 0,
+        "tests": 9,
+        "transfers": 3,
+        "repairs": 0,
+        "runningTicks": 1008
+      },
+      "components": [
+        {
+          "form": "panel",
+          "material": "wood",
+          "condition": 0.9593599999999604,
+          "water": 0,
+          "food": 0,
+          "output": 0
+        },
+        {
+          "form": "panel",
+          "material": "wood",
+          "condition": 0.9595599999999606,
+          "water": 0,
+          "food": 0,
+          "output": 0
+        },
+        {
+          "form": "panel",
+          "material": "wood",
+          "condition": 0.9621999999999632,
+          "water": 0,
+          "food": 0,
+          "output": 0
+        },
+        {
+          "form": "vessel",
+          "material": "clay",
+          "condition": 0.9605999999999636,
+          "water": 0.06132978568991797,
+          "food": 0,
+          "output": 0
+        },
+        {
+          "form": "panel",
+          "material": "wood",
+          "condition": 0.9627599999999638,
+          "water": 0,
+          "food": 0,
+          "output": 0
+        },
+        {
+          "form": "panel",
+          "material": "wood",
+          "condition": 0.9629199999999639,
+          "water": 0,
+          "food": 0,
+          "output": 0
+        },
+        {
+          "form": "rack",
+          "material": "wood",
+          "condition": 0.9857199999999857,
+          "water": 0,
+          "food": 0.45741769713874203,
+          "output": 0
+        },
+        {
+          "form": "rack",
+          "material": "wood",
+          "condition": 0.9885599999999886,
+          "water": 0,
+          "food": 0.4656103803279674,
+          "output": 0
+        },
+        {
+          "form": "vessel",
+          "material": "clay",
+          "condition": 0.9892799999999903,
+          "water": 0.11945625714073127,
+          "food": 0,
+          "output": 0
+        }
+      ],
+      "physicalTests": 11,
+      "materialTests": 0,
+      "materialOperations": 12,
+      "physicalWork": 11,
+      "goals": [
+        {
+          "agentId": "agent-1",
+          "metric": "protection",
+          "status": "abandoned",
+          "spent": 4.94375,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-1",
+          "metric": "water_access",
+          "status": "satisfied",
+          "spent": 0.6,
+          "failures": 1
+        },
+        {
+          "agentId": "agent-1",
+          "metric": "water_access",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-1",
+          "metric": "food_reliability",
+          "status": "deferred",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-2",
+          "metric": "protection",
+          "status": "abandoned",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-2",
+          "metric": "water_access",
+          "status": "satisfied",
+          "spent": 0.6,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-2",
+          "metric": "food_reliability",
+          "status": "deferred",
+          "spent": 1.2468750000000002,
+          "failures": 1
+        },
+        {
+          "agentId": "agent-2",
+          "metric": "work_effort",
+          "status": "deferred",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-2",
+          "metric": "water_access",
+          "status": "deferred",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-2",
+          "metric": "protection",
+          "status": "active",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "protection",
+          "status": "abandoned",
+          "spent": 3.3468750000000003,
+          "failures": 1
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "water_access",
+          "status": "satisfied",
+          "spent": 1.596875,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "water_access",
+          "status": "satisfied",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "food_reliability",
+          "status": "abandoned",
+          "spent": 1.2468750000000002,
+          "failures": 3
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "water_access",
+          "status": "satisfied",
+          "spent": 1.596875,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "work_effort",
+          "status": "deferred",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "mechanical",
+          "status": "deferred",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "protection",
+          "status": "deferred",
+          "spent": 0,
+          "failures": 0
+        },
+        {
+          "agentId": "agent-3",
+          "metric": "water_access",
+          "status": "deferred",
+          "spent": 0,
+          "failures": 0
+        }
+      ],
+      "models": 7,
+      "procedures": 15,
+      "measurements": 9,
+      "squaredError": 1.0007196137370682,
+      "contradictoryMeasurements": 9,
+      "planningExpansions": 381,
+      "waste": {},
+      "water": {
+        "deposited": 2,
+        "withdrawn": 0.4371104524711817,
+        "extracted": 0,
+        "leaked": 1.3821035046981673,
+        "irrigated": 0
+      },
+      "energy": {
+        "wind": 0,
+        "heat": 0,
+        "delivered": 0,
+        "lost": 0,
+        "fuelConsumed": 0
+      },
+      "trace": [
+        {
+          "tick": 18,
+          "agentId": "agent-3",
+          "goalId": "development-goal-agent-3-1",
+          "evidenceId": "development-reading-2",
+          "predicted": 0.48,
+          "measured": 0.15733619999999995,
+          "result": "Measured protection: 0.157 at dose 0.5. Applies to the current geometry, treatment and operating conditions."
+        },
+        {
+          "tick": 23,
+          "agentId": "agent-1",
+          "goalId": "development-goal-agent-1-1",
+          "evidenceId": "development-reading-4",
+          "predicted": 0.48,
+          "measured": 0.15733619999999995,
+          "result": "Measured protection: 0.157 at dose 0.5. Applies to the current geometry, treatment and operating conditions."
+        },
+        {
+          "tick": 89,
+          "agentId": "agent-1",
+          "goalId": "development-goal-agent-1-1",
+          "evidenceId": "development-reading-6",
+          "predicted": 0.48,
+          "measured": 0.12586896,
+          "result": "Measured protection: 0.126 at dose 0.5. Applies to the current geometry, treatment and operating conditions."
+        },
+        {
+          "tick": 99,
+          "agentId": "agent-3",
+          "goalId": "development-goal-agent-3-3",
+          "evidenceId": "development-reading-8",
+          "predicted": 0.55,
+          "measured": 0.9299271242091776,
+          "result": "Measured water access: 0.930 at dose 0.5. Retained fraction after a paid holding trial; not a measurement of maximum capacity."
+        },
+        {
+          "tick": 103,
+          "agentId": "agent-3",
+          "goalId": "development-goal-agent-3-1",
+          "evidenceId": "development-reading-10",
+          "predicted": 0.48,
+          "measured": 0.12586896,
+          "result": "Measured protection: 0.126 at dose 0.5. Applies to the current geometry, treatment and operating conditions."
+        },
+        {
+          "tick": 107,
+          "agentId": "agent-1",
+          "goalId": "development-goal-agent-1-1",
+          "evidenceId": "development-reading-12",
+          "predicted": 0.3724454,
+          "measured": 0.15733619999999995,
+          "result": "Measured protection: 0.157 at dose 0.5. Applies to the current geometry, treatment and operating conditions."
+        },
+        {
+          "tick": 329,
+          "agentId": "agent-1",
+          "goalId": "development-goal-agent-1-3",
+          "evidenceId": "development-reading-13",
+          "predicted": 0.55,
+          "measured": 0.9292042558355914,
+          "result": "Measured water access: 0.929 at dose 0.5. Retained fraction after a paid holding trial; not a measurement of maximum capacity."
+        },
+        {
+          "tick": 615,
+          "agentId": "agent-2",
+          "goalId": "development-goal-agent-2-2",
+          "evidenceId": "development-reading-14",
+          "predicted": 0.55,
+          "measured": 0.9283021960013095,
+          "result": "Measured water access: 0.928 at dose 0.5. Retained fraction after a paid holding trial; not a measurement of maximum capacity."
+        },
+        {
+          "tick": 766,
+          "agentId": "agent-3",
+          "goalId": "development-goal-agent-3-8",
+          "evidenceId": "development-reading-18",
+          "predicted": 0.6766423747363927,
+          "measured": 0.9299271242091776,
+          "result": "Measured water access: 0.930 at dose 0.5. Retained fraction after a paid holding trial; not a measurement of maximum capacity."
+        }
+      ],
+      "valid": true,
+      "wallMs": 204723,
+      "stepP50": 30.92809999999008,
+      "stepP95": 799.6849000000075,
+      "maxStep": 3436.2957999999926,
+      "maxCheckpointBytes": 1950017,
+      "heapBytes": 94800696,
+      "residentBytes": 384843776,
+      "failure": null
+    }
+  ]
+}

@@ -29,7 +29,7 @@ const CATEGORIES: Array<"all" | SurvivalEventCategory> = ["all", "survival", "so
 
 export function TimelineView({ world, onLocate, events: archivedEvents, archiveStatus, hasOlderEvents, historyFrozen, onFreezeHistory, onReturnLive, onLoadOlder, onExport, initialRecordId }: TimelineViewProps) {
   const sourceEvents = archivedEvents ?? world.events;
-  const linkedEvent = initialRecordId ? sourceEvents.find(e => e.facts.discoveryDecisionId === initialRecordId || e.facts.experimentId === initialRecordId) : undefined;
+  const linkedEvent = initialRecordId ? sourceEvents.find(e => e.facts.discoveryDecisionId === initialRecordId || e.facts.experimentId === initialRecordId || e.facts.evidenceId === initialRecordId) : undefined;
   const [milestonesOnly, setMilestonesOnly] = useState(true);
   const [groupProjects,setGroupProjects]=useState(!initialRecordId);
   const [groupRepeats,setGroupRepeats]=useState(true);

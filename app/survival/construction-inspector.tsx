@@ -5,8 +5,25 @@ import type { InspectorLevel } from "./agent-inspector";
 import { constructionRecord } from "./construction-record";
 import { humanize } from "./presentation";
 import styles from "./survival-experience.module.css";
+import type { DevelopmentComponent } from "../simulation/survival/development-types";
+
+function ComponentInspector({world,component,level,onLevelChange,onBack}:{world:SurvivalRunState;component:DevelopmentComponent;level:InspectorLevel;onLevelChange(level:InspectorLevel):void;onBack():void}){
+  const levels:InspectorLevel[]=["peek","half","expanded"],index=levels.indexOf(level),maker=world.agents.find(a=>a.id===component.makerId);
+  const evidence=world.agents.flatMap(a=>a.developmentMind?.evidence??[]).filter(e=>e.componentId===component.id&&e.source==="personal").slice(-6);
+  const batches=world.materials?.batches.filter(b=>component.batchIds.includes(b.id))??[];
+  return <article className={`${styles.agentInspector} ${styles.constructionInspector}`} data-level={level} aria-label="Component inspector">
+    <div className={styles.peekSummary}><div><strong>{humanize(`${component.material} ${component.form}`)}</strong><p>{component.output>.001?"Producing output":"No active output"} · {Math.round(component.condition*100)}% condition</p></div><button aria-label="Expand construction details" onClick={()=>onLevelChange("half")}><ChevronUp size={18}/></button></div>
+    <div className={styles.sheetHandle}><button aria-label="Collapse construction details" disabled={index===0} onClick={()=>onLevelChange(levels[index-1])}><ChevronDown size={18}/></button><span>Component record</span><button aria-label="Expand construction details" disabled={index===2} onClick={()=>onLevelChange(levels[index+1])}><ChevronUp size={18}/></button></div>
+    <div className={styles.inspectorHalf}><button className={styles.textControl} onClick={onBack}><ArrowLeft size={16}/> Back to agent</button><header className={styles.constructionHeading}><Hammer size={24}/><div><h2>{humanize(`${component.material} ${component.form}`)}</h2><p>Actual physical state · observer diagnostics</p></div></header><dl className={styles.rowList}>
+      <div><dt>Maker</dt><dd>{maker?.label??component.makerId} · {maker?.name??"Earlier life"}</dd></div><div><dt>Condition / treatment</dt><dd>{Math.round(component.condition*100)}% · {component.treatment}</dd></div><div><dt>Water / food</dt><dd>{component.water.toFixed(2)} / {component.food.toFixed(2)}</dd></div><div><dt>Stored charge / fuel</dt><dd>{component.charge.toFixed(3)} / {component.fuel.toFixed(2)}</dd></div><div><dt>Input / useful output</dt><dd>{component.power.toFixed(3)} / {component.output.toFixed(3)} energy units per step</dd></div><div><dt>Dimensions</dt><dd>{component.size.toFixed(2)} m · thickness {component.thickness.toFixed(2)} m</dd></div>
+    </dl>{component.damage?<p>{component.damage}</p>:null}</div>
+    <div className={styles.inspectorExpanded}><section className={styles.recordSection}><h3>Accounted material</h3><p>{Object.entries(component.stock).map(([kind,n])=>`${n.toFixed(2)} ${kind}`).join(" · ")||"Processed batches below"}</p>{batches.map(b=><p key={b.id}>{b.id} · {b.mass.toFixed(3)} normalized units · installed, not also carried</p>)}<h3>Actual connections</h3>{world.development?.links.filter(l=>l.from===component.id||l.to===component.id).map(l=><p key={l.id}>{humanize(l.port)} · {l.from} → {l.to} · {Math.round(l.condition*100)}% condition</p>)}<h3>Recorded personal measurements</h3>{evidence.length?evidence.map(e=><p key={e.id}>Step {e.tick} · {e.observerId} · {e.summary}<small>Original evidence {e.originalId}</small></p>):<p>No retained personal measurement. A visible object is not evidence of usefulness.</p>}{component.document?<><h3>Inscribed procedure</h3><p>{component.document.id} · authored by {component.document.authorId}. Its existence does not give nearby agents its contents; they must choose to read it.</p></>:null}</section></div>
+  </article>;
+}
 
 export function ConstructionInspector({world,id,level,onLevelChange,onBack}:{world:SurvivalRunState;id:string;level:InspectorLevel;onLevelChange(level:InspectorLevel):void;onBack():void}){
+  const component=world.development?.components.find(c=>c.id===id);
+  if(component)return <ComponentInspector world={world} component={component} level={level} onLevelChange={onLevelChange} onBack={onBack}/>;
   const record=constructionRecord(world,id);
   if(!record)return <article className={`${styles.agentInspector} ${styles.constructionInspector}`}><button onClick={onBack}>Back to agent</button><p>This part is no longer in the current world. Its events remain in Timeline.</p></article>;
   const {part,maker,project,readings,uses,status,title}=record;

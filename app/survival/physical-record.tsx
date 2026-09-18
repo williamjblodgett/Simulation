@@ -5,8 +5,10 @@ import { humanize } from "./presentation";
 import styles from "./survival-experience.module.css";
 import { currentProject } from "./construction-record";
 import { DiscoveryRecord, DiscoverySummary } from "./discovery-record";
+import { DevelopmentSummary } from "./development-record";
 
 export function ProjectSummary({agent,onInspect}:{agent:SurvivalAgent;onInspect?(id:string):void}){
+  if(agent.developmentMind?.goals.length)return <DevelopmentSummary agent={agent}/>;
   if(agent.discovery)return <DiscoverySummary agent={agent}/>;
   if(!agent.physicalMind)return null;
   const p=currentProject(agent);

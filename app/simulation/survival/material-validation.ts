@@ -47,7 +47,7 @@ export function validateMaterialState(state: SurvivalRunState): boolean {
     return state.agents.every((agent) => (agent.currentPlan?.steps ?? []).every((step) => step.materialOperation === undefined && step.action !== "process_material" && step.action !== "test_material"));
   }
   const world = state.materials;
-  if (state.schemaVersion !== 7 || state.policyVersion !== 4 || state.config.materialFoundation !== "geology-v1" || !record(world) || world.version !== 1 || !integer(world.nextId, 1) || !integer(world.operations) || !integer(world.failedOperations, 0, Number(world.operations)) || !integer(world.tests, 0, Number(world.operations)) || !record(world.consumed) || !record(world.consumedFeedstocks)) return false;
+  if (![7,8].includes(state.schemaVersion) || state.policyVersion !== 4 || state.config.materialFoundation !== "geology-v1" || !record(world) || world.version !== 1 || !integer(world.nextId, 1) || !integer(world.operations) || !integer(world.failedOperations, 0, Number(world.operations)) || !integer(world.tests, 0, Number(world.operations)) || !record(world.consumed) || !record(world.consumedFeedstocks)) return false;
   if (![world.consumed.wood, world.consumed.stone, world.consumed.clay].every((entry) => finite(entry, 0)) || Object.entries(world.consumedFeedstocks).some(([kind, amount]) => !feedstockKinds.includes(kind as never) || !finite(amount, 0))) return false;
   if (!Array.isArray(world.batches) || world.batches.length > MATERIAL_PROCESS_LIMITS.batches || !Array.isArray(world.records) || world.records.length > MATERIAL_PROCESS_LIMITS.records) return false;
   const lives = new Set(state.agents.map((agent) => agent.id)), ids = new Set<string>();
@@ -80,5 +80,5 @@ export function validateMaterialState(state: SurvivalRunState): boolean {
 export function validateAffectState(state: SurvivalRunState): boolean {
   const enabled = state.config.affectModel === "adaptive-v1";
   if (!enabled) return state.agents.every((agent) => agent.affect === undefined);
-  return state.schemaVersion === 7 && state.policyVersion === 4 && state.agents.every((agent) => validateAgentAffect(agent.affect, state.tick, agent.spawnedAt));
+  return [7,8].includes(state.schemaVersion) && state.policyVersion === 4 && state.agents.every((agent) => validateAgentAffect(agent.affect, state.tick, agent.spawnedAt));
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft, Brain, Eye, FlaskConical, GitBranch, HeartPulse, Scale } from "lucide-react";
 import styles from "./about.module.css";
+import { DevelopmentMethod } from "../survival/development-method";
 
 export const metadata: Metadata = {
   title: "How agent autonomy works · Simulation",
@@ -39,8 +40,9 @@ export default function AboutPage() {
       </section>
       <section className={styles.research}>
         <FlaskConical size={25} />
-        <div><p>RESEARCH IS AN ACTION, NOT AN UNLOCK BUTTON</p><h2>Try a process. Measure what happened.</h2><p>The world now implements a small family of related mechanisms: heat transfer, combustion and pyrolysis, source-specific separation, ceramic firing, refractory containment, copper and iron reduction, hot working, yield and waste, and tool wear. The same record distinguishes a prediction, the physical intervention, the measurement and the later decision it changes.</p><p>The smelting model explicitly accounts for normalized fuel and ore mass, estimated degrees Celsius, ore grade, reduction fraction, solid yield, slag, exhaust, hearth wear, tool durability, modeled minutes and physiological energy. It is deliberately simplified—not full thermodynamics or chemistry—but failure has consequences and every tracked input retains provenance through useful products and remnants.</p><p>This is a foundation for broader discovery, not modern industry. There are no powered machines, precision metrology, electrical circuits or semiconductor fabrication yet. The 28 geological families are possible raw inputs, not pure elements, and most still lack executable processing rules. More time does not automatically produce technology.</p></div>
+        <div><p>RESEARCH IS AN ACTION, NOT AN UNLOCK BUTTON</p><h2>Try a process. Measure what happened.</h2><p>The world implements simplified heat transfer, combustion, source-specific separation, ceramic firing, containment, copper and iron reduction, hot working, yield, waste and tool wear. Predictions, interventions and confirmed measurements are separate records.</p><p>Fuel, ore mass, modeled temperature, grade, slag, exhaust, wear, time and physiological effort have consequences. This is not full thermodynamics or chemistry. The 28 geological families are raw inputs, not pure elements; many still have no executable processing rule. More time does not automatically produce technology.</p></div>
       </section>
+      <section className={styles.boundary}><DevelopmentMethod /></section>
       <section className={styles.boundary}>
         <h2>They learn arrangements, not a picture of a house.</h2>
         <p>Agents start with basic abilities to handle materials and imperfect expectations, not a catalog of buildings. They can reason about the shapes they have actually observed, look for clear supported positions and an approach, obtain missing materials, and return to unfinished work. An urgent need can interrupt construction. Repeated failures can make them revise or abandon a project.</p>

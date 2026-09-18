@@ -24,11 +24,11 @@ export function physicalTraversable(env:SurvivalEnvironment,world:PhysicalWorld|
   });
 }
 /** Execution collision sensing, not free map knowledge for the planner. */
-export function physicalNextPosition(env:SurvivalEnvironment,world:PhysicalWorld|undefined,start:SurvivalPosition,target:SurvivalPosition, options: { strict?: boolean; onBlocked?(position: SurvivalPosition): void } = {}):SurvivalPosition|null{
+export function physicalNextPosition(env:SurvivalEnvironment,world:PhysicalWorld|undefined,start:SurvivalPosition,target:SurvivalPosition, options: { strict?: boolean; additionalColliders?: Array<{position:SurvivalPosition;width:number;depth:number;rotation:number}>; onBlocked?(position: SurvivalPosition): void } = {}):SurvivalPosition|null{
   const distance=Math.hypot(target.x-start.x,target.z-start.z),angle=Math.atan2(target.z-start.z,target.x-start.x);
   const water=freshwaterFeatures(env);
   const colliders=world?.parts.filter(p=>p.condition>.05&&p.position.y-p.size.y/2<=2.3)??[];
-  const overlaps=(p:SurvivalPosition)=>colliders.map(part=>bodyOverlap(p,part.position,part.size.x,part.size.z,part.rotation));
+  const overlaps=(p:SurvivalPosition)=>[...colliders.map(part=>bodyOverlap(p,part.position,part.size.x,part.size.z,part.rotation)),...(options.additionalColliders??[]).map(part=>bodyOverlap(p,part.position,part.width,part.depth,part.rotation))];
   for(const offset of options.strict ? [0] : [0,Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2]){
     const limit=Math.min(offset===0?7.5:3,distance),dx=Math.cos(angle+offset),dz=Math.sin(angle+offset);
     let travelled=0,time=0,safe=true;

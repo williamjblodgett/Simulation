@@ -195,6 +195,7 @@ export interface HabitatAgentVisual {
 }
 
 export interface HabitatVisualSnapshot {
+  development?: import("../../simulation/survival/development-types").DevelopmentWorld;
   physicalPresentation?: {
     selectedPartId?: string | null;
     proposal?: { size: import("../../simulation/survival/physical-types").Vec3; position: import("../../simulation/survival/physical-types").Vec3; rotation: number } | null;
