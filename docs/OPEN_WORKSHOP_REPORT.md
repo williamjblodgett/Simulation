@@ -84,4 +84,8 @@ Other limits: narrow feature bins, finite budgets, aggregate physics, some physi
 
 ## Final verification / publication
 
-Local release gates passed: 225 tests, production builds, Pages typecheck and lint. The final UI-only correction labels explicitly adopted finite studies with their real duration rather than calling all expanded studies open-ended. GitHub Pages is configured to publish the repository's `gh-pages` branch at `https://williamjblodgett.github.io/Simulation/`. Publication is verified separately after the built artifact is pushed; this section is updated with the actual revision before handoff.
+Local release gates passed: 225 tests, production builds, Pages typecheck and lint. The final UI-only correction labels explicitly adopted finite studies with their real duration rather than calling all expanded studies open-ended; Pages build, typecheck and lint passed again after that correction.
+
+Published source: `5818d93384ec0c06a996fe7ee1cd49293c33ca98`. Published `gh-pages` artifact: `05d340a05aa1d2e198dcc4b4564f199714d8dfbf`. GitHub Pages reported **built** with no deployment error. The public index returned HTTP 200 referencing `index-Dbi7Dc8K.js`; the 293,450-byte `survival-simulation.worker-BhO3CToF.js` returned HTTP 200 and matched the local built worker exactly. Old hashed assets were retained for already-open clients.
+
+Public URL: https://williamjblodgett.github.io/Simulation/. A fresh in-app Chromium tab loaded the updated About text and the live nonblank World. It restored the existing paused three-agent Day 1 03:10 study, with no warnings/errors in the captured browser log. An older already-crashed browser tab could not be inspected; its crash was not diagnosed or described as fixed by this release. No saved study was reset or silently adopted into new physics. Existing compatible material-learning studies can explicitly enable the new model under Run; earlier studies need a separately configured run to exercise it.
